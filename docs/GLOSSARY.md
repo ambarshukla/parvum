@@ -78,6 +78,9 @@ magic — every term gets defined here on first use.
 - **Data skew** — a few keys carrying most of the rows (one whale account among thousands), making joins/aggregations lopsided.
 - **Late-arriving data** — records for day T arriving at T+n; handled with idempotent MERGE and reprocessing windows.
 - **Restatement** — a source re-sending corrected data for a past date; requires immutable raw history plus downstream reprocessing.
+- **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
+- **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
+- **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.

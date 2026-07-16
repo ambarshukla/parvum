@@ -71,3 +71,9 @@ Skimmable record of what was done and why. Newest entry last.
 - `make land` re-uploads idempotently (`--overwrite`); workspace URL comes from `.env` (gitignored), with a placeholder in `.env.example`. CLI auth = OAuth browser login once, then the cached token.
 - Ground-truth manifests deliberately NOT uploaded — the pipeline's environment contains only what a real one would have.
 - Next: bronze notebooks — file registry + parsed bronze tables (Delta).
+
+## 2026-07-16 — Bronze ingest notebook (Phase 1, eighth slice)
+
+- `spark/bronze_ingest.py` (Databricks notebook source): walks the landing volume, registers every file in `bronze_file_registry` (path, format, statement date, size, sha256, status, error), parses all three formats into `bronze_holdings` / `bronze_cash_entries` / `bronze_cash_balances` — **reusing the repo's own parsers** via a Databricks Git folder (`sys.path` to `../ingest/src`).
+- Idempotent (anti-join against the registry; registry written last so a mid-run crash reprocesses cleanly); parse failures are recorded as FAILED rows, not fatalities; every bronze row carries `file_path` lineage.
+- Driver-side parsing, deliberately: hundreds of small files don't need distribution — the `mapInPandas` scale-up is a recorded later exercise.
