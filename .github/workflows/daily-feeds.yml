@@ -1,0 +1,116 @@
+# Daily feed delivery — the custodian's side of the pipeline, automated.
+#
+# Databricks Free Edition's serverless compute cannot reach the open internet
+# (D-006), so the *fetch* half of the platform has to run somewhere with open
+# egress and push files into the Unity Catalog volume that Databricks reads.
+# This workflow is that path. It carries synthetic feeds today; Phase 2's real
+# EDGAR pull joins the same route, so the mechanism is proven before it matters.
+#
+# It deliberately runs the same two commands a laptop runs — `make generate`
+# and `make land` — so there is no CI-only code path to drift out of sync.
+#
+# Note: `schedule:` only fires from the default branch, so the cron below does
+# nothing until this is merged to main. GitHub also disables scheduled runs
+# after 60 days with no repo activity.
+name: Daily feeds
+
+on:
+  schedule:
+    # Weekdays, 06:15 UTC — custodians deliver overnight. The odd minute avoids
+    # the top of the hour, when the Actions scheduler is congested and defers
+    # runs. The generator skips weekends regardless; this just saves the runs.
+    - cron: "15 6 * * 1-5"
+
+  # Manual replay: regeneration is byte-identical per date (D-011), so re-running
+  # a day is always safe — it either changes nothing or repairs a bad upload.
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days to generate, counting back from `end` (weekends skipped)"
+        default: "1"
+      end:
+        description: "Last day to generate, YYYY-MM-DD (blank = today)"
+        default: ""
+
+# One delivery at a time: a manual replay overlapping the scheduled run could
+# have both writing the same `date=` directory. Queue rather than cancel — an
+# upload in flight should be allowed to finish.
+concurrency:
+  group: daily-feeds
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned, matching CI and local dev: never ask the GitHub API for
+      # "latest" in a scheduled job (an outage there once failed a CI run).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        working-directory: ingest
+        run: uv sync --locked
+
+      # DAYS/END reach the Makefile through the environment — its `?=` defaults
+      # yield to whatever is already set — so CI needs no special flags, and
+      # inputs never get interpolated into a shell command.
+      - name: Generate the delivery
+        id: generate
+        env:
+          DAYS: ${{ inputs.days || '1' }}
+          END: ${{ inputs.end || '' }}
+        run: |
+          make generate
+          echo "files=$(find data/raw -type f 2>/dev/null | wc -l)" >> "$GITHUB_OUTPUT"
+
+      # Pinned to the CLI version used locally, so the upload behaves identically.
+      - name: Install the Databricks CLI
+        if: steps.generate.outputs.files != '0'
+        uses: databricks/setup-cli@v1.8.0
+
+      # The CLI reads DATABRICKS_HOST/DATABRICKS_TOKEN straight from the
+      # environment, so `make land` is unchanged from its local form (where the
+      # same variables come from .env plus a cached OAuth login).
+      #
+      # Ground-truth manifests are written outside data/raw (D-011) and so are
+      # never uploaded — the pipeline's environment holds only what a real one
+      # would have.
+      - name: Land in the Unity Catalog volume
+        if: steps.generate.outputs.files != '0'
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: make land
+
+      # The run log is as much the deliverable as the files: "what ran, what
+      # changed, what failed" is what a data-ops reader needs, without them
+      # having to open Databricks to find out.
+      - name: Summarise the run
+        if: always()
+        env:
+          FILES: ${{ steps.generate.outputs.files || '0' }}
+        run: |
+          {
+            echo "### Daily feed delivery"
+            echo
+            echo "- Files generated: **$FILES**"
+            if [ "$FILES" = "0" ]; then
+              echo "- No business day in range — nothing to deliver (weekend or holiday)."
+            else
+              echo "- Landed in \`/Volumes/workspace/parvum/landing/raw/\`"
+              echo
+              echo "| Delivery date | Files |"
+              echo "|---|---|"
+              for d in data/raw/date=*; do
+                echo "| ${d#data/raw/date=} | $(find "$d" -type f | wc -l) |"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
