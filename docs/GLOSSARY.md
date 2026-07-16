@@ -25,6 +25,9 @@ magic — every term gets defined here on first use.
 - **Securities master** — the reference table of instruments (identifiers, names, types) everything else normalises against.
 - **Reconciliation break** — a mismatch between two views that should agree (e.g. positions vs. accumulated transactions); the unit of data-quality work.
 - **Benchmark proxy** — a free ETF price series standing in for a licensed index (e.g. an S&P 500 ETF for the S&P 500 itself).
+- **ILPA** — Institutional Limited Partners Association; publishes *standardised templates* for capital-call and distribution notices — the closest thing to a public spec for alternatives documents.
+- **Form ADV / Form D** — public SEC filings by investment advisers / for exempt private offerings; useful colour on private funds, but they never contain the GP↔LP documents themselves.
+- **GP / LP** — General Partner (runs a private fund) / Limited Partner (invests in it); capital-call and distribution notices flow between them privately.
 
 ## Platform & tools
 
@@ -41,3 +44,10 @@ magic — every term gets defined here on first use.
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).
 - **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here.
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
+- **GitHub-hosted runner** — a fresh, ephemeral VM github.com provides to execute each GitHub Actions job (free for public repos); destroyed when the job ends.
+- **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
+- **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
+- **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.
+- **Upsert / MERGE** — insert-or-update in one statement; how daily loads apply new data on top of existing rows without duplication.
+- **System of record** — the authoritative copy of the data (here: the Delta lakehouse); every other store is a rebuildable projection of it.
+- **Medallion architecture** — see above; note it's a *pattern name* (popularised by Databricks), not a technology — bronze/silver/gold is just disciplined layered ETL.
