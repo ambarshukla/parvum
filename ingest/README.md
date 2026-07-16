@@ -11,6 +11,7 @@ configurable injected defects, and parses them back to the common model.
 src/parvum_ingest/
   model.py         # canonical model — the hub every format maps to/from
   book.py          # deterministic seed book (real ISINs) the generator renders
+  defects.py       # config-driven defect injection + ground-truth manifest
   formats/
     _xml.py        # shared ISO 20022 XML helpers
     semt002.py     # ISO 20022 semt.002: render + parse (spec-shaped subset, D-010)
@@ -119,5 +120,12 @@ The cash statement (camt.053) carries its own tested invariant: closing
 balance = opening + net of entries — the arithmetic truth reconciliation
 checks and defect injection will deliberately break.
 
-Status: canonical model + seed book (holdings & cash) + all three formats.
-Next: defect injection, bronze landing.
+Defects are injected deterministically from a seed and every injection is
+recorded in a manifest — the ground truth that later measures whether the
+data-quality layer caught everything that was seeded. Semantic defects
+(missing cost basis, mistyped ISINs, duplicated/dropped/shifted entries)
+produce files that parse fine but lie; syntactic defects (truncation)
+fail at the parser.
+
+Status: canonical model + seed book (holdings & cash) + all three formats
++ defect injection. Next: bronze landing on Databricks.

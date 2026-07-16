@@ -49,3 +49,11 @@ Skimmable record of what was done and why. Newest entry last.
 - `formats/camt053.py`: ISO 20022 cash statement — OPBD/CLBD balance codes, booking vs value dates (→ trade/settlement), transaction types as proprietary bank codes (`BkTxCd/Prtry`), `CdtDbtInd` derived from type and deliberately not cross-checked on parse (D-009).
 - Shared XML helpers extracted to `formats/_xml.py` (second XML format = time to stop duplicating); semt.002 refactored onto them. Namespace check moved into the shared `parse_document` — a semt.002 file fed to the camt parser is rejected by its namespace, proven in a test.
 - 33 tests, all green. All three Phase 1 formats now round-trip.
+- CI actions bumped to Node-24 targets (checkout@v5, setup-uv@v6) after runner deprecation warnings.
+
+## 2026-07-16 — Defect injection with ground-truth manifest (Phase 1, fifth slice)
+
+- `defects.py`: seven defect types, deterministic from a seed. Semantic defects corrupt the statement before rendering (missing cost basis, mistyped ISIN via check-digit bump, stale price, duplicated/dropped/settlement-shifted entries) — files that parse fine but lie. Syntactic defects corrupt the rendered text (truncation) — rejected at the parser.
+- **Every injection is recorded in a manifest** (defect, target, before→after): the ground truth against which Phase 3's detection will be measured. Tests already prove defects survive the wire: a mistyped ISIN travels through semt.002 and is still flagged on the far side; a duplicated entry demonstrably breaks the closing-balance invariant after a camt.053 round trip.
+- Balances are deliberately not adjusted when entries are corrupted — the broken invariant *is* the defect.
+- 43 tests, all green. Feed generation for Phase 1 is complete; next: bronze landing on Databricks.
