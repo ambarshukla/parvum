@@ -65,6 +65,10 @@ magic — every term gets defined here on first use.
 - **ISO 15022** — the standard behind SWIFT MT5xx securities messages: `:TAG::QUALIFIER//value` fields inside `:16R:`/`:16S:` blocks; the predecessor vocabulary ISO 20022 XML-ified.
 - **Decimal comma (SWIFT)** — MT numbers use a comma as the decimal mark and always include it (`220,` = 220); a classic feed-parser trap.
 - **Narrative field** — a free-text field (e.g. MT535's `:70E:`) that real feeds routinely use to smuggle structured data the format has no proper slot for; parsing conventions out of narrative is authentic feed work.
+- **OPBD / CLBD** — ISO balance codes in camt.053: opening booked / closing booked balance.
+- **Booking date vs value date** — when a bank *recorded* an entry vs when the money *takes effect*; camt.053 carries both (`BookgDt`/`ValDt`), mapped to our trade/settlement dates.
+- **CdtDbtInd** — camt.053's credit/debit indicator (CRDT = money in, DBIT = money out); we derive it from the transaction type and deliberately don't cross-check on parse (an inconsistent pair is a data-quality catch, not a parse failure).
+- **Proprietary code (BkTxCd/Prtry)** — camt.053's slot for a bank's own transaction vocabulary; mapping proprietary codes to a canonical taxonomy is a core feed-onboarding task.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.

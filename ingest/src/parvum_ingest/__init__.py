@@ -1,6 +1,6 @@
 """Parvum ingestion layer: canonical model, feed generator, and format parsers."""
 
-from parvum_ingest.book import build_book
+from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.formats import FeedParseError
 from parvum_ingest.model import (
     Account,
@@ -32,4 +32,5 @@ __all__ = [
     "Transaction",
     "TransactionType",
     "build_book",
+    "build_cash_statement",
 ]
