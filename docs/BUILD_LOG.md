@@ -64,3 +64,10 @@ Skimmable record of what was done and why. Newest entry last.
 - Corruption policy per D-011: each day's defect mix derives deterministically from the date; the two holdings renditions are corrupted independently, so cross-format disagreements exist by construction.
 - Ground-truth manifests (checksums, sizes, every injection) land *outside* the raw directory — the pipeline can't read them; only detection evaluation may.
 - Tests: weekend skipping, byte-identical regeneration, all three files parse back, ground truth out-of-band, independence of holdings corruption across 60 days. 48 tests green.
+
+## 2026-07-16 — Raw pile landed on Databricks (Phase 1, seventh slice)
+
+- Unity Catalog objects created in the `workspace` catalog: schema `parvum`, managed volume `landing`. The full raw pile (64 business days × 3 files) uploaded to `/Volumes/workspace/parvum/landing/raw/date=…/` via the Databricks CLI.
+- `make land` re-uploads idempotently (`--overwrite`); workspace URL comes from `.env` (gitignored), with a placeholder in `.env.example`. CLI auth = OAuth browser login once, then the cached token.
+- Ground-truth manifests deliberately NOT uploaded — the pipeline's environment contains only what a real one would have.
+- Next: bronze notebooks — file registry + parsed bronze tables (Delta).
