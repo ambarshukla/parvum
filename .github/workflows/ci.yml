@@ -24,8 +24,12 @@ jobs:
       # runtime older action versions target (v4/v5 targeted Node 20).
       - uses: actions/checkout@v5
 
+      # Version pinned to match local dev, and so setup-uv never has to ask
+      # the GitHub API for "latest" (an outage there once failed our CI).
       - name: Install uv
         uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
 
       # --locked: fail if uv.lock is out of sync with pyproject.toml, so CI
       # always tests exactly the pinned dependency set.
