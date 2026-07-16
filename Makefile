@@ -7,7 +7,7 @@ COMPOSE = docker compose -f infra/docker-compose.yml $(if $(wildcard .env),--env
 PGUSER ?= parvum
 PGDB   ?= parvum
 
-.PHONY: help up down status logs psql clean test lint fmt
+.PHONY: help up down status logs psql clean test lint fmt generate
 
 help: ## show available targets
 	@grep -E '^[a-z]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -38,3 +38,6 @@ lint: ## lint + format check (mirrors CI)
 
 fmt: ## auto-format and auto-fix lint findings
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
+
+generate: ## generate ~90 days of raw feed files into data/raw
+	cd ingest && uv run parvum-generate --days 90 --out ../data/raw
