@@ -7,7 +7,7 @@ COMPOSE = docker compose -f infra/docker-compose.yml $(if $(wildcard .env),--env
 PGUSER ?= parvum
 PGDB   ?= parvum
 
-.PHONY: help up down status logs psql clean
+.PHONY: help up down status logs psql clean test lint fmt
 
 help: ## show available targets
 	@grep -E '^[a-z]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -29,3 +29,12 @@ psql: ## open a psql shell in the running container
 
 clean: ## stop containers AND DELETE the data volume (destructive)
 	$(COMPOSE) down -v
+
+test: ## run Python tests (mirrors CI)
+	cd ingest && uv run pytest
+
+lint: ## lint + format check (mirrors CI)
+	cd ingest && uv run ruff format --check . && uv run ruff check .
+
+fmt: ## auto-format and auto-fix lint findings
+	cd ingest && uv run ruff format . && uv run ruff check --fix .

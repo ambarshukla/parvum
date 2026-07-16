@@ -18,3 +18,12 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - The compose file publishes Postgres on `127.0.0.1` only — a dev database with default credentials should not be reachable from any network, whatever the host firewall allows.
 - `make down` keeps the data volume; only `make clean` deletes it. The stop-working / destroy-state distinction is deliberate.
+
+## 2026-07-16 — Phase 1 starts: Python scaffolding, CI, canonical model
+
+**Done:**
+- `ingest/` is now a uv-managed Python 3.12 package (src layout, lockfile committed); ruff + pytest wired in, `make test|lint|fmt` at the root (D-008).
+- **CI arrives with the first line of code**: GitHub Actions runs format check, lint, and tests on every PR and on main.
+- Canonical model v1 (Pydantic, immutable, Decimal-only money): `SecurityIdentifier` (per-scheme shape checks + ISIN Luhn checksum helper), `Money`, `Account`, `Position`, `Transaction`, `CashBalance`, `HoldingsStatement`, `CashStatement`. Models validate shape, never business sense (D-009) — defective data must reach the data-quality layer, not crash at the boundary.
+- 10 tests documenting the guarantees: exact Decimal arithmetic, immutability, unknown-field rejection, mistyped-ISIN-carried-but-flagged, missing-cost-basis representable.
+- Repo hygiene: `.editorconfig`, `.gitattributes` (LF normalisation across OSes).

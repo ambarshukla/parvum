@@ -1,0 +1,5 @@
+# Normalise line endings: LF in the repository regardless of OS, so diffs
+# never churn on CRLF/LF differences between Windows and Linux (CI, Docker).
+* text=auto eol=lf
+*.png binary
+*.pdf binary
