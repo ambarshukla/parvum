@@ -39,3 +39,17 @@ Append-only. Format: context / choice / why / alternatives. Newest last.
 - **Why:** infrastructure-as-code that is never applied is fiction; running the real thing keeps the Terraform honest, uses one cloud instead of two, and App Runner covers the PaaS conveniences (public TLS endpoint, no load balancer to manage).
 - **Alternatives:** Railway as planned (simplest ops, Terraform stays unapplied); hybrid PaaS + apply/destroy AWS demo cycles (two platforms to maintain).
 - **Guardrails:** AWS budget alert before the first resource; no NAT gateway, no ALB, no always-on Aurora Serverless — each is a fixed monthly cost the workload doesn't justify. Verify App Runner availability on the account's plan before writing Terraform; fall back to ECS Fargate.
+
+## D-006 · 2026-07-16 · External data fetching runs on GitHub Actions
+
+- **Context:** Databricks Free Edition serverless compute has a restricted outbound-internet allowlist, so pipeline jobs cannot call external sources (SEC EDGAR, price APIs) directly. Something with open egress must fetch data and land it where Databricks can read it.
+- **Choice:** GitHub Actions cron workflows on GitHub-hosted runners in this repo, pushing raw files into a Unity Catalog volume via the Databricks CLI/REST API. Databricks Workflows still schedules all lakehouse processing.
+- **Why:** zero standing infrastructure and zero cost (free minutes for public repos); cron, secrets management, and run logs are built in; the fetch code lives beside the rest of the codebase and works from day 1 — before any AWS infra exists.
+- **Alternatives:** fetching from Databricks Workflows directly (blocked by the egress restriction); AWS EventBridge Scheduler + Lambda (the cloud-native equivalent — viable, but requires AWS infra and Terraform earlier than needed; a reasonable later migration); an always-on personal machine (unreliable).
+
+## D-007 · 2026-07-16 · Environments: local dev + CI + one live environment; no standing staging
+
+- **Context:** production platforms typically run dev/staging/prod. This is a solo-maintained reference build with demo-scale traffic and no users at risk.
+- **Choice:** three layers — local Docker dev (Postgres pinned to the RDS major version), CI on every PR (lint + tests, required before merge), and a single live AWS environment.
+- **Why:** a standing staging stack would roughly double infra cost and maintenance for no risk reduction that CI + local parity doesn't already provide at this scale.
+- **Alternatives:** permanent staging (cost/upkeep unjustified); ephemeral staging via Terraform workspaces — documented as the scale-up path: the same modules can stand up an identical stack briefly, then destroy it.
