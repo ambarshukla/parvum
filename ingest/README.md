@@ -9,8 +9,11 @@ configurable injected defects, and parses them back to the common model.
 
 ```
 src/parvum_ingest/
-  model.py      # canonical model — the hub every format maps to/from
-tests/          # pytest suite; every guarantee the model makes has a test
+  model.py         # canonical model — the hub every format maps to/from
+  book.py          # deterministic seed book (real ISINs) the generator renders
+  formats/
+    semt002.py     # ISO 20022 semt.002: render + parse (spec-shaped subset, D-010)
+tests/             # pytest suite; every guarantee has a test, incl. round trips
 ```
 
 Hub-and-spoke: each feed format (semt.002, MT535, camt.053) gets a renderer
@@ -91,4 +94,18 @@ uv run pytest         # tests        (or: make test, from repo root)
 uv run ruff check .   # lint         (or: make lint)
 ```
 
-Status: canonical model only. Generator and parsers arrive in subsequent PRs.
+Try it — render a statement and parse it back:
+
+```sh
+uv run python -c "
+from datetime import date
+from parvum_ingest import build_book
+from parvum_ingest.formats.semt002 import render_semt002, parse_semt002
+xml = render_semt002(build_book(date(2026, 7, 15)))
+print(xml[:800])
+assert parse_semt002(xml).positions[0].security_name == 'Apple Inc'
+"
+```
+
+Status: canonical model + seed book + semt.002. Next: MT535, camt.053,
+defect injection, bronze landing.
