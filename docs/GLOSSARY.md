@@ -56,6 +56,9 @@ magic — every term gets defined here on first use.
 - **Canonical model** — the single internal representation all feed formats map to and from (hub-and-spoke: N formats = N parsers, not N×N conversions).
 - **CI (continuous integration)** — automated checks (format, lint, tests) that run on every pull request and must pass before merge.
 - **Luhn algorithm** — the mod-10 checksum used by ISINs (and card numbers); catches most single-character typos in an identifier.
+- **Mermaid** — text-based diagram language rendered natively by GitHub in markdown; diagrams live in git and are reviewed like code.
+- **JSON Schema** — a machine-readable description of a data structure; Pydantic emits one per model (`model_json_schema()`) — the formal contract you'd hand to another team.
+- **ERD (entity-relationship diagram)** — a diagram of entities and how they relate; tools like erdantic generate them from Pydantic models, DBeaver/dbdiagram.io from live database schemas.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.
