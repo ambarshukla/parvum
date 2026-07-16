@@ -13,6 +13,7 @@ Skimmable record of what was done and why. Newest entry last.
 - Verified: `make up` brings Postgres 16 to healthy; `psql` connects and answers queries.
 
 - Published to GitHub. Engineering conventions adopted from here on: feature branches merged via PRs (no direct commits to main), tests with every component, CI (lint + tests) arriving with the first code in Phase 1.
+- Enabled strict branch protection on `main` (no admin bypass) and verified it: a direct push is rejected; changes land only through pull requests.
 
 **Notes:**
 - The compose file publishes Postgres on `127.0.0.1` only — a dev database with default credentials should not be reachable from any network, whatever the host firewall allows.
