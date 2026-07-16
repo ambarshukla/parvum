@@ -12,8 +12,10 @@ src/parvum_ingest/
   model.py         # canonical model — the hub every format maps to/from
   book.py          # deterministic seed book (real ISINs) the generator renders
   formats/
+    _xml.py        # shared ISO 20022 XML helpers
     semt002.py     # ISO 20022 semt.002: render + parse (spec-shaped subset, D-010)
     mt535.py       # SWIFT MT535: render + parse (fixed-tag blocks, decimal commas)
+    camt053.py     # ISO 20022 camt.053 cash statement: balances + entries
 tests/             # pytest suite; every guarantee has a test, incl. round trips
 ```
 
@@ -113,5 +115,9 @@ account details but no cost basis; MT535 has cost basis (smuggled through a
 `:70E:` narrative, as real feeds do) but references the account by id alone.
 Same book, two feeds that disagree — reconciliation's raw material.
 
-Status: canonical model + seed book + semt.002 + MT535. Next: camt.053,
-defect injection, bronze landing.
+The cash statement (camt.053) carries its own tested invariant: closing
+balance = opening + net of entries — the arithmetic truth reconciliation
+checks and defect injection will deliberately break.
+
+Status: canonical model + seed book (holdings & cash) + all three formats.
+Next: defect injection, bronze landing.

@@ -12,83 +12,76 @@ feeds or not at all. Round-tripping a Position through semt.002 therefore
 yields cost_basis=None; reconciliation must live with that.
 """
 
-from datetime import date
-from decimal import Decimal, InvalidOperation
 from xml.etree import ElementTree as ET
 
 from parvum_ingest.formats import FeedParseError
+from parvum_ingest.formats._xml import (
+    child,
+    dec_str,
+    find_text,
+    opt_text,
+    parse_decimal,
+    parse_document,
+    parse_iso_date,
+    parse_money,
+    qname,
+)
 from parvum_ingest.model import (
     Account,
     FeedFormat,
     HoldingsStatement,
     IdentifierScheme,
-    Money,
     Position,
     SecurityIdentifier,
 )
 
+FMT = "semt.002"
 NS = "urn:iso:std:iso:20022:tech:xsd:semt.002.001.11"
 _NSMAP = {"s": NS}
-
-
-def _q(tag: str) -> str:
-    return f"{{{NS}}}{tag}"
-
-
-def _child(parent: ET.Element, tag: str, text: str | None = None, **attrib: str) -> ET.Element:
-    el = ET.SubElement(parent, _q(tag), attrib)
-    if text is not None:
-        el.text = text
-    return el
-
-
-def _dec(value: Decimal) -> str:
-    # :f suppresses scientific notation — "1E+2" is not a wire-format number.
-    return f"{value:f}"
 
 
 def render_semt002(stmt: HoldingsStatement) -> str:
     # Serialize with a default namespace (<Document xmlns=...>), matching how
     # real ISO 20022 messages are written, rather than ElementTree's ns0: prefixes.
     ET.register_namespace("", NS)
-    root = ET.Element(_q("Document"))
-    rpt = _child(root, "SctiesBalCtdyRpt")
+    root = ET.Element(qname(NS, "Document"))
+    rpt = child(root, NS, "SctiesBalCtdyRpt")
 
-    gnl = _child(rpt, "StmtGnlDtls")
-    _child(gnl, "StmtId", stmt.statement_id)
-    _child(_child(gnl, "StmtDtTm"), "Dt", stmt.as_of.isoformat())
+    gnl = child(rpt, NS, "StmtGnlDtls")
+    child(gnl, NS, "StmtId", stmt.statement_id)
+    child(child(gnl, NS, "StmtDtTm"), NS, "Dt", stmt.as_of.isoformat())
 
-    acct = _child(rpt, "SfkpgAcct")
-    _child(acct, "Id", stmt.account.account_id)
+    acct = child(rpt, NS, "SfkpgAcct")
+    child(acct, NS, "Id", stmt.account.account_id)
     if stmt.account.name is not None:
-        _child(acct, "Nm", stmt.account.name)
+        child(acct, NS, "Nm", stmt.account.name)
     if stmt.account.custodian_bic is not None:
-        _child(_child(acct, "AcctSvcr"), "AnyBIC", stmt.account.custodian_bic)
+        child(child(acct, NS, "AcctSvcr"), NS, "AnyBIC", stmt.account.custodian_bic)
     if stmt.account.base_currency is not None:
-        _child(acct, "BaseCcy", stmt.account.base_currency)
+        child(acct, NS, "BaseCcy", stmt.account.base_currency)
 
     for pos in stmt.positions:
-        bal = _child(rpt, "BalForAcct")
-        fin = _child(bal, "FinInstrmId")
+        bal = child(rpt, NS, "BalForAcct")
+        fin = child(bal, NS, "FinInstrmId")
         if pos.security.scheme is IdentifierScheme.ISIN:
-            _child(fin, "ISIN", pos.security.value)
+            child(fin, NS, "ISIN", pos.security.value)
         else:
-            othr = _child(fin, "OthrId")
-            _child(othr, "Id", pos.security.value)
-            _child(othr, "Tp", pos.security.scheme.value)
-        _child(fin, "Desc", pos.security_name)
+            othr = child(fin, NS, "OthrId")
+            child(othr, NS, "Id", pos.security.value)
+            child(othr, NS, "Tp", pos.security.scheme.value)
+        child(fin, NS, "Desc", pos.security_name)
 
-        _child(_child(bal, "AggtBal"), "Unit", _dec(pos.quantity))
+        child(child(bal, NS, "AggtBal"), NS, "Unit", dec_str(pos.quantity))
 
         if pos.price is not None:
-            pric = _child(bal, "PricDtls")
-            _child(pric, "Val", _dec(pos.price.amount), Ccy=pos.price.currency)
+            pric = child(bal, NS, "PricDtls")
+            child(pric, NS, "Val", dec_str(pos.price.amount), Ccy=pos.price.currency)
             if pos.price_as_of is not None:
-                _child(pric, "Dt", pos.price_as_of.isoformat())
+                child(pric, NS, "Dt", pos.price_as_of.isoformat())
 
         if pos.market_value is not None:
-            hldg = _child(_child(bal, "AcctBaseCcyAmts"), "HldgVal")
-            _child(hldg, "Amt", _dec(pos.market_value.amount), Ccy=pos.market_value.currency)
+            hldg = child(child(bal, NS, "AcctBaseCcyAmts"), NS, "HldgVal")
+            child(hldg, NS, "Amt", dec_str(pos.market_value.amount), Ccy=pos.market_value.currency)
 
     ET.indent(root)
     return ET.tostring(root, encoding="unicode", xml_declaration=True)
@@ -97,76 +90,42 @@ def render_semt002(stmt: HoldingsStatement) -> str:
 # --- parsing --------------------------------------------------------------
 
 
-def _find_text(parent: ET.Element, path: str, context: str) -> str:
-    el = parent.find(path, _NSMAP)
-    if el is None or el.text is None:
-        raise FeedParseError(f"semt.002: missing required element {path!r} in {context}")
-    return el.text
-
-
-def _opt_text(parent: ET.Element, path: str) -> str | None:
-    el = parent.find(path, _NSMAP)
-    return None if el is None or el.text is None else el.text
-
-
-def _parse_decimal(raw: str, context: str) -> Decimal:
-    try:
-        return Decimal(raw)
-    except InvalidOperation as exc:
-        raise FeedParseError(f"semt.002: {raw!r} is not a number in {context}") from exc
-
-
-def _parse_date(raw: str, context: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as exc:
-        raise FeedParseError(f"semt.002: {raw!r} is not an ISO date in {context}") from exc
-
-
 def _parse_security(fin: ET.Element) -> SecurityIdentifier:
     isin = fin.find("s:ISIN", _NSMAP)
     if isin is not None and isin.text:
         return SecurityIdentifier(scheme=IdentifierScheme.ISIN, value=isin.text)
-    scheme_raw = _find_text(fin, "s:OthrId/s:Tp", "FinInstrmId/OthrId")
+    scheme_raw = find_text(fin, _NSMAP, "s:OthrId/s:Tp", "FinInstrmId/OthrId", FMT)
     try:
         scheme = IdentifierScheme(scheme_raw)
     except ValueError as exc:
-        raise FeedParseError(f"semt.002: unknown identifier scheme {scheme_raw!r}") from exc
-    return SecurityIdentifier(scheme=scheme, value=_find_text(fin, "s:OthrId/s:Id", "OthrId"))
-
-
-def _parse_money(el: ET.Element, context: str) -> Money:
-    ccy = el.get("Ccy")
-    if not ccy:
-        raise FeedParseError(f"semt.002: missing Ccy attribute in {context}")
-    if el.text is None:
-        raise FeedParseError(f"semt.002: empty amount in {context}")
-    return Money(amount=_parse_decimal(el.text, context), currency=ccy)
+        raise FeedParseError(f"{FMT}: unknown identifier scheme {scheme_raw!r}") from exc
+    return SecurityIdentifier(
+        scheme=scheme, value=find_text(fin, _NSMAP, "s:OthrId/s:Id", "OthrId", FMT)
+    )
 
 
 def parse_semt002(xml_text: str) -> HoldingsStatement:
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
-        raise FeedParseError(f"semt.002: not well-formed XML: {exc}") from exc
-    if root.tag != _q("Document"):
-        raise FeedParseError(f"semt.002: unexpected root element {root.tag!r}")
+    root = parse_document(xml_text, NS, FMT)
 
     rpt = root.find("s:SctiesBalCtdyRpt", _NSMAP)
     if rpt is None:
-        raise FeedParseError("semt.002: missing SctiesBalCtdyRpt")
+        raise FeedParseError(f"{FMT}: missing SctiesBalCtdyRpt")
 
-    statement_id = _find_text(rpt, "s:StmtGnlDtls/s:StmtId", "StmtGnlDtls")
-    as_of = _parse_date(_find_text(rpt, "s:StmtGnlDtls/s:StmtDtTm/s:Dt", "StmtGnlDtls"), "StmtDtTm")
+    statement_id = find_text(rpt, _NSMAP, "s:StmtGnlDtls/s:StmtId", "StmtGnlDtls", FMT)
+    as_of = parse_iso_date(
+        find_text(rpt, _NSMAP, "s:StmtGnlDtls/s:StmtDtTm/s:Dt", "StmtGnlDtls", FMT),
+        "StmtDtTm",
+        FMT,
+    )
 
     acct_el = rpt.find("s:SfkpgAcct", _NSMAP)
     if acct_el is None:
-        raise FeedParseError("semt.002: missing SfkpgAcct")
+        raise FeedParseError(f"{FMT}: missing SfkpgAcct")
     account = Account(
-        account_id=_find_text(acct_el, "s:Id", "SfkpgAcct"),
-        name=_opt_text(acct_el, "s:Nm"),
-        custodian_bic=_opt_text(acct_el, "s:AcctSvcr/s:AnyBIC"),
-        base_currency=_opt_text(acct_el, "s:BaseCcy"),
+        account_id=find_text(acct_el, _NSMAP, "s:Id", "SfkpgAcct", FMT),
+        name=opt_text(acct_el, _NSMAP, "s:Nm"),
+        custodian_bic=opt_text(acct_el, _NSMAP, "s:AcctSvcr/s:AnyBIC"),
+        base_currency=opt_text(acct_el, _NSMAP, "s:BaseCcy"),
     )
 
     positions = []
@@ -174,27 +133,27 @@ def parse_semt002(xml_text: str) -> HoldingsStatement:
         ctx = f"BalForAcct[{i}]"
         fin = bal.find("s:FinInstrmId", _NSMAP)
         if fin is None:
-            raise FeedParseError(f"semt.002: missing FinInstrmId in {ctx}")
+            raise FeedParseError(f"{FMT}: missing FinInstrmId in {ctx}")
 
         price_el = bal.find("s:PricDtls/s:Val", _NSMAP)
-        price_dt_el = bal.find("s:PricDtls/s:Dt", _NSMAP)
+        price_dt = opt_text(bal, _NSMAP, "s:PricDtls/s:Dt")
         mv_el = bal.find("s:AcctBaseCcyAmts/s:HldgVal/s:Amt", _NSMAP)
 
         positions.append(
             Position(
                 account_id=account.account_id,
                 security=_parse_security(fin),
-                security_name=_find_text(fin, "s:Desc", ctx),
-                quantity=_parse_decimal(_find_text(bal, "s:AggtBal/s:Unit", ctx), ctx),
+                security_name=find_text(fin, _NSMAP, "s:Desc", ctx, FMT),
+                quantity=parse_decimal(
+                    find_text(bal, _NSMAP, "s:AggtBal/s:Unit", ctx, FMT), ctx, FMT
+                ),
                 as_of=as_of,
-                price=None if price_el is None else _parse_money(price_el, f"{ctx} price"),
+                price=None if price_el is None else parse_money(price_el, f"{ctx} price", FMT),
                 price_as_of=(
-                    None
-                    if price_dt_el is None or price_dt_el.text is None
-                    else _parse_date(price_dt_el.text, f"{ctx} price date")
+                    None if price_dt is None else parse_iso_date(price_dt, f"{ctx} price date", FMT)
                 ),
                 market_value=(
-                    None if mv_el is None else _parse_money(mv_el, f"{ctx} holding value")
+                    None if mv_el is None else parse_money(mv_el, f"{ctx} holding value", FMT)
                 ),
                 # Not carried by this format subset — see module docstring.
                 cost_basis=None,
