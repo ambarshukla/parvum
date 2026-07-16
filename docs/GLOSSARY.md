@@ -81,7 +81,14 @@ magic — every term gets defined here on first use.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.
-- **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
+- **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers. GitHub only fires `schedule:` from the default branch, and disables it after 60 days of repo inactivity.
+- **PAT (personal access token)** — a long-lived bearer token acting as *you*: anyone holding it has your permissions. Our CI authenticates to Databricks with one (D-012); the reason that's a compromise rather than best practice is exactly this.
+- **Service principal / OAuth M2M** — a non-human identity (client id + secret) an automated job authenticates as, scoped to only what the job needs and revocable without touching a human account; the production-grade alternative to a PAT.
+- **U2M vs M2M** — user-to-machine auth (a human completes a browser login; what our laptop CLI uses) vs machine-to-machine (no human in the loop; what CI needs).
+- **OIDC / workload identity federation** — CI proves its identity to a cloud with a short-lived signed token issued per run, so no long-lived secret is stored anywhere; the end state PATs and client secrets are both approximations of.
+- **Repository secret** — an encrypted value GitHub injects into a workflow run and masks in logs; write-only from the UI (you cannot read it back, only replace it).
+- **workflow_dispatch** — the trigger that adds a manual "Run workflow" button, optionally with typed inputs; how a scheduled job gets replayed by hand without editing the cron.
+- **Job summary (`$GITHUB_STEP_SUMMARY`)** — markdown a workflow step writes to be rendered on the run's page; how a job reports *what it actually did* instead of making a reader parse log lines.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.
 - **Upsert / MERGE** — insert-or-update in one statement; how daily loads apply new data on top of existing rows without duplication.

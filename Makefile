@@ -12,6 +12,12 @@ COMPOSE = docker compose -f infra/docker-compose.yml $(if $(wildcard .env),--env
 PGUSER ?= parvum
 PGDB   ?= parvum
 
+# `?=` defers to the environment, so the daily-feeds workflow sets DAYS=1 and
+# reuses `make generate` verbatim — no CI-only command to drift from this one.
+# END blank means "today"; set it to replay a specific historical day.
+DAYS ?= 90
+END  ?=
+
 .PHONY: help up down status logs psql clean test lint fmt generate land
 
 help: ## show available targets
@@ -44,8 +50,8 @@ lint: ## lint + format check (mirrors CI)
 fmt: ## auto-format and auto-fix lint findings
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 
-generate: ## generate ~90 days of raw feed files into data/raw
-	cd ingest && uv run parvum-generate --days 90 --out ../data/raw
+generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replays one day)
+	cd ingest && uv run parvum-generate --days $(DAYS) $(if $(END),--end $(END)) --out ../data/raw
 
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }

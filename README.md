@@ -16,8 +16,11 @@ drive reconciliation and data-quality work in practice.
 
 ```mermaid
 flowchart LR
-    GH[GitHub Actions cron<br/>13F checks, ETF proxies] -->|raw files via CLI/API| UC[Unity Catalog volume]
-    FG[Feed generator<br/>semt.002 / MT535 / camt.053<br/>+ injected defects] --> UC
+    subgraph GHA [GitHub Actions cron — the fetch half, open egress]
+        FG[Feed generator<br/>semt.002 / MT535 / camt.053<br/>+ injected defects]
+        EX[13F checks<br/>ETF proxies]
+    end
+    GHA -->|raw files via CLI/API| UC[Unity Catalog volume]
     UC --> B[Bronze<br/>raw as received]
     B --> S[Silver<br/>normalised, ID-mapped]
     S --> G[Gold<br/>portfolio views]
@@ -40,7 +43,7 @@ process. Serving infra is provisioned on **real AWS by Terraform** (decision
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Foundations — repo, local Postgres, docs | ✅ done |
-| 1 | Custodial feed ingestion → Bronze (semt.002, MT535, camt.053) | ⬜ next |
+| 1 | Custodial feed ingestion → Bronze (semt.002, MT535, camt.053) | 🔄 in progress |
 | 2 | Reference data & normalisation → Silver | ⬜ |
 | 3 | Reconciliation & data-quality control | ⬜ |
 | 4 | Portfolio aggregation & ownership graph → Gold | ⬜ |
@@ -61,6 +64,20 @@ make help    # list all targets
 ```
 
 Optional: `cp .env.example .env` to override local DB credentials/port.
+
+### The feed pipeline
+
+```sh
+make generate                      # ~90 business days of feeds into data/raw
+make generate DAYS=1               # just today's delivery
+make generate DAYS=1 END=2026-07-10  # replay one historical day, byte-identically
+make land                          # upload data/raw to the Unity Catalog volume
+```
+
+`make land` needs `DATABRICKS_HOST` in `.env` plus a Databricks CLI login. The
+same two commands run unattended on weekdays via
+[`daily-feeds.yml`](.github/workflows/daily-feeds.yml) — CI has no code path of
+its own, it just sets `DAYS=1`.
 
 ## Repo layout
 
