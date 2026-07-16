@@ -28,6 +28,8 @@ magic — every term gets defined here on first use.
 - **ILPA** — Institutional Limited Partners Association; publishes *standardised templates* for capital-call and distribution notices — the closest thing to a public spec for alternatives documents.
 - **Form ADV / Form D** — public SEC filings by investment advisers / for exempt private offerings; useful colour on private funds, but they never contain the GP↔LP documents themselves.
 - **GP / LP** — General Partner (runs a private fund) / Limited Partner (invests in it); capital-call and distribution notices flow between them privately.
+- **Capital call** — the GP's notice to LPs to pay in part of their committed capital to fund an investment; a core alternatives document.
+- **Distribution (private funds)** — the GP returning cash or securities to LPs after an exit; announced by a distribution notice.
 
 ## Platform & tools
 
@@ -45,6 +47,7 @@ magic — every term gets defined here on first use.
 - **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here.
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
 - **GitHub-hosted runner** — a fresh, ephemeral VM github.com provides to execute each GitHub Actions job (free for public repos); destroyed when the job ends.
+- **Docker image / container / volume** — image = frozen template of a program + its dependencies; container = a running (disposable) instance of an image; named volume = Docker-managed storage that outlives containers — our local Postgres data lives in one.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.
