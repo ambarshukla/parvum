@@ -20,10 +20,12 @@ jobs:
       run:
         working-directory: ingest
     steps:
-      - uses: actions/checkout@v4
+      # Major versions pinned; bumped when runners deprecate the Node
+      # runtime older action versions target (v4/v5 targeted Node 20).
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
 
       # --locked: fail if uv.lock is out of sync with pyproject.toml, so CI
       # always tests exactly the pinned dependency set.
