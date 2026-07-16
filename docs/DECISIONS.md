@@ -53,3 +53,17 @@ Append-only. Format: context / choice / why / alternatives. Newest last.
 - **Choice:** three layers — local Docker dev (Postgres pinned to the RDS major version), CI on every PR (lint + tests, required before merge), and a single live AWS environment.
 - **Why:** a standing staging stack would roughly double infra cost and maintenance for no risk reduction that CI + local parity doesn't already provide at this scale.
 - **Alternatives:** permanent staging (cost/upkeep unjustified); ephemeral staging via Terraform workspaces — documented as the scale-up path: the same modules can stand up an identical stack briefly, then destroy it.
+
+## D-008 · 2026-07-16 · Python toolchain: uv + ruff + pytest + Pydantic, pinned to 3.12
+
+- **Context:** the first Python code (ingest/) needs environment management, linting, and testing that behave identically on a dev machine and in CI; the canonical model carries untrusted feed data.
+- **Choice:** `uv` for environments + lockfile, `ruff` for lint + format, `pytest` for tests, Pydantic v2 for models. Python pinned to 3.12 via `.python-version` to stay close to Databricks serverless runtimes.
+- **Why:** uv is a single fast binary with lockfile-first discipline; ruff replaces three legacy tools; Pydantic validates every record on construction — load-bearing in a data-quality project, not a convenience.
+- **Alternatives:** pip + venv + requirements.txt (no lockfile discipline); Poetry (heavier, slower); dataclasses/attrs for models (no validation).
+
+## D-009 · 2026-07-16 · Models validate shape, not sense
+
+- **Context:** where should bad data be rejected? Feeds deliberately contain defects (missing cost basis, mistyped ISINs, implausible dates) that the reconciliation and data-quality layers exist to catch.
+- **Choice:** the canonical model enforces *shape* only — types, formats, required fields (e.g. an ISIN must look like an ISIN). Business plausibility stays representable: checksum validity is a helper method (`has_valid_checksum`), cost basis is optional, no cross-field date rules.
+- **Why:** rejecting defective data at parse time destroys the evidence the platform's whole value chain (detect → route → resolve → audit) is built on. The boundary guarantees integrity of *representation*; downstream layers judge *quality*.
+- **Alternatives:** strict parse-time validation (simpler, but the wrong layer owns the rules); no validation anywhere (silent corruption).

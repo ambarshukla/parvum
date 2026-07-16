@@ -48,6 +48,14 @@ magic — every term gets defined here on first use.
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
 - **GitHub-hosted runner** — a fresh, ephemeral VM github.com provides to execute each GitHub Actions job (free for public repos); destroyed when the job ends.
 - **Docker image / container / volume** — image = frozen template of a program + its dependencies; container = a running (disposable) instance of an image; named volume = Docker-managed storage that outlives containers — our local Postgres data lives in one.
+- **uv** — fast Python package & environment manager: reads `pyproject.toml`, creates the virtualenv, writes `uv.lock`.
+- **pyproject.toml / uv.lock** — the project's *declared* dependencies vs. the *exact pinned* resolution; committing the lockfile means CI and every machine install identical versions.
+- **ruff** — Python linter *and* formatter in one fast tool (replaces flake8 + isort + black).
+- **pytest** — the standard Python test framework; our tests double as documentation of model guarantees.
+- **Pydantic** — Python library for data models that validate on construction; wrong shapes fail loudly at the boundary.
+- **Canonical model** — the single internal representation all feed formats map to and from (hub-and-spoke: N formats = N parsers, not N×N conversions).
+- **CI (continuous integration)** — automated checks (format, lint, tests) that run on every pull request and must pass before merge.
+- **Luhn algorithm** — the mod-10 checksum used by ISINs (and card numbers); catches most single-character typos in an identifier.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.
