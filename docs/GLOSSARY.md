@@ -59,6 +59,9 @@ magic — every term gets defined here on first use.
 - **Mermaid** — text-based diagram language rendered natively by GitHub in markdown; diagrams live in git and are reviewed like code.
 - **JSON Schema** — a machine-readable description of a data structure; Pydantic emits one per model (`model_json_schema()`) — the formal contract you'd hand to another team.
 - **ERD (entity-relationship diagram)** — a diagram of entities and how they relate; tools like erdantic generate them from Pydantic models, DBeaver/dbdiagram.io from live database schemas.
+- **XML namespace** — the `xmlns="urn:..."` declaration that scopes an XML vocabulary; ISO 20022 messages carry their exact message version in it.
+- **XSD** — XML Schema Definition: the machine-readable grammar for an XML format; validating a document against the official XSD proves spec fidelity (deferred here, D-010).
+- **Round-trip test** — assert `parse(render(x)) == x`: proves renderer and parser agree, and documents exactly which fields a format cannot carry.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.

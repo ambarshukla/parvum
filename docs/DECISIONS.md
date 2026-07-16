@@ -67,3 +67,10 @@ Append-only. Format: context / choice / why / alternatives. Newest last.
 - **Choice:** the canonical model enforces *shape* only — types, formats, required fields (e.g. an ISIN must look like an ISIN). Business plausibility stays representable: checksum validity is a helper method (`has_valid_checksum`), cost basis is optional, no cross-field date rules.
 - **Why:** rejecting defective data at parse time destroys the evidence the platform's whole value chain (detect → route → resolve → audit) is built on. The boundary guarantees integrity of *representation*; downstream layers judge *quality*.
 - **Alternatives:** strict parse-time validation (simpler, but the wrong layer owns the rules); no validation anywhere (silent corruption).
+
+## D-010 · 2026-07-16 · Wire formats as spec-shaped subsets, XSD validation deferred
+
+- **Context:** full ISO 20022 messages are enormous (hundreds of optional elements, deep nesting); our model carries a focused field set. Somewhere between "toy XML" and "schema-perfect" a line must be drawn.
+- **Choice:** renderers/parsers use the real message structure and element names for the fields we carry (e.g. `SctiesBalCtdyRpt`, `BalForAcct/FinInstrmId/ISIN`, `AcctBaseCcyAmts/HldgVal/Amt`), with documented simplifications (flattened nesting where the spec stacks identical wrappers). Validation against official XSD schemas is a recorded backlog item, not silently skipped.
+- **Why:** the learning and the parsing work are genuine at subset fidelity; schema-perfect output would consume days on optional elements nothing downstream reads. Honesty is preserved by documenting the line (module docstrings) rather than pretending.
+- **Alternatives:** full schema fidelity + XSD validation now (high cost, low marginal value); invented XML tags (would falsify the "real formats" premise).
