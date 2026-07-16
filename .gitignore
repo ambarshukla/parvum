@@ -1,0 +1,47 @@
+# Secrets & local config — never commit credentials
+.env
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# Java / Maven (Phase 5)
+target/
+*.class
+.quarkus/
+
+# Node (frontend, Phase 5)
+node_modules/
+
+# Terraform (Phase 9) — state can contain secrets; only .tf files belong in git
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+!example.tfvars
+
+# IDE / OS noise
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+.DS_Store
+
+# Local data landing zones (raw feed files are regenerable, not source)
+data/
+
+# Local editor/tool state
+.obsidian/
+.claude/settings.local.json
+
+# Session/working notes — deliberately local-only, never pushed
+CLAUDE.md

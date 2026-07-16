@@ -1,0 +1,30 @@
+# Local dev services. Postgres major version is pinned to 16 to match the
+# intended RDS target — dev/prod parity is the point of running it in Docker.
+name: parvum
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: parvum-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-parvum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-parvum_local_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-parvum}
+    ports:
+      # Loopback-only: a dev DB with default credentials must not be reachable
+      # from the network, regardless of what the host firewall allows.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Named volume so `make down` keeps data; only `make clean` deletes it.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-parvum} -d ${POSTGRES_DB:-parvum}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Placeholder (Phase 9): prometheus + grafana services will be added here
+  # when the observability wrapper is built. Kept out until then — no magic.
+
+volumes:
+  pgdata:
