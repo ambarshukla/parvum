@@ -72,6 +72,12 @@ magic — every term gets defined here on first use.
 - **Defect injection** — deliberately corrupting generated feeds (from a random seed, so exactly reproducible) to give reconciliation and data-quality controls something real to catch.
 - **Injection manifest** — the record of every seeded defect (what, where, before→after); the ground truth that detection is later measured against.
 - **Semantic vs syntactic defect** — a file that parses but lies (caught by data-quality rules downstream) vs a file that cannot be read at all (caught at the parser).
+- **Backfill** — generating/loading historical data in bulk so a new pipeline has a past to process, not just today.
+- **Hive-style partition layout** — directories named `key=value` (e.g. `date=2026-07-15/`); Spark reads the key as a column and skips irrelevant directories ("partition pruning").
+- **Small-files problem** — a lake choked by thousands of tiny files (per-file overhead dwarfs the data); fixed by compaction (e.g. Delta OPTIMIZE).
+- **Data skew** — a few keys carrying most of the rows (one whale account among thousands), making joins/aggregations lopsided.
+- **Late-arriving data** — records for day T arriving at T+n; handled with idempotent MERGE and reprocessing windows.
+- **Restatement** — a source re-sending corrected data for a past date; requires immutable raw history plus downstream reprocessing.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.

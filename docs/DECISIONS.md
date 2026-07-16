@@ -74,3 +74,10 @@ Append-only. Format: context / choice / why / alternatives. Newest last.
 - **Choice:** renderers/parsers use the real message structure and element names for the fields we carry (e.g. `SctiesBalCtdyRpt`, `BalForAcct/FinInstrmId/ISIN`, `AcctBaseCcyAmts/HldgVal/Amt`), with documented simplifications (flattened nesting where the spec stacks identical wrappers). Validation against official XSD schemas is a recorded backlog item, not silently skipped.
 - **Why:** the learning and the parsing work are genuine at subset fidelity; schema-perfect output would consume days on optional elements nothing downstream reads. Honesty is preserved by documenting the line (module docstrings) rather than pretending.
 - **Alternatives:** full schema fidelity + XSD validation now (high cost, low marginal value); invented XML tags (would falsify the "real formats" premise).
+
+## D-011 · 2026-07-16 · Raw landing layout and generation policy
+
+- **Context:** the generator turns from library into data factory; the layout and corruption policy shape everything downstream.
+- **Choice:** (a) Hive-style `date=YYYY-MM-DD/` directories so Spark partition-prunes naturally; (b) business days only; (c) the two holdings renditions (semt.002, MT535) are corrupted **independently** — the same day's views genuinely disagree sometimes, which is what cross-feed reconciliation exists to catch; (d) everything derives deterministically from the calendar date, so any historical day regenerates byte-identically; (e) ground-truth manifests are written **outside** the raw landing directory — the pipeline must never read them; only detection-quality evaluation may.
+- **Why:** each choice removes a future argument: pruning comes free, weekends don't fake volume, cross-format breaks exist by construction, investigations can reproduce any file exactly, and the DQ layer can't accidentally cheat.
+- **Alternatives:** flat directories (no pruning); same corruption for both holdings formats (reconciliation would only ever catch format-coverage gaps); random non-reproducible corruption (untestable).

@@ -127,5 +127,14 @@ data-quality layer caught everything that was seeded. Semantic defects
 produce files that parse fine but lie; syntactic defects (truncation)
 fail at the parser.
 
+Generate the raw pile (from the repo root):
+
+```sh
+make generate    # ~90 days of business-day deliveries into data/raw/date=YYYY-MM-DD/
+```
+
+Ground-truth manifests go to `data/manifests/` — outside the landing
+directory, because the pipeline must never see them (D-011).
+
 Status: canonical model + seed book (holdings & cash) + all three formats
-+ defect injection. Next: bronze landing on Databricks.
++ defect injection + generator CLI. Next: bronze landing on Databricks.

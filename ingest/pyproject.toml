@@ -19,6 +19,9 @@ dev = [
     "ruff>=0.5",
 ]
 
+[project.scripts]
+parvum-generate = "parvum_ingest.generate:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
