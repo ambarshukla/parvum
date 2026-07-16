@@ -62,6 +62,9 @@ magic — every term gets defined here on first use.
 - **XML namespace** — the `xmlns="urn:..."` declaration that scopes an XML vocabulary; ISO 20022 messages carry their exact message version in it.
 - **XSD** — XML Schema Definition: the machine-readable grammar for an XML format; validating a document against the official XSD proves spec fidelity (deferred here, D-010).
 - **Round-trip test** — assert `parse(render(x)) == x`: proves renderer and parser agree, and documents exactly which fields a format cannot carry.
+- **ISO 15022** — the standard behind SWIFT MT5xx securities messages: `:TAG::QUALIFIER//value` fields inside `:16R:`/`:16S:` blocks; the predecessor vocabulary ISO 20022 XML-ified.
+- **Decimal comma (SWIFT)** — MT numbers use a comma as the decimal mark and always include it (`220,` = 220); a classic feed-parser trap.
+- **Narrative field** — a free-text field (e.g. MT535's `:70E:`) that real feeds routinely use to smuggle structured data the format has no proper slot for; parsing conventions out of narrative is authentic feed work.
 - **cron** — the standard time-based schedule syntax (`0 6 * * *` = daily at 06:00 UTC); used by GitHub Actions `schedule:` triggers.
 - **EventBridge Scheduler / Lambda** — AWS's native cron + serverless functions; the in-cloud alternative to Actions cron (considered in D-006).
 - **Idempotent** — safe to run twice: rerunning produces the same end state, no duplicates. A required property of every load/fetch job here.

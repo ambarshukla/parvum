@@ -13,6 +13,7 @@ src/parvum_ingest/
   book.py          # deterministic seed book (real ISINs) the generator renders
   formats/
     semt002.py     # ISO 20022 semt.002: render + parse (spec-shaped subset, D-010)
+    mt535.py       # SWIFT MT535: render + parse (fixed-tag blocks, decimal commas)
 tests/             # pytest suite; every guarantee has a test, incl. round trips
 ```
 
@@ -107,5 +108,10 @@ assert parse_semt002(xml).positions[0].security_name == 'Apple Inc'
 "
 ```
 
-Status: canonical model + seed book + semt.002. Next: MT535, camt.053,
+The two holdings formats deliberately carry different subsets: semt.002 has
+account details but no cost basis; MT535 has cost basis (smuggled through a
+`:70E:` narrative, as real feeds do) but references the account by id alone.
+Same book, two feeds that disagree — reconciliation's raw material.
+
+Status: canonical model + seed book + semt.002 + MT535. Next: camt.053,
 defect injection, bronze landing.

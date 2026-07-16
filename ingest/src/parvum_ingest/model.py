@@ -133,9 +133,11 @@ class SecurityIdentifier(_Frozen):
 
 class Account(_Frozen):
     account_id: str
-    name: str
-    custodian_bic: str  # BIC = the SWIFT identifier of the custodian bank
-    base_currency: str
+    # Optional because wire formats disagree: semt.002 carries these, MT535
+    # references the account by id alone — enrichment is reference data's job.
+    name: str | None = None
+    custodian_bic: str | None = None  # BIC = the SWIFT identifier of the custodian bank
+    base_currency: str | None = None
 
 
 class Position(_Frozen):

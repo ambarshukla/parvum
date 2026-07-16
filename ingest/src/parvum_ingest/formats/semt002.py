@@ -60,9 +60,12 @@ def render_semt002(stmt: HoldingsStatement) -> str:
 
     acct = _child(rpt, "SfkpgAcct")
     _child(acct, "Id", stmt.account.account_id)
-    _child(acct, "Nm", stmt.account.name)
-    _child(_child(acct, "AcctSvcr"), "AnyBIC", stmt.account.custodian_bic)
-    _child(acct, "BaseCcy", stmt.account.base_currency)
+    if stmt.account.name is not None:
+        _child(acct, "Nm", stmt.account.name)
+    if stmt.account.custodian_bic is not None:
+        _child(_child(acct, "AcctSvcr"), "AnyBIC", stmt.account.custodian_bic)
+    if stmt.account.base_currency is not None:
+        _child(acct, "BaseCcy", stmt.account.base_currency)
 
     for pos in stmt.positions:
         bal = _child(rpt, "BalForAcct")
@@ -99,6 +102,11 @@ def _find_text(parent: ET.Element, path: str, context: str) -> str:
     if el is None or el.text is None:
         raise FeedParseError(f"semt.002: missing required element {path!r} in {context}")
     return el.text
+
+
+def _opt_text(parent: ET.Element, path: str) -> str | None:
+    el = parent.find(path, _NSMAP)
+    return None if el is None or el.text is None else el.text
 
 
 def _parse_decimal(raw: str, context: str) -> Decimal:
@@ -156,9 +164,9 @@ def parse_semt002(xml_text: str) -> HoldingsStatement:
         raise FeedParseError("semt.002: missing SfkpgAcct")
     account = Account(
         account_id=_find_text(acct_el, "s:Id", "SfkpgAcct"),
-        name=_find_text(acct_el, "s:Nm", "SfkpgAcct"),
-        custodian_bic=_find_text(acct_el, "s:AcctSvcr/s:AnyBIC", "SfkpgAcct"),
-        base_currency=_find_text(acct_el, "s:BaseCcy", "SfkpgAcct"),
+        name=_opt_text(acct_el, "s:Nm"),
+        custodian_bic=_opt_text(acct_el, "s:AcctSvcr/s:AnyBIC"),
+        base_currency=_opt_text(acct_el, "s:BaseCcy"),
     )
 
     positions = []
