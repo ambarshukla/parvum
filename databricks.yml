@@ -1,0 +1,86 @@
+# Databricks Asset Bundle — the bronze job defined as code.
+#
+# Why a bundle: a job clicked together in the Workflows UI isn't reviewable,
+# reproducible, or in git. This file *is* the job; `make deploy-job` applies it.
+#
+# The workspace host is deliberately absent — the CLI takes it from
+# DATABRICKS_HOST (.env locally, a repo secret in CI), so the public repo
+# carries no workspace URL. Same recipe as `make land`.
+bundle:
+  name: parvum
+
+# Deploy the job definition and nothing else. By default a bundle uploads its
+# whole directory to the workspace; since the job runs from a git checkout
+# (see git_source), those files would never be read — a third copy of the code
+# to wonder about later. An empty path list keeps the deploy to what it means.
+sync:
+  paths: []
+
+resources:
+  jobs:
+    bronze_ingest:
+      name: parvum-bronze-ingest
+      description: >-
+        Parses newly landed custodial feed files into the bronze Delta tables.
+        Triggered by file arrival in the landing volume, so it follows the
+        data rather than a clock. Idempotent: re-runs skip files already in
+        bronze_file_registry.
+
+      # The job checks out this repo per run and executes the notebook from
+      # that checkout. Two reasons, both load-bearing:
+      #
+      # 1. The notebook imports the repo's own parsers via a relative path
+      #    (`../ingest/src`), so it needs the whole repo tree present — not
+      #    just spark/. A checkout gives it exactly the layout it expects.
+      # 2. `main` is protected and CI-gated, so "the job runs main" already
+      #    has a review gate in front of it. No separate deploy of the code
+      #    is needed, and there's no third copy to drift (the interactive
+      #    Git folder stays for exploration only).
+      git_source:
+        git_url: https://github.com/ambarshukla/parvum
+        git_provider: gitHub
+        git_branch: main
+
+      tasks:
+        - task_key: bronze
+          # No compute block: Free Edition is serverless-only, so the job
+          # picks up serverless by default.
+          notebook_task:
+            notebook_path: spark/bronze_ingest
+            source: GIT
+
+      # Event-driven, not a timer. A cron would have to *guess* how long
+      # after 06:15 UTC the feed finishes landing, and would silently
+      # process nothing whenever that guess was wrong.
+      trigger:
+        pause_status: UNPAUSED
+        file_arrival:
+          url: /Volumes/workspace/parvum/landing/raw/
+          # One delivery is three files landing seconds apart. Waiting for
+          # the arrivals to go quiet coalesces them into one run instead of
+          # three overlapping ones.
+          wait_after_last_change_seconds: 60
+          # A floor on trigger frequency — cheap insurance for a free-tier
+          # compute quota against a pathological upload loop.
+          min_time_between_triggers_seconds: 300
+
+      # One run at a time: two concurrent runs would both see the same
+      # "new files" set (the registry is written last) and double-insert.
+      max_concurrent_runs: 1
+
+      # A hung run burns the daily serverless quota until it's noticed.
+      timeout_seconds: 3600
+
+# One target, because there is one live environment (D-007). `mode: production`
+# means no auto-paused triggers and no `[dev ...]` name prefixes — the things
+# development mode does to keep experiments from acting like the real thing.
+targets:
+  prod:
+    mode: production
+    default: true
+    workspace:
+      # Production mode demands an explicit root_path so two deploys can't
+      # silently clobber each other. Interpolated from the authenticated
+      # user rather than hardcoded, which also keeps the email out of a
+      # public repo.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

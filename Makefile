@@ -18,10 +18,13 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land
+.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job
 
+# -h: MAKEFILE_LIST is "Makefile .env" (from -include above), and grep prefixes
+# every match with its filename once given more than one file — which awk then
+# reads as the target name. Suppress the prefix.
 help: ## show available targets
-	@grep -E '^[a-z]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-11s %s\n", $$1, $$2}'
 
 up: ## start local Postgres (detached, waits until healthy)
 	$(COMPOSE) up -d --wait
@@ -56,3 +59,13 @@ generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replay
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
+
+deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	databricks bundle deploy
+
+# Normally the file-arrival trigger runs this; the target exists for the first
+# run after a deploy, and for reprocessing on demand (safe — the job is idempotent).
+run-job: ## run the bronze ingest job now, without waiting for a file to land
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	databricks bundle run bronze_ingest
