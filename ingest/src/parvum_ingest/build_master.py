@@ -10,11 +10,11 @@ feed generation.
 import argparse
 from pathlib import Path
 
-from parvum_ingest.accounts import UNIVERSE
 from parvum_ingest.edgar_store import filings_on_disk, holdings_in_effect
 from parvum_ingest.model import is_cins, isin_from_cusip
-from parvum_ingest.reference import domicile_of
-from parvum_ingest.securities_master import build_master, write_master
+from parvum_reference.accounts import UNIVERSE
+from parvum_reference.domicile import domicile_of
+from parvum_reference.securities_master import build_master, write_master
 
 DEFAULT_CACHE = Path("../data/edgar")
 DEFAULT_OUT = Path("../data/reference/securities_master.json")

@@ -5,8 +5,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from parvum_ingest.accounts import UNIVERSE
-from parvum_ingest.ownership import (
+from parvum_reference.accounts import UNIVERSE
+from parvum_reference.ownership import (
     OWNERSHIP,
     Client,
     EntityKind,

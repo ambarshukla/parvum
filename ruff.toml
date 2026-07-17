@@ -1,0 +1,14 @@
+# Shared ruff config for every workspace package — one source of truth so
+# ingest and reference cannot drift apart on style. Lives at the root (not
+# per-package pyproject) because `src` must name BOTH packages: that is how
+# ruff knows parvum_reference is first-party when imported from ingest, and
+# sorts it with our code rather than with third-party imports.
+
+line-length = 100
+src = ["ingest/src", "ingest/tests", "reference/src", "reference/tests"]
+
+[lint]
+# Beyond the defaults: import order (I), modernisation (UP), likely bugs (B),
+# needless complexity (SIM). Kept strict from the first commit — retrofitting
+# lint rules onto an existing codebase is far more painful.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

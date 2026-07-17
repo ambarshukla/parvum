@@ -6,12 +6,12 @@ from decimal import Decimal
 
 import pytest
 
-from parvum_ingest.accounts import UNIVERSE
 from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.formats import FeedParseError
 from parvum_ingest.formats.camt053 import DEBIT_TYPES, parse_camt053, render_camt053
 from parvum_ingest.formats.semt002 import render_semt002
 from parvum_ingest.model import BalanceType
+from parvum_reference.accounts import UNIVERSE
 
 AS_OF = date(2026, 7, 15)
 

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from parvum_ingest.openfigi import FigiRecord, map_isins
+from parvum_reference.openfigi import FigiRecord, map_isins
 
 
 class SecurityMasterEntry(BaseModel):

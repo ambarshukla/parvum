@@ -44,7 +44,6 @@ from pathlib import Path
 from random import Random
 from typing import NamedTuple
 
-from parvum_ingest.accounts import CUSTODIAN_BIC, DEFAULT_ACCOUNT, AccountSpec
 from parvum_ingest.edgar import Holding13F
 from parvum_ingest.edgar_store import filing_in_effect, holdings_in_effect
 from parvum_ingest.model import (
@@ -63,7 +62,8 @@ from parvum_ingest.model import (
     is_cins,
     isin_from_cusip,
 )
-from parvum_ingest.reference import domicile_of
+from parvum_reference.accounts import CUSTODIAN_BIC, DEFAULT_ACCOUNT, AccountSpec
+from parvum_reference.domicile import domicile_of
 
 # Cost basis is absent for about a fifth of positions, and where present sits
 # between roughly half and a little above market — a book of holdings bought

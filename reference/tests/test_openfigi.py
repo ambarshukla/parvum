@@ -9,8 +9,8 @@ import os
 
 import pytest
 
-from parvum_ingest import openfigi
-from parvum_ingest.openfigi import OpenFigiError, map_isins
+from parvum_reference import openfigi
+from parvum_reference.openfigi import OpenFigiError, map_isins
 
 
 def _stub_post(monkeypatch, responder):

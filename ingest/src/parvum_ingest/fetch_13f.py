@@ -9,8 +9,8 @@ already on disk is never fetched again — and therefore cheap to run daily.
 import argparse
 from pathlib import Path
 
-from parvum_ingest.accounts import BERKSHIRE_CIK, GATES_TRUST_CIK, PERSHING_SQUARE_CIK
 from parvum_ingest.edgar_store import sync
+from parvum_reference.accounts import BERKSHIRE_CIK, GATES_TRUST_CIK, PERSHING_SQUARE_CIK
 
 # The filers whose books seed the generated accounts (see accounts.UNIVERSE).
 FILERS: dict[int, str] = {

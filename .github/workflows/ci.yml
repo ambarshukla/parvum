@@ -1,6 +1,10 @@
 # CI: every pull request (and main) must pass lint, format check, and tests.
-# Runs per-component; today that's only ingest/, later jobs join for
-# serving/ (mvn verify) and infra/ (terraform fmt/validate).
+# Runs per-component: ingest/ and reference/ today (two uv-workspace
+# members, one job each so both appear as separate required checks); later
+# jobs join for serving/ (mvn verify) and infra/ (terraform fmt/validate).
+# The two Python jobs are deliberately explicit rather than a matrix — a
+# matrix renames the status checks, which would silently detach the
+# branch-protection rule that requires the check named "ingest".
 name: CI
 
 on:
@@ -33,6 +37,33 @@ jobs:
 
       # --locked: fail if uv.lock is out of sync with pyproject.toml, so CI
       # always tests exactly the pinned dependency set.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest
+
+  reference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reference
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      # Syncs the whole workspace (the lockfile lives at the repo root),
+      # then runs checks with reference/ as the working directory.
       - name: Install dependencies
         run: uv sync --locked
 
