@@ -20,7 +20,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f
+.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f check-freshness
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -82,3 +82,9 @@ deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DA
 run-job: ## run the bronze ingest job now, without waiting for a file to land
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks bundle run bronze_ingest
+
+# Alarms (exit 1) only if bronze is confidently stale; warns and passes if it
+# can't tell. The daily workflow runs this after landing; needs DATABRICKS_HOST
+# + DATABRICKS_TOKEN + DATABRICKS_WAREHOUSE_ID (unset → skips with a warning).
+check-freshness: ## fail if the bronze job has stopped updating (needs DATABRICKS_WAREHOUSE_ID)
+	cd ingest && uv run parvum-check-freshness

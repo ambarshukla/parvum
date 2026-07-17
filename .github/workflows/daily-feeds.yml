@@ -100,6 +100,23 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: make land
 
+      # After landing, confirm bronze is actually keeping up. Email covers the
+      # bronze job when it *runs and fails*; this catches it *never firing*
+      # (the D-018 blind spot) by asking the lakehouse when bronze last did any
+      # work. A confident stale reading fails the job → GitHub emails; anything
+      # uncertain (unset warehouse secret, transient error) warns and passes,
+      # because monitoring must not break the pipeline it watches.
+      #
+      # Runs even on a zero-file (holiday) day — bronze health is independent of
+      # whether today had a delivery — so it needs uv but not the CLI.
+      - name: Check bronze freshness
+        if: always()
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+        run: make check-freshness
+
       # The run log is as much the deliverable as the files: "what ran, what
       # changed, what failed" is what a data-ops reader needs, without them
       # having to open Databricks to find out.
