@@ -9,18 +9,29 @@ from parvum_ingest.book import build_book
 from parvum_ingest.formats import FeedParseError
 from parvum_ingest.formats.mt535 import parse_mt535, render_mt535
 from parvum_ingest.formats.semt002 import parse_semt002, render_semt002
+from parvum_ingest.model import IdentifierScheme, Money, Position, SecurityIdentifier
 
 AS_OF = date(2026, 7, 15)
 
 
 def test_rendered_statement_looks_like_swift() -> None:
-    text = render_mt535(build_book(AS_OF))
+    book = build_book(AS_OF)
+    text = render_mt535(book)
     assert text.startswith(":16R:GENL\n")
-    assert ":35B:ISIN US0378331005" in text
+    assert ":35B:ISIN US0378331005" in text  # Apple, held in the seed book
     assert ":98A::STAT//20260715" in text
-    # SWIFT decimal comma, not point — the classic parser trap.
-    assert ":90B::MRKT//ACTU/USD185,4" in text
-    assert text.count(":16R:FIN") == text.count(":16S:FIN") == 10
+    # One block per position, opened and closed.
+    assert text.count(":16R:FIN") == text.count(":16S:FIN") == len(book.positions)
+
+
+def test_prices_use_the_swift_decimal_comma() -> None:
+    # The classic parser trap, asserted as the invariant it is rather than
+    # against one security's price — which would only pin the seed book in
+    # place and break the next time it legitimately changes.
+    price_lines = [ln for ln in render_mt535(build_book(AS_OF)).splitlines() if ln[:5] == ":90B:"]
+    assert price_lines
+    assert all("." not in line for line in price_lines), "SWIFT amounts never use a decimal point"
+    assert any("," in line for line in price_lines)
 
 
 def test_round_trip_preserves_carried_fields() -> None:
@@ -50,10 +61,34 @@ def test_round_trip_drops_account_details_by_design() -> None:
     assert parsed.account.base_currency is None
 
 
-def test_decimal_comma_is_parsed_exactly() -> None:
-    parsed = parse_mt535(render_mt535(build_book(AS_OF)))
-    vod = next(p for p in parsed.positions if p.security.value == "GB00BH4HKS39")
-    assert vod.price is not None and vod.price.amount == Decimal("0.92")
+def test_every_price_survives_the_decimal_comma_exactly() -> None:
+    original = build_book(AS_OF)
+    parsed = parse_mt535(render_mt535(original))
+    round_tripped = {p.security.value: p.price for p in parsed.positions}
+    for position in original.positions:
+        assert position.price is not None
+        assert round_tripped[position.security.value] == position.price, position.security_name
+
+
+def test_sub_unit_price_keeps_its_leading_zero() -> None:
+    # The seed book has held no sub-$1 price since it became 13F-derived, and
+    # the leading zero is precisely where a decimal-comma renderer goes wrong
+    # (",92" rather than "0,92"). Pinned explicitly so the edge case doesn't
+    # depend on whichever securities the seed happens to contain.
+    book = build_book(AS_OF)
+    penny = Position(
+        account_id=book.account.account_id,
+        security=SecurityIdentifier(scheme=IdentifierScheme.ISIN, value="GB00BH4HKS39"),
+        security_name="Vodafone Group Plc",
+        quantity=Decimal("5200"),
+        as_of=AS_OF,
+        price=Money(amount=Decimal("0.92"), currency="USD"),
+        price_as_of=AS_OF,
+        market_value=Money(amount=Decimal("4784.00"), currency="USD"),
+    )
+    text = render_mt535(book.model_copy(update={"positions": (penny,)}))
+    assert "ACTU/USD0,92" in text
+    assert parse_mt535(text).positions[0].price == penny.price
 
 
 def test_unbalanced_block_is_rejected() -> None:

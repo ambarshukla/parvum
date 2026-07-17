@@ -90,7 +90,10 @@ magic — every term gets defined here on first use.
 - **Small-files problem** — a lake choked by thousands of tiny files (per-file overhead dwarfs the data); fixed by compaction (e.g. Delta OPTIMIZE).
 - **Data skew** — a few keys carrying most of the rows (one whale account among thousands), making joins/aggregations lopsided.
 - **Late-arriving data** — records for day T arriving at T+n; handled with idempotent MERGE and reprocessing windows.
-- **Restatement** — a source re-sending corrected data for a past date; requires immutable raw history plus downstream reprocessing.
+- **Restatement** — a source re-sending corrected data for a past date, usually under the same filename; requires downstream reprocessing. Invisible to a pipeline whose idempotency key is the *path* rather than the *content* (D-016).
+- **Content-keyed idempotency** — deciding whether work is needed by comparing a checksum of the data, not just its identity. "Have I seen this path?" skips restatements silently; "have I seen this content at this path?" catches them.
+- **Superseding** — replacing a restated file's derived rows (delete, then re-parse) so the table matches the file as it now stands, as opposed to keeping every version with a validity flag (SCD-2).
+- **Share class** — one issuer, several distinct securities with different rights and different identifiers (Alphabet Class A vs Class C). They share a name and must not be deduplicated by it.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.

@@ -24,7 +24,9 @@ def test_clean_cash_book_balances_explain_the_movement() -> None:
         (-t.amount.amount if t.type in DEBIT_TYPES else t.amount.amount) for t in stmt.entries
     )
     assert closing.balance.amount == opening.balance.amount + net
-    assert closing.balance.amount == Decimal("54445.15")
+    # Pinned deliberately: the invariant above is self-consistent by
+    # construction, so it would still hold if the seed changed by accident.
+    assert closing.balance.amount == Decimal("54234.95")
 
 
 def test_rendered_statement_looks_like_camt053() -> None:
