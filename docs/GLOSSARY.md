@@ -104,6 +104,15 @@ magic — every term gets defined here on first use.
 - **Cross-listing** — a company's *ordinary shares* trading on a foreign exchange (Brookfield, Canadian National on NYSE): the security keeps its home-country ISIN even though its CUSIP looks domestic.
 - **ADR (American depositary receipt)** — a US-issued certificate representing foreign shares (Diageo, InBev). Unlike a cross-listing, the ADR itself is a genuine US security with a US CUSIP *and* US ISIN — so it needs no domicile override.
 - **Issuer domicile** — the country prefix an ISIN construction needs and a CUSIP does not reveal; ours comes from a small curated map (D-020) until the securities master owns it.
+
+## Ownership & reference data
+
+- **Legal entity** — a trust, foundation, or company through which a client holds accounts; in a wealth platform the *entity*, not the person, is a position's direct owner, and reports roll up by it.
+- **Ownership graph** — the client → legal-entity → account structure, modelled as a directed acyclic graph with percentage edges; the wealth manager's own reference data, absent from custodial feeds by definition.
+- **Effective ownership** — a client's ultimate fractional stake in an account: the product of edge percentages along a path, summed over all paths reaching that client. What lets a jointly-owned account attribute its assets across families.
+- **Ownership closes (100% rule)** — every owned node's incoming percentages must sum to exactly 1; in a self-contained universe, anything less means ownership is unaccounted for — a modelling error, caught at construction.
+- **DAG (directed acyclic graph)** — a graph with direction and no cycles; ownership is one because a chain of entities can't loop back to own itself.
+- **Securities master** — the reference table mapping instrument identifiers to canonical ids, names, sector, and type (OpenFIGI/SEC/GLEIF); the *other* half of Phase 2 reference data, distinct from the ownership layer.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.
