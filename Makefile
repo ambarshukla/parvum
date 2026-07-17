@@ -102,9 +102,13 @@ deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DA
 
 # Normally the file-arrival trigger runs this; the target exists for the first
 # run after a deploy, and for reprocessing on demand (safe — the job is idempotent).
-run-job: ## run the bronze ingest job now, without waiting for a file to land
+# Every `bundle` subcommand resolves the whole config, so the required
+# alert_email variable must be supplied here exactly as in deploy-job — a
+# `bundle run` with it missing fails before running anything.
+run-job: ## run the ingest job (bronze → silver) now, without waiting for a file to land
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
-	databricks bundle run bronze_ingest
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (job failure notifications are sent here)"; exit 1; }
+	BUNDLE_VAR_alert_email="$(ALERT_EMAIL)" databricks bundle run bronze_ingest
 
 # Alarms (exit 1) only if bronze is confidently stale; warns and passes if it
 # can't tell. The daily workflow runs this after landing; needs DATABRICKS_HOST
