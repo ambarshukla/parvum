@@ -17,8 +17,15 @@ magic — every term gets defined here on first use.
 - **Custodial feed** — the periodic file a custodian (the institution holding assets) sends describing positions, transactions and cash.
 - **Cost basis** — what was originally paid for a position; needed for gains; frequently missing in feeds (a classic data-quality defect).
 - **13F / 13F-HR** — quarterly SEC filing where large US institutional managers disclose their equity holdings; public domain.
+- **Information table** — the XML inside a 13F-HR listing the holdings. Not a position list: rows are broken out **per manager**, so one security appears many times (Berkshire's 2026-Q1 filing = 90 rows, 29 securities, Apple twelve times) and must be aggregated by CUSIP.
+- **`sshPrnamt` / `sshPrnamtType`** — a 13F row's amount and what it counts: `SH` = shares, `PRN` = principal amount of a debt instrument. Summing PRN into a share position is nonsense, so those rows are dropped.
+- **`putCall`** — a 13F element marking the row as an option on the security rather than a holding of it.
 - **EDGAR** — the SEC's public filing system (source of 13F data).
+- **Accession number** — EDGAR's unique id for one filing (e.g. `0001193125-26-226661`); pins an exact, immutable document, which is why it's the provenance worth recording instead of a retrieval timestamp.
 - **CIK** — SEC's Central Index Key, its identifier for a filing entity.
+- **CINS** — the CUSIP International Numbering System: CUSIP-shaped codes for **foreign** issuers, distinguished by a leading letter (Chubb's `H1467J104`, H = Switzerland). The tell that "US" + CUSIP would fabricate an ISIN.
+- **ISIN construction (ISO 6166)** — a North American ISIN *is* country code + 9-character CUSIP + a check digit, so it can be legitimately derived rather than looked up — but only once the issuer's **country** is known. Numeric CUSIPs go to Canadian issuers too, so the domicile cannot be read off the code.
+- **SEC fair-access policy** — SEC requires every EDGAR request to identify its sender in the User-Agent (a name and contact email) and answers HTTP 403 otherwise; also a 10 requests/second ceiling.
 - **FIGI / OpenFIGI** — Financial Instrument Global Identifier; free, open instrument identifier with a free mapping API (Bloomberg-operated).
 - **LEI / GLEIF** — Legal Entity Identifier; open global register of legal entities, published by GLEIF.
 - **ISIN / CUSIP / SEDOL** — proprietary-ish security identifiers custodians actually put in feeds; mapping them to FIGI is the securities-master job.

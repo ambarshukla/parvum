@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 parvum-generate = "parvum_ingest.generate:main"
+parvum-fetch-13f = "parvum_ingest.seed_13f:main"
 
 [build-system]
 requires = ["hatchling"]
