@@ -117,6 +117,14 @@ magic — every term gets defined here on first use.
 - **OpenFIGI** — the free API that maps ISIN/CUSIP/SEDOL → FIGI + name, security type, and market sector; batches up to 100 lookups per request, higher rate limit with a key.
 - **"Unknown" bucket** — the securities master's explicit home for identifiers it couldn't map: kept as flagged rows, never dropped, so an unidentifiable security still shows in a client's account and can be routed to reference-data curation. A miss is data.
 - **Market sector / security type (FIGI)** — OpenFIGI's coarse instrument classification (sector `Equity`/`Corp`…, type `Common Stock`/`ADR`…); what gold groups and reports allocations by.
+
+## Observability & alerting
+
+- **Dead man's switch / heartbeat monitoring** — an *external* monitor that expects a regular signal and alerts when it's *absent*. The only way to detect a scheduled job that never ran, since a job that doesn't start can't report failure (e.g. Healthchecks.io's free tier: the workflow pings a URL on success; a missing ping alerts).
+- **Freshness check** — asserting that data is recent enough (e.g. `MAX(statement_date)` in bronze lags today by ≤ N business days). Catches "the job didn't fire" and "ran but processed nothing" — the outcome, not just that steps executed.
+- **Job notifications (Databricks)** — a job's built-in `email_notifications` / `webhook_notifications` for on_start / on_success / on_failure / on_duration_warning; declared in the job definition (`databricks.yml`).
+- **Actions failure notification (GitHub)** — GitHub's built-in email to the repo owner when a scheduled workflow fails; covers "ran and failed", never "didn't run" (nothing runs to send it).
+- **Silent failure** — a fault that produces no error: a skipped cron, a trigger that ignored an event (D-018), a success-reported run that changed nothing. The class of failure observability exists to surface, and the reason "failures notify themselves; silence doesn't" is the guiding rule.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.
