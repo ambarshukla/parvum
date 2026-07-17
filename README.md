@@ -43,8 +43,8 @@ process. Serving infra is provisioned on **real AWS by Terraform** (decision
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Foundations — repo, local Postgres, docs | ✅ done |
-| 1 | Custodial feed ingestion → Bronze (semt.002, MT535, camt.053) | 🔄 in progress |
-| 2 | Reference data & normalisation → Silver | ⬜ |
+| 1 | Custodial feed ingestion → Bronze (semt.002, MT535, camt.053) | ✅ done |
+| 2 | Reference data & normalisation → Silver | 🔄 in progress |
 | 3 | Reconciliation & data-quality control | ⬜ |
 | 4 | Portfolio aggregation & ownership graph → Gold | ⬜ |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ⬜ |
