@@ -188,6 +188,71 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
+# MAGIC %md ## Column descriptions (Unity Catalog metadata)
+# MAGIC
+# MAGIC `CREATE OR REPLACE` rebuilds each table from scratch — including its
+# MAGIC metadata — so column comments are (re)applied after every rebuild, from
+# MAGIC one dict. A commented column list on the CTAS itself would be neater,
+# MAGIC but that syntax does not parse on this warehouse (probed before
+# MAGIC building); ALTER afterwards is the supported route.
+
+# COMMAND ----------
+
+COLUMN_COMMENTS = {
+    "silver_positions": {
+        "as_of": "Position date. Grain: one row per (as_of, account_id, security)",
+        "account_id": "Custodial account identifier (see silver_account_owners for whose it is)",
+        "security_scheme": "Identifier scheme of security_id (ISIN for anything the master can enrich)",
+        "security_id": "Security identifier, from the preferred feed copy",
+        "security_name": "Canonical name — the master's when mapped, else the feed's",
+        "feed_security_name": "Name exactly as the feed carried it (lineage for the COALESCE above)",
+        "figi": "FIGI from the securities master; NULL when not mapped",
+        "security_type": "Instrument type from the master (e.g. Common Stock)",
+        "asset_class": "Market sector from the master; literal Unknown when the master cannot say",
+        "ticker": "Ticker from the master; NULL when not mapped",
+        "instrument_status": "MAPPED | UNKNOWN (in master, unmappable) | NOT_IN_MASTER (identifier the master has never seen — where mistyped-identifier defects surface)",
+        "quantity": "Units held, from the preferred feed copy",
+        "price_amount": "Unit price, from the preferred feed copy",
+        "price_currency": "Currency of price_amount",
+        "market_value": "Market value of the full position (NOT prorated — see silver_position_owners)",
+        "market_value_ccy": "Currency of market_value",
+        "cost_basis": "Cost basis, from the preferred feed copy",
+        "cost_basis_ccy": "Currency of cost_basis",
+        "source_format": "Which feed copy won the dedupe: semt.002 preferred over MT535",
+        "source_file": "Volume path of the winning file — lineage into bronze",
+        "rebuilt_at": "When this silver rebuild ran (UTC); identical for all rows of a rebuild",
+    },
+    "silver_account_owners": {
+        "account_id": "Custodial account identifier",
+        "client_id": "Ultimately-owning client, resolved through the entity graph",
+        "client_name": "Display name of the owning client",
+        "ownership_pct": "Effective ownership fraction; per account these sum to exactly 1",
+    },
+    "silver_position_owners": {
+        "as_of": "Position date. Grain: one row per (as_of, account_id, security, client)",
+        "account_id": "Custodial account the position sits in",
+        "security_scheme": "Identifier scheme of security_id",
+        "security_id": "Security identifier",
+        "security_name": "Canonical security name (as in silver_positions)",
+        "client_id": "Ultimately-owning client this row attributes value to",
+        "client_name": "Display name of the owning client",
+        "ownership_pct": "This client's effective fraction of the account",
+        "owned_value": "market_value × ownership_pct — sums back to market_value across an account's owners",
+        "market_value_ccy": "Currency of owned_value",
+        "rebuilt_at": "When this silver rebuild ran (UTC)",
+    },
+}
+
+for _table, _comments in COLUMN_COMMENTS.items():
+    for _col, _comment in _comments.items():
+        _escaped = _comment.replace("'", "''")
+        spark.sql(  # noqa: F821
+            f"ALTER TABLE {SCHEMA}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
+        )
+print(f"column comments applied to {len(COLUMN_COMMENTS)} silver tables")
+
+# COMMAND ----------
+
 # MAGIC %md ## What this run produced
 
 # COMMAND ----------

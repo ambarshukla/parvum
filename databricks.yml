@@ -25,13 +25,19 @@ sync:
 
 resources:
   jobs:
+    # The resource KEY stays `bronze_ingest` even though the job outgrew the
+    # name: changing a bundle key destroys and recreates the resource (new
+    # job id, new trigger object) for a rename nobody sees — the key never
+    # appears in the UI. The display name below is what the UI shows.
     bronze_ingest:
-      name: parvum-bronze-ingest
+      name: parvum-ingest
       description: >-
-        Parses newly landed custodial feed files into the bronze Delta tables.
-        Triggered by file arrival in the landing volume, so it follows the
-        data rather than a clock. Idempotent: re-runs skip files already in
-        bronze_file_registry.
+        The ingest chain: bronze parses newly landed custodial feed files
+        into raw Delta tables, then silver rebuilds the conformed layer
+        (positions joined to the securities master and ownership). Triggered
+        by file arrival in the landing volume, so it follows the data rather
+        than a clock. Idempotent end to end: bronze skips files already in
+        bronze_file_registry; silver is a full rebuild.
 
       # This job runs unattended — nobody is watching it — so a failure has to
       # announce itself. Email covers "ran and failed"; a hung run trips the
