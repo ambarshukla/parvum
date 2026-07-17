@@ -23,6 +23,7 @@ dev = [
 parvum-generate = "parvum_ingest.generate:main"
 parvum-fetch-13f = "parvum_ingest.fetch_13f:main"
 parvum-build-master = "parvum_ingest.build_master:main"
+parvum-check-freshness = "parvum_ingest.freshness:main"
 
 [build-system]
 requires = ["hatchling"]

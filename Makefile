@@ -6,6 +6,7 @@
 -include .env
 export DATABRICKS_HOST
 export SEC_USER_AGENT
+export ALERT_EMAIL
 export OPENFIGI_API_KEY
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
@@ -20,7 +21,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f build-master
+.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f build-master check-freshness
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -79,12 +80,19 @@ land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_H
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
 
-deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST)
+deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST, ALERT_EMAIL)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
-	databricks bundle deploy
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (job failure notifications are sent here)"; exit 1; }
+	BUNDLE_VAR_alert_email="$(ALERT_EMAIL)" databricks bundle deploy
 
 # Normally the file-arrival trigger runs this; the target exists for the first
 # run after a deploy, and for reprocessing on demand (safe — the job is idempotent).
 run-job: ## run the bronze ingest job now, without waiting for a file to land
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks bundle run bronze_ingest
+
+# Alarms (exit 1) only if bronze is confidently stale; warns and passes if it
+# can't tell. The daily workflow runs this after landing; needs DATABRICKS_HOST
+# + DATABRICKS_TOKEN + DATABRICKS_WAREHOUSE_ID (unset → skips with a warning).
+check-freshness: ## fail if the bronze job has stopped updating (needs DATABRICKS_WAREHOUSE_ID)
+	cd ingest && uv run parvum-check-freshness
