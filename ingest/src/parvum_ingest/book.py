@@ -44,6 +44,7 @@ from pathlib import Path
 from random import Random
 from typing import NamedTuple
 
+from parvum_ingest.accounts import CUSTODIAN_BIC, DEFAULT_ACCOUNT, AccountSpec
 from parvum_ingest.edgar import Holding13F
 from parvum_ingest.edgar_store import filing_in_effect, holdings_in_effect
 from parvum_ingest.model import (
@@ -62,23 +63,7 @@ from parvum_ingest.model import (
     is_cins,
     isin_from_cusip,
 )
-
-_ACCOUNT = Account(
-    account_id="ACC-GROWTH-001",
-    name="Growth Portfolio",
-    custodian_bic="CUSTGB2LXXX",
-    base_currency="USD",
-)
-
-# Berkshire's book is institutional: 227.9m Apple shares. Dividing by a
-# constant preserves the relative weights — the thing that makes the book look
-# real — while yielding a plausible private-client account of roughly $26m.
-#
-# The divisor applies to *shares*, uniformly. Scaling by value instead would
-# look more principled and be wrong: NVR trades near $6,590, so its 11,112
-# shares are $73m of the book yet round to nothing on any value-based scale
-# that keeps Apple's 227.9m shares sensible.
-_SHARE_DIVISOR = Decimal(10_000)
+from parvum_ingest.reference import domicile_of
 
 # Cost basis is absent for about a fifth of positions, and where present sits
 # between roughly half and a little above market — a book of holdings bought
@@ -86,11 +71,6 @@ _SHARE_DIVISOR = Decimal(10_000)
 _COST_BASIS_MISSING_RATE = 0.2
 _COST_BASIS_MIN_FACTOR = Decimal("0.55")
 _COST_BASIS_MAX_FACTOR = Decimal("1.15")
-
-
-# The filer whose disclosed book seeds the account. Becomes per-account
-# configuration when the universe grows beyond one account.
-BERKSHIRE_CIK = 1067983
 
 
 def _cache_dir(explicit: Path | None) -> Path:
@@ -114,20 +94,23 @@ def _cache_dir(explicit: Path | None) -> Path:
     )
 
 
-def _cost_basis(cusip: str, market_value: Decimal) -> Money | None:
+def _cost_basis(account_id: str, cusip: str, market_value: Decimal, currency: str) -> Money | None:
     """A deterministic, plausible cost basis — 13F reports none.
 
-    Seeded from the security's own identifier via sha256 rather than
-    `hash()`, which Python salts per process: a book that differed between
-    runs would break byte-identical regeneration (D-011) in a way that only
-    showed up on someone else's machine.
+    Seeded from (account, security) via sha256 rather than `hash()`, which
+    Python salts per process: a book that differed between runs would break
+    byte-identical regeneration (D-011) in a way that only showed up on
+    someone else's machine. The account is in the seed because two accounts
+    holding the same security bought it at different times — identical cost
+    bases across the universe would be a fingerprint no real book has.
     """
-    rng = Random(int.from_bytes(hashlib.sha256(cusip.encode()).digest()[:8], "big"))
+    key = f"{account_id}:{cusip}".encode()
+    rng = Random(int.from_bytes(hashlib.sha256(key).digest()[:8], "big"))
     if rng.random() < _COST_BASIS_MISSING_RATE:
         return None
     spread = _COST_BASIS_MAX_FACTOR - _COST_BASIS_MIN_FACTOR
     factor = _COST_BASIS_MIN_FACTOR + spread * Decimal(str(rng.random()))
-    return Money(amount=(market_value * factor).quantize(Decimal("0.01")), currency="USD")
+    return Money(amount=(market_value * factor).quantize(Decimal("0.01")), currency=currency)
 
 
 class _SeedPosition(NamedTuple):
@@ -139,50 +122,72 @@ class _SeedPosition(NamedTuple):
     cost_basis: Money | None
 
 
-def _seed_position(holding: Holding13F) -> _SeedPosition:
+def _seed_position(holding: Holding13F, account: AccountSpec) -> _SeedPosition:
     shares = holding.shares
     price = (holding.value_usd / shares).quantize(Decimal("0.01"))
-    quantity = (shares / _SHARE_DIVISOR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    quantity = (shares / account.share_divisor).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     if quantity <= 0:
         # Refuse rather than silently drop: a zero-share position means the
         # divisor no longer suits the filer, which is a decision to make
         # consciously, not a hole to discover in the data later.
         raise ValueError(
-            f"{holding.issuer} ({holding.shares} shares) scales to zero at a "
-            f"divisor of {_SHARE_DIVISOR} — choose a divisor that fits this filer"
+            f"{holding.issuer} ({holding.shares} shares) scales to zero at a divisor "
+            f"of {account.share_divisor} — choose a divisor that fits account "
+            f"{account.account_id}'s filer"
         )
     market_value = (quantity * price).quantize(Decimal("0.01"))
     return _SeedPosition(
-        isin=isin_from_cusip(holding.cusip).value,
+        # The curated domicile slice (see `reference`): Canadian issuers carry
+        # US-looking numeric CUSIPs, and a default-US derivation would mint
+        # ISINs that exist nowhere.
+        isin=isin_from_cusip(holding.cusip, country=domicile_of(holding.cusip)).value,
         name=holding.issuer,
         quantity=quantity,
+        # Prices are quoted in the instrument's own currency (all US-listed:
+        # USD). The *account's* base currency governs its cash statement; a
+        # custody statement valuing USD instruments in USD for an EUR-based
+        # account is normal — converting is reporting's job, not the feed's.
         price=Money(amount=price, currency="USD"),
         market_value=Money(amount=market_value, currency="USD"),
-        cost_basis=_cost_basis(holding.cusip, market_value),
+        cost_basis=_cost_basis(account.account_id, holding.cusip, market_value, "USD"),
     )
 
 
-@lru_cache(maxsize=8)
-def _positions_for(cache_key: str, cache_dir_str: str, cik: int, filing_date_iso: str):
-    # Keyed by the filing's accession (cache_key): positions are a pure
-    # function of the filing, so one filing regime computes once however many
-    # days it spans. CINS holdings are excluded per D-014 — an identifier
-    # cannot be fabricated for them; OpenFIGI mapping (Phase 2) brings the
-    # issuers back.
-    _, holdings = holdings_in_effect(Path(cache_dir_str), cik, date.fromisoformat(filing_date_iso))
-    return tuple(_seed_position(h) for h in holdings if not is_cins(h.cusip))
+@lru_cache(maxsize=32)
+def _positions_for(cache_key: str, cache_dir_str: str, account: AccountSpec):
+    # Keyed by filing accession + account: positions are a pure function of
+    # (filing, account config), so one filing regime computes once however
+    # many days it spans. CINS holdings are excluded per D-014 — an
+    # identifier cannot be fabricated for them; OpenFIGI mapping (Phase 2)
+    # brings the issuers back.
+    _, holdings = holdings_in_effect(
+        Path(cache_dir_str), account.cik, date.fromisoformat(cache_key.split("|")[1])
+    )
+    return tuple(_seed_position(h, account) for h in holdings if not is_cins(h.cusip))
 
 
-def build_book(as_of: date, cache_dir: Path | None = None) -> HoldingsStatement:
+def _model_account(spec: AccountSpec) -> Account:
+    return Account(
+        account_id=spec.account_id,
+        name=spec.name,
+        custodian_bic=CUSTODIAN_BIC,
+        base_currency=spec.base_currency,
+    )
+
+
+def build_book(
+    as_of: date, account: AccountSpec | None = None, cache_dir: Path | None = None
+) -> HoldingsStatement:
     """The clean holdings statement for `as_of`, from the filing then in effect."""
+    spec = account or DEFAULT_ACCOUNT
     store = _cache_dir(cache_dir)
-    filing = filing_in_effect(store, BERKSHIRE_CIK, as_of)
+    filing = filing_in_effect(store, spec.cik, as_of)
     seeds = _positions_for(
-        filing.accession, str(store.resolve()), BERKSHIRE_CIK, filing.filing_date.isoformat()
+        f"{filing.accession}|{filing.filing_date.isoformat()}", str(store.resolve()), spec
     )
     positions = tuple(
         Position(
-            account_id=_ACCOUNT.account_id,
+            account_id=spec.account_id,
             security=SecurityIdentifier(scheme=IdentifierScheme.ISIN, value=seed.isin),
             security_name=seed.name,
             quantity=seed.quantity,
@@ -195,26 +200,27 @@ def build_book(as_of: date, cache_dir: Path | None = None) -> HoldingsStatement:
         for seed in seeds
     )
     return HoldingsStatement(
-        statement_id=f"STMT-{as_of.isoformat()}-{_ACCOUNT.account_id}",
-        account=_ACCOUNT,
+        statement_id=f"STMT-{as_of.isoformat()}-{spec.account_id}",
+        account=_model_account(spec),
         as_of=as_of,
         source_format=FeedFormat.SEMT_002,
         positions=positions,
     )
 
 
-# (type, amount, days_before_as_of for booking, settle_lag_days, description)
-# Securities named here are ones the book actually holds, at quantities and
-# prices consistent with it — a cash statement referencing a position the
+# (type, base amount, days_before_as_of for booking, settle_lag_days)
+# A cash-activity *template*: amounts scale by the account's cash_scale, the
+# currency is the account's base currency, and descriptions are derived from
+# the account's actual holdings — a cash statement referencing a position the
 # account doesn't own is the kind of detail that quietly undermines the whole
 # fixture.
-_SEED_CASH: tuple[tuple[TransactionType, str, int, int, str], ...] = (
-    (TransactionType.DIVIDEND, "484.00", 2, 0, "Dividend Apple Inc"),
-    (TransactionType.INTEREST, "112.35", 2, 0, "Credit interest June"),
-    (TransactionType.BUY, "30420.00", 4, 2, "Purchase 400 Coca Cola Co"),
-    (TransactionType.SELL, "9103.60", 3, 2, "Sale 44 Chevron Corporation"),
-    (TransactionType.FEE, "45.00", 1, 0, "Custody fee Q2"),
-    (TransactionType.TRANSFER_IN, "25000.00", 1, 0, "Client cash contribution"),
+_SEED_CASH: tuple[tuple[TransactionType, str, int, int], ...] = (
+    (TransactionType.DIVIDEND, "484.00", 2, 0),
+    (TransactionType.INTEREST, "112.35", 2, 0),
+    (TransactionType.BUY, "30420.00", 4, 2),
+    (TransactionType.SELL, "9103.60", 3, 2),
+    (TransactionType.FEE, "45.00", 1, 0),
+    (TransactionType.TRANSFER_IN, "25000.00", 1, 0),
 )
 
 _OPENING_BALANCE = Decimal("50000.00")
@@ -224,51 +230,83 @@ _OPENING_BALANCE = Decimal("50000.00")
 _DEBITS = frozenset({TransactionType.BUY, TransactionType.FEE, TransactionType.TRANSFER_OUT})
 
 
-def build_cash_statement(as_of: date) -> CashStatement:
-    """Build the clean seed cash statement as of a given date.
+def _cash_descriptions(as_of: date, spec: AccountSpec, cache_dir: Path | None) -> dict:
+    """Entry descriptions naming securities this account actually holds.
+
+    Derived from the account's own book (largest positions by value), so the
+    dividend and trade narratives stay truthful per account and per filing
+    regime — Berkshire accounts pay Apple dividends, the Pershing account
+    doesn't.
+    """
+    book = build_book(as_of, spec, cache_dir)
+    by_value = sorted(
+        book.positions,
+        key=lambda p: p.market_value.amount if p.market_value else Decimal(0),
+        reverse=True,
+    )
+    top = by_value[0].security_name.title()
+    second = by_value[1].security_name.title() if len(by_value) > 1 else top
+    return {
+        TransactionType.DIVIDEND: f"Dividend {top}",
+        TransactionType.INTEREST: "Credit interest",
+        TransactionType.BUY: f"Purchase {second}",
+        TransactionType.SELL: f"Sale {top}",
+        TransactionType.FEE: "Custody fee",
+        TransactionType.TRANSFER_IN: "Client cash contribution",
+    }
+
+
+def build_cash_statement(
+    as_of: date, account: AccountSpec | None = None, cache_dir: Path | None = None
+) -> CashStatement:
+    """Build one account's clean cash statement as of a given date.
 
     Invariant of the clean book: closing = opening + net of entries. That
     arithmetic truth is what reconciliation will check — and what defect
     injection will deliberately break.
     """
-    ccy = _ACCOUNT.base_currency or "USD"
+    spec = account or DEFAULT_ACCOUNT
+    ccy = spec.base_currency
+    descriptions = _cash_descriptions(as_of, spec, cache_dir)
+
     entries = []
     net = Decimal("0")
-    for i, (txn_type, amount, days_ago, settle_lag, desc) in enumerate(_SEED_CASH, start=1):
-        amt = Decimal(amount)
+    for i, (txn_type, amount, days_ago, settle_lag) in enumerate(_SEED_CASH, start=1):
+        amt = (Decimal(amount) * spec.cash_scale).quantize(Decimal("0.01"))
         booked = as_of - timedelta(days=days_ago)
         entries.append(
             Transaction(
-                transaction_id=f"TXN-{as_of.isoformat()}-{i:04d}",
-                account_id=_ACCOUNT.account_id,
+                transaction_id=f"TXN-{as_of.isoformat()}-{spec.account_id}-{i:04d}",
+                account_id=spec.account_id,
                 type=txn_type,
                 trade_date=booked,
                 settlement_date=booked + timedelta(days=settle_lag),
                 amount=Money(amount=amt, currency=ccy),
-                description=desc,
+                description=descriptions[txn_type],
             )
         )
         net += -amt if txn_type in _DEBITS else amt
 
+    opening = (_OPENING_BALANCE * spec.cash_scale).quantize(Decimal("0.01"))
     period_start = as_of - timedelta(days=7)
     balances = (
         CashBalance(
-            account_id=_ACCOUNT.account_id,
+            account_id=spec.account_id,
             balance_type=BalanceType.OPENING,
-            balance=Money(amount=_OPENING_BALANCE, currency=ccy),
+            balance=Money(amount=opening, currency=ccy),
             as_of=period_start,
         ),
         CashBalance(
-            account_id=_ACCOUNT.account_id,
+            account_id=spec.account_id,
             balance_type=BalanceType.CLOSING,
-            balance=Money(amount=_OPENING_BALANCE + net, currency=ccy),
+            balance=Money(amount=opening + net, currency=ccy),
             as_of=as_of,
         ),
     )
 
     return CashStatement(
-        statement_id=f"CASH-{as_of.isoformat()}-{_ACCOUNT.account_id}",
-        account=_ACCOUNT,
+        statement_id=f"CASH-{as_of.isoformat()}-{spec.account_id}",
+        account=_model_account(spec),
         as_of=as_of,
         source_format=FeedFormat.CAMT_053,
         balances=balances,

@@ -15,13 +15,13 @@ This document details the exact file schemas for the three conformed custodial f
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:semt.002.001.11">
   <SctiesBalCtdyRpt>
     <StmtGnlDtls>
-      <StmtId>STMT-2026-07-16-ACC-GROWTH-001</StmtId>
+      <StmtId>STMT-2026-07-16-60011234</StmtId>
       <StmtDtTm>
         <Dt>2026-07-16</Dt>
       </StmtDtTm>
     </StmtGnlDtls>
     <SfkpgAcct>
-      <Id>ACC-GROWTH-001</Id>
+      <Id>60011234</Id>
       <Nm>Growth Portfolio</Nm>
       <AcctSvcr>
         <AnyBIC>CUSTGB2LXXX</AnyBIC>
@@ -60,7 +60,7 @@ This document details the exact file schemas for the three conformed custodial f
 | `.../StmtGnlDtls/StmtId` | String | Required | **Statement Identifier**: Unique ID for this statement instance. |
 | `.../StmtGnlDtls/StmtDtTm/Dt` | Date | Required | **Statement Date Time / Date**: The date (YYYY-MM-DD) the statement was generated. |
 | `.../SfkpgAcct` | Element | Required | **Safekeeping Account**: Account and custodian information. |
-| `.../SfkpgAcct/Id` | String | Required | **Identifier**: Safekeeping account number (e.g. `ACC-GROWTH-001`). |
+| `.../SfkpgAcct/Id` | String | Required | **Identifier**: Safekeeping account number (e.g. `60011234` — opaque custodian-issued numbers; the mapping to owners is reference data). |
 | `.../SfkpgAcct/Nm` | String | Optional | **Name**: Display name of the account (e.g. `Growth Portfolio`). |
 | `.../SfkpgAcct/AcctSvcr/AnyBIC` | String | Optional | **Account Servicer / Any Business Identifier Code**: SWIFT BIC of the custodian bank managing the account. |
 | `.../SfkpgAcct/BaseCcy` | String | Optional | **Base Currency**: Currency code of the account (3-letter ISO 4217, e.g. `USD`). |
@@ -88,10 +88,10 @@ A line-based, tag-qualifier text format. Blocks are opened with `:16R:BLOCKNAME`
 ### Sample File Structure
 ```text
 :16R:GENL
-:20C::SEME//STMT-2026-07-16-ACC-GROWTH-001
+:20C::SEME//STMT-2026-07-16-60011234
 :23G:NEWM
 :98A::STAT//2026-07-16
-:97A::SAFE//ACC-GROWTH-001
+:97A::SAFE//60011234
 :16S:GENL
 :16R:FIN
 :35B:ISIN US0378331005
@@ -133,21 +133,28 @@ APPLE INC
 ### Namespace
 `urn:iso:std:iso:20022:tech:xsd:camt.053.001.08`
 
+### One file, many statements
+Unlike the two holdings formats (one account per message), camt.053 carries a
+repeating `Stmt` block — the custodian's daily cash file (`CUSTGB2L.camt053.xml`)
+contains one statement per cash account it services, each with its own account
+block, balances, entries, and currency. The sample below shows a single `Stmt`;
+the daily file repeats it per account.
+
 ### Sample File Structure
 ```xml
 <?xml version='1.0' encoding='utf-8'?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
   <BkToCstmrStmt>
     <GrpHdr>
-      <MsgId>CASH-2026-07-16-ACC-GROWTH-001</MsgId>
+      <MsgId>CAMT-2026-07-16</MsgId>
       <CreDtTm>2026-07-16T00:00:00</CreDtTm>
     </GrpHdr>
     <Stmt>
-      <Id>CASH-2026-07-16-ACC-GROWTH-001</Id>
+      <Id>CASH-2026-07-16-60011234</Id>
       <Acct>
         <Id>
           <Othr>
-            <Id>ACC-GROWTH-001</Id>
+            <Id>60011234</Id>
           </Othr>
         </Id>
         <Ccy>USD</Ccy>

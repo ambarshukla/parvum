@@ -98,6 +98,12 @@ magic — every term gets defined here on first use.
 - **Content-keyed idempotency** — deciding whether work is needed by comparing a checksum of the data, not just its identity. "Have I seen this path?" skips restatements silently; "have I seen this content at this path?" catches them.
 - **Superseding** — replacing a restated file's derived rows (delete, then re-parse) so the table matches the file as it now stands, as opposed to keeping every version with a validity flag (SCD-2).
 - **Share class** — one issuer, several distinct securities with different rights and different identifiers (Alphabet Class A vs Class C). They share a name and must not be deduplicated by it.
+- **Safekeeping account** — the custody account holding securities at a custodian; semt.002/MT535 are statements *of one safekeeping account*, which is why holdings files come one per account.
+- **Consolidated cash file** — one camt.053 carrying a `Stmt` block per cash account the custodian services for a recipient; the format is designed for it, and "one file = one statement" is an assumption it deliberately breaks.
+- **SMA (separately managed account)** — an account run under a specific mandate by a manager, held directly in the client's name (vs pooled fund units); shows up in feeds as just another account.
+- **Cross-listing** — a company's *ordinary shares* trading on a foreign exchange (Brookfield, Canadian National on NYSE): the security keeps its home-country ISIN even though its CUSIP looks domestic.
+- **ADR (American depositary receipt)** — a US-issued certificate representing foreign shares (Diageo, InBev). Unlike a cross-listing, the ADR itself is a genuine US security with a US CUSIP *and* US ISIN — so it needs no domicile override.
+- **Issuer domicile** — the country prefix an ISIN construction needs and a CUSIP does not reveal; ours comes from a small curated map (D-020) until the securities master owns it.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.
