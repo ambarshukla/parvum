@@ -113,6 +113,10 @@ magic — every term gets defined here on first use.
 - **Ownership closes (100% rule)** — every owned node's incoming percentages must sum to exactly 1; in a self-contained universe, anything less means ownership is unaccounted for — a modelling error, caught at construction.
 - **DAG (directed acyclic graph)** — a graph with direction and no cycles; ownership is one because a chain of entities can't loop back to own itself.
 - **Securities master** — the reference table mapping instrument identifiers to canonical ids, names, sector, and type (OpenFIGI/SEC/GLEIF); the *other* half of Phase 2 reference data, distinct from the ownership layer.
+- **FIGI (Financial Instrument Global Identifier)** — Bloomberg's open, free, permanent instrument id (e.g. `BBG000B9XRY4` = Apple); the join-friendly canonical key the securities master normalises feed ISINs onto.
+- **OpenFIGI** — the free API that maps ISIN/CUSIP/SEDOL → FIGI + name, security type, and market sector; batches up to 100 lookups per request, higher rate limit with a key.
+- **"Unknown" bucket** — the securities master's explicit home for identifiers it couldn't map: kept as flagged rows, never dropped, so an unidentifiable security still shows in a client's account and can be routed to reference-data curation. A miss is data.
+- **Market sector / security type (FIGI)** — OpenFIGI's coarse instrument classification (sector `Equity`/`Corp`…, type `Common Stock`/`ADR`…); what gold groups and reports allocations by.
 - **Git folder (Databricks Repos)** — a clone of a git repository inside the Databricks workspace; notebooks run from it and can import the repo's own packages, keeping one codebase across laptop and lakehouse.
 - **File registry** — a table with one row per raw file received (path, format, checksum, status); turns "what raw data do we have?" into a SQL query and anchors lineage.
 - **dbutils** — Databricks' notebook utility object (filesystem helpers, library restarts, secrets); exists only inside Databricks, one reason notebooks aren't run locally.

@@ -6,6 +6,7 @@
 -include .env
 export DATABRICKS_HOST
 export SEC_USER_AGENT
+export OPENFIGI_API_KEY
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
 # missing file); without it the compose file's ${VAR:-default} values apply.
@@ -19,7 +20,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f
+.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f build-master
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -63,6 +64,13 @@ fmt: ## auto-format and auto-fix lint findings
 fetch-13f: ## sync the local 13F filing store from SEC EDGAR (needs SEC_USER_AGENT)
 	@test -n "$(SEC_USER_AGENT)" || { echo "SEC_USER_AGENT not set — see .env.example (SEC rejects anonymous requests)"; exit 1; }
 	cd ingest && uv run parvum-fetch-13f
+
+# Maps the universe's ISINs -> FIGI + name/type/sector via OpenFIGI, writing
+# the securities master (Unknown bucket included). Needs the 13F store first
+# (that is where the ISINs come from). OPENFIGI_API_KEY is optional but raises
+# the rate limit — see .env.example.
+build-master: ## build the securities master from OpenFIGI (needs data/edgar; OPENFIGI_API_KEY optional)
+	cd ingest && uv run parvum-build-master
 
 generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replays one day)
 	cd ingest && uv run parvum-generate --days $(DAYS) $(if $(END),--end $(END)) --out ../data/raw
