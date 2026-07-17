@@ -1,24 +1,33 @@
 """Deterministic seed book: the 'truth' the feed generator renders.
 
 The portfolio's *shape* is real. Positions, relative weights and prices come
-from a committed SEC 13F extract (D-014) — Berkshire Hathaway's actual
-disclosed holdings — rather than from names someone picked. Its *scale* is
-honest fiction: share counts are divided by a constant so the book reads like
-a private client's account rather than a $263bn institution's.
+from SEC 13F filings — Berkshire Hathaway's actual disclosed holdings —
+selected **point-in-time** (D-017): the statement for `as_of` is built from
+the latest filing that was *public* by that date. So the book genuinely
+changes at filing boundaries (Q4-2025's holdings until 2026-05-14, Q1-2026's
+from 2026-05-15), exactly as a real account evolves — and refreshing the
+filing store never rewrites history, because a new filing affects only dates
+after it was filed.
 
-Deterministic on purpose: the same `as_of` always yields an identical
-statement, so renderers, parsers and defect injection all have a stable
-fixture, and any historical day regenerates byte-identically (D-011). Defect
-injection corrupts *copies* of this book; the seed itself stays pristine.
+The filings live in a local store (`data/edgar/`, gitignored — see
+`edgar_store`), not in git: they are pipeline input, like the raw feed files
+themselves. Determinism (D-011) survives because filings are immutable and
+pinned by accession number; the same store state always yields the same book.
+
+Scale is honest fiction: share counts divided by a constant so the book reads
+like a private client's account rather than a $263bn institution's.
 
 What 13F does not carry, and how it's filled:
 
 - **Prices** aren't reported, but `value / shares` recovers the real
-  quarter-end price — which is where these come from. Static thereafter: this
-  book exists to exercise formats and reconciliation, not to be current.
+  quarter-end price — static within each filing's regime, stepping at
+  boundaries. This book exercises formats and reconciliation, not markets.
 - **Cost basis** isn't reported at all. Synthesized deterministically from
   each security's own identifier, and left absent for roughly a fifth of
   positions, because sparse optional data is normal rather than only a defect.
+- **ISINs** are derived from CUSIPs where ISO 6166's rule genuinely applies;
+  CINS holdings (foreign issuers, e.g. Chubb) are excluded rather than
+  fabricated (D-014's identifier policy, unchanged).
 
 Note that duplicate `security_name`s are deliberate and real: Alphabet is held
 in two share classes, one issuer name across two distinct ISINs. Anything
@@ -27,14 +36,16 @@ rather than in production.
 """
 
 import hashlib
-import json
+import os
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
-from importlib import resources
+from pathlib import Path
 from random import Random
 from typing import NamedTuple
 
+from parvum_ingest.edgar import Holding13F
+from parvum_ingest.edgar_store import filing_in_effect, holdings_in_effect
 from parvum_ingest.model import (
     Account,
     BalanceType,
@@ -48,6 +59,8 @@ from parvum_ingest.model import (
     SecurityIdentifier,
     Transaction,
     TransactionType,
+    is_cins,
+    isin_from_cusip,
 )
 
 _ACCOUNT = Account(
@@ -75,17 +88,30 @@ _COST_BASIS_MIN_FACTOR = Decimal("0.55")
 _COST_BASIS_MAX_FACTOR = Decimal("1.15")
 
 
-@lru_cache(maxsize=1)
-def _seed_document() -> dict:
-    """The committed 13F extract.
+# The filer whose disclosed book seeds the account. Becomes per-account
+# configuration when the universe grows beyond one account.
+BERKSHIRE_CIK = 1067983
 
-    Loaded lazily and cached, deliberately: `parvum_ingest/__init__` imports
-    this module, and the Databricks bronze job imports the package purely for
-    its parsers. Reading a data file at import time would make an unrelated
-    job fail if that file were ever missing.
+
+def _cache_dir(explicit: Path | None) -> Path:
+    """Resolve the filing store location, lazily and loudly.
+
+    Explicit argument first (the generator passes one); then the
+    PARVUM_EDGAR_CACHE environment variable (how tests point at fixtures).
+    Resolved at call time, never import time: `parvum_ingest/__init__`
+    imports this module, and the Databricks bronze job imports the package
+    purely for its parsers — an unrelated job must not fail over a store it
+    never reads.
     """
-    path = resources.files("parvum_ingest").joinpath("seed", "holdings_13f.json")
-    return json.loads(path.read_text(encoding="utf-8"))
+    if explicit is not None:
+        return explicit
+    env = os.environ.get("PARVUM_EDGAR_CACHE", "").strip()
+    if env:
+        return Path(env)
+    raise RuntimeError(
+        "no 13F filing store configured: pass cache_dir, or set PARVUM_EDGAR_CACHE. "
+        "Locally, `make fetch-13f` populates data/edgar and the CLI passes it through."
+    )
 
 
 def _cost_basis(cusip: str, market_value: Decimal) -> Money | None:
@@ -113,40 +139,47 @@ class _SeedPosition(NamedTuple):
     cost_basis: Money | None
 
 
-@lru_cache(maxsize=1)
-def _seed_positions() -> tuple[_SeedPosition, ...]:
-    positions = []
-    for holding in _seed_document()["holdings"]:
-        shares = Decimal(holding["shares"])
-        value = Decimal(holding["value_usd"])
-
-        price = (value / shares).quantize(Decimal("0.01"))
-        quantity = (shares / _SHARE_DIVISOR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        if quantity <= 0:
-            # Refuse rather than silently drop: a zero-share position means the
-            # divisor no longer suits the filer, which is a decision to make
-            # consciously, not a hole to discover in the data later.
-            raise ValueError(
-                f"{holding['issuer']} ({holding['shares']} shares) scales to zero at a "
-                f"divisor of {_SHARE_DIVISOR} — choose a divisor that fits this seed"
-            )
-
-        market_value = (quantity * price).quantize(Decimal("0.01"))
-        positions.append(
-            _SeedPosition(
-                isin=holding["isin"],
-                name=holding["issuer"],
-                quantity=quantity,
-                price=Money(amount=price, currency="USD"),
-                market_value=Money(amount=market_value, currency="USD"),
-                cost_basis=_cost_basis(holding["cusip"], market_value),
-            )
+def _seed_position(holding: Holding13F) -> _SeedPosition:
+    shares = holding.shares
+    price = (holding.value_usd / shares).quantize(Decimal("0.01"))
+    quantity = (shares / _SHARE_DIVISOR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    if quantity <= 0:
+        # Refuse rather than silently drop: a zero-share position means the
+        # divisor no longer suits the filer, which is a decision to make
+        # consciously, not a hole to discover in the data later.
+        raise ValueError(
+            f"{holding.issuer} ({holding.shares} shares) scales to zero at a "
+            f"divisor of {_SHARE_DIVISOR} — choose a divisor that fits this filer"
         )
-    return tuple(positions)
+    market_value = (quantity * price).quantize(Decimal("0.01"))
+    return _SeedPosition(
+        isin=isin_from_cusip(holding.cusip).value,
+        name=holding.issuer,
+        quantity=quantity,
+        price=Money(amount=price, currency="USD"),
+        market_value=Money(amount=market_value, currency="USD"),
+        cost_basis=_cost_basis(holding.cusip, market_value),
+    )
 
 
-def build_book(as_of: date) -> HoldingsStatement:
-    """Build the clean seed holdings statement as of a given date."""
+@lru_cache(maxsize=8)
+def _positions_for(cache_key: str, cache_dir_str: str, cik: int, filing_date_iso: str):
+    # Keyed by the filing's accession (cache_key): positions are a pure
+    # function of the filing, so one filing regime computes once however many
+    # days it spans. CINS holdings are excluded per D-014 — an identifier
+    # cannot be fabricated for them; OpenFIGI mapping (Phase 2) brings the
+    # issuers back.
+    _, holdings = holdings_in_effect(Path(cache_dir_str), cik, date.fromisoformat(filing_date_iso))
+    return tuple(_seed_position(h) for h in holdings if not is_cins(h.cusip))
+
+
+def build_book(as_of: date, cache_dir: Path | None = None) -> HoldingsStatement:
+    """The clean holdings statement for `as_of`, from the filing then in effect."""
+    store = _cache_dir(cache_dir)
+    filing = filing_in_effect(store, BERKSHIRE_CIK, as_of)
+    seeds = _positions_for(
+        filing.accession, str(store.resolve()), BERKSHIRE_CIK, filing.filing_date.isoformat()
+    )
     positions = tuple(
         Position(
             account_id=_ACCOUNT.account_id,
@@ -159,7 +192,7 @@ def build_book(as_of: date) -> HoldingsStatement:
             market_value=seed.market_value,
             cost_basis=seed.cost_basis,
         )
-        for seed in _seed_positions()
+        for seed in seeds
     )
     return HoldingsStatement(
         statement_id=f"STMT-{as_of.isoformat()}-{_ACCOUNT.account_id}",

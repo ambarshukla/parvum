@@ -59,6 +59,16 @@ jobs:
         working-directory: ingest
         run: uv sync --locked
 
+      # Books are built point-in-time from 13F filings (D-017), so the runner
+      # needs the filing store before it can generate. Sync is incremental —
+      # filings are immutable, so on most days this downloads nothing and a
+      # new quarter's filing is picked up the morning after EDGAR has it.
+      # SEC requires a named contact on every request (403 otherwise).
+      - name: Sync the 13F filing store
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: make fetch-13f
+
       # DAYS/END reach the Makefile through the environment — its `?=` defaults
       # yield to whatever is already set — so CI needs no special flags, and
       # inputs never get interpolated into a shell command.

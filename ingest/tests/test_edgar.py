@@ -6,6 +6,7 @@ failure waiting for someone else's outage (we already learned this the hard
 way when a GitHub API blip failed a run).
 """
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,13 +14,12 @@ import pytest
 
 from parvum_ingest.edgar import (
     EdgarError,
-    Filing13F,
     Holding13F,
     _user_agent,
     parse_information_table,
 )
+from parvum_ingest.edgar_store import filing_in_effect, filings_on_disk, holdings_in_effect
 from parvum_ingest.model import IdentifierScheme, is_cins, isin_from_cusip
-from parvum_ingest.seed_13f import build_seed
 
 FIXTURE = Path(__file__).parent / "fixtures" / "13f_information_table.xml"
 
@@ -162,54 +162,50 @@ def test_namespace_prefix_does_not_matter():
     assert len(parse_information_table(xml)) == 4
 
 
-# --- the seed extract ----------------------------------------------------
+# --- the filing store: point-in-time selection ----------------------------
+# The fixture store holds two filings with real accession metadata:
+#   Q4-2025  filed 2026-02-17  accession 0001193125-26-054580
+#   Q1-2026  filed 2026-05-15  accession 0001193125-26-226661
+
+STORE = Path(__file__).parent / "fixtures" / "edgar"
+CIK = 1067983
 
 
-@pytest.fixture
-def filing() -> Filing13F:
-    return Filing13F(
-        cik=1067983,
-        filer="BERKSHIRE HATHAWAY INC",
-        accession="0001193125-26-226661",
-        filing_date="2026-05-15",
-        period="2026-03-31",
-    )
+def test_filings_come_back_newest_first():
+    filings = filings_on_disk(STORE, CIK)
+    assert [f.accession for f in filings] == ["0001193125-26-226661", "0001193125-26-054580"]
 
 
-def test_seed_excludes_cins_and_says_why(filing, holdings):
-    seed = build_seed(filing, holdings)
-    assert [e["cusip"] for e in seed["excluded"]] == ["H1467J104"]
-    assert "CINS" in seed["excluded"][0]["reason"]
-    # Excluded means excluded — not silently carried with a fabricated ISIN.
-    assert not any(h["cusip"] == "H1467J104" for h in seed["holdings"])
+def test_filing_in_effect_is_the_latest_one_already_public():
+    # Mid-April sits after the Q4 filing landed but before Q1's did: a
+    # statement then can only reflect Q4 holdings, whatever the calendar
+    # quarter says.
+    assert filing_in_effect(STORE, CIK, date(2026, 4, 20)).accession == "0001193125-26-054580"
 
 
-def test_seed_carries_derived_isins(filing, holdings):
-    seed = build_seed(filing, holdings)
-    apple = next(h for h in seed["holdings"] if h["cusip"] == "037833100")
-    assert apple["isin"] == "US0378331005"
+def test_filing_boundary_is_the_filing_date_not_the_period():
+    before = filing_in_effect(STORE, CIK, date(2026, 5, 14))
+    on_day = filing_in_effect(STORE, CIK, date(2026, 5, 15))
+    assert before.period.isoformat() == "2025-12-31"
+    assert on_day.period.isoformat() == "2026-03-31"
 
 
-def test_seed_records_provenance(filing, holdings):
-    seed = build_seed(filing, holdings)
-    # The accession pins the exact immutable filing — the one fact that makes
-    # this extract reproducible by anyone else.
-    assert seed["source"]["accession"] == "0001193125-26-226661"
-    assert seed["source"]["period"] == "2026-03-31"
+def test_dates_before_any_filing_fail_with_guidance():
+    # 2026-02-16 predates the earliest cached filing: nothing was public, so
+    # no book can honestly exist. Guessing would be inventing history.
+    with pytest.raises(EdgarError, match="was public by"):
+        filing_in_effect(STORE, CIK, date(2026, 2, 16))
 
 
-def test_seed_has_no_retrieval_timestamp(filing, holdings):
-    # A timestamp would make the file differ on every fetch, turning the
-    # scheduled check into a source of meaningless pull requests.
-    seed = build_seed(filing, holdings)
-    assert "retrieved_at" not in seed["source"]
+def test_unknown_filer_fails_with_guidance():
+    with pytest.raises(EdgarError, match="fetch-13f"):
+        filing_in_effect(STORE, 999999, date(2026, 7, 1))
 
 
-def test_seed_keeps_exact_numbers_as_strings(filing, holdings):
-    # JSON numbers are floats; share counts and dollar values must not be.
-    seed = build_seed(filing, holdings)
-    assert all(isinstance(h["shares"], str) for h in seed["holdings"])
-    assert all(isinstance(h["value_usd"], str) for h in seed["holdings"])
+def test_holdings_in_effect_parses_the_right_filing():
+    filing, held = holdings_in_effect(STORE, CIK, date(2026, 4, 20))
+    assert filing.accession == "0001193125-26-054580"
+    assert {h.issuer for h in held} == {"APPLE INC", "COCA COLA CO", "CITIGROUP INC"}
 
 
 # --- SEC's access policy -------------------------------------------------

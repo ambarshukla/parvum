@@ -121,26 +121,39 @@ def _get(url: str, *, timeout: float = 30.0) -> bytes:
         _last_request_at = time.monotonic()
 
 
-def latest_13f(cik: int) -> Filing13F:
-    """The most recent 13F-HR filed by `cik`.
+def list_13f_filings(cik: int, *, limit: int = 4) -> tuple[Filing13F, ...]:
+    """The most recent `limit` 13F-HR filings by `cik`, newest first.
+
+    History matters because books are built *point-in-time*: the statement
+    for a date uses the filing in effect on that date, so a backfill spanning
+    a filing boundary needs the filing before it too.
 
     Amendments (`13F-HR/A`) are skipped: they restate an earlier filing, and
-    stitching a restatement onto its original is a reconciliation exercise,
-    not a fetch concern. Only EDGAR's `recent` window (roughly the last year)
-    is searched, which is ample for a filer reporting quarterly.
+    a faithful point-in-time store would supersede the original from the
+    amendment's own filing date — a recorded limitation, not an oversight.
+    EDGAR's `recent` window reaches back years for a quarterly filer.
     """
     payload = json.loads(_get(_SUBMISSIONS_URL.format(cik=cik)))
     recent = payload["filings"]["recent"]
-    for i, form in enumerate(recent["form"]):
-        if form == "13F-HR":
-            return Filing13F(
-                cik=cik,
-                filer=payload["name"],
-                accession=recent["accessionNumber"][i],
-                filing_date=date.fromisoformat(recent["filingDate"][i]),
-                period=date.fromisoformat(recent["reportDate"][i]),
-            )
-    raise EdgarError(f"no 13F-HR filing in EDGAR's recent window for CIK {cik}")
+    filings = [
+        Filing13F(
+            cik=cik,
+            filer=payload["name"],
+            accession=recent["accessionNumber"][i],
+            filing_date=date.fromisoformat(recent["filingDate"][i]),
+            period=date.fromisoformat(recent["reportDate"][i]),
+        )
+        for i, form in enumerate(recent["form"])
+        if form == "13F-HR"
+    ]
+    if not filings:
+        raise EdgarError(f"no 13F-HR filing in EDGAR's recent window for CIK {cik}")
+    return tuple(filings[:limit])
+
+
+def latest_13f(cik: int) -> Filing13F:
+    """The most recent 13F-HR filed by `cik`."""
+    return list_13f_filings(cik, limit=1)[0]
 
 
 def information_table_url(filing: Filing13F) -> str:
