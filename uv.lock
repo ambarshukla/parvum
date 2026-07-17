@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "parvum-ingest",
+    "parvum-reference",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -41,7 +47,34 @@ wheels = [
 [[package]]
 name = "parvum-ingest"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "ingest" }
+dependencies = [
+    { name = "parvum-reference" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "parvum-reference", editable = "reference" },
+    { name = "pydantic", specifier = ">=2.7" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.5" },
+]
+
+[[package]]
+name = "parvum-reference"
+version = "0.1.0"
+source = { editable = "reference" }
 dependencies = [
     { name = "pydantic" },
 ]

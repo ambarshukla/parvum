@@ -38,8 +38,11 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-# This notebook lives at <repo>/spark/; the ingest package at <repo>/ingest/src.
+# This notebook lives at <repo>/spark/; the ingest package at <repo>/ingest/src
+# and the reference package (which ingest imports) at <repo>/reference/src.
+# Both paths are needed: importing parvum_ingest pulls parvum_reference in.
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "ingest", "src")))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "reference", "src")))
 
 from parvum_ingest.formats import FeedParseError
 from parvum_ingest.formats.camt053 import parse_camt053

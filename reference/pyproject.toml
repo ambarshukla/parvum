@@ -1,0 +1,36 @@
+# Python project definition for the reference-data layer (PEP 621).
+# A separate package from parvum-ingest because the dependency must point
+# one way only: ingest *consumes* reference data (account universe, issuer
+# domiciles, ownership graph, securities master) and never the reverse.
+# Both are members of the uv workspace rooted at the repo top, sharing one
+# lockfile so they can never resolve different dependency versions.
+
+[project]
+name = "parvum-reference"
+version = "0.1.0"
+description = "Reference data for Parvum: account universe, ownership graph, and securities master"
+requires-python = ">=3.12"
+dependencies = [
+    # Reference data is curated, not generated — but it is still validated
+    # on construction (the ownership graph proves itself acyclic and fully
+    # allocated at build time), and Pydantic is what enforces that.
+    "pydantic>=2.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+# Ruff config is shared across the workspace: see <repo>/ruff.toml.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parvum_reference"]

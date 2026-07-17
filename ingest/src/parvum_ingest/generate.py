@@ -35,12 +35,12 @@ from datetime import date, timedelta
 from pathlib import Path
 from random import Random
 
-from parvum_ingest.accounts import CUSTODIAN_BIC, UNIVERSE
 from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.defects import DefectConfig, DefectType, inject_cash, inject_holdings
 from parvum_ingest.formats.camt053 import render_camt053
 from parvum_ingest.formats.mt535 import render_mt535
 from parvum_ingest.formats.semt002 import render_semt002
+from parvum_reference.accounts import CUSTODIAN_BIC, UNIVERSE
 
 _HOLDINGS_POOL = (
     DefectType.MISSING_COST_BASIS,

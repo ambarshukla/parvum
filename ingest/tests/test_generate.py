@@ -5,11 +5,11 @@ import json
 from datetime import date
 from pathlib import Path
 
-from parvum_ingest.accounts import UNIVERSE
 from parvum_ingest.formats.camt053 import parse_camt053
 from parvum_ingest.formats.mt535 import parse_mt535
 from parvum_ingest.formats.semt002 import parse_semt002
 from parvum_ingest.generate import generate
+from parvum_reference.accounts import UNIVERSE
 
 # Fri 2026-07-10 .. Mon 2026-07-13: four calendar days, two business days.
 END = date(2026, 7, 13)

@@ -5,9 +5,9 @@ from decimal import Decimal
 
 import pytest
 
-from parvum_ingest.accounts import UNIVERSE
 from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.edgar import EdgarError
+from parvum_reference.accounts import UNIVERSE
 
 AS_OF = date(2026, 7, 15)
 
@@ -98,7 +98,7 @@ def test_the_waste_pair_lands_on_opposite_sides_of_the_border() -> None:
     # the curated map had missed it — so this pins both, against the issuers'
     # real ISINs.
     from parvum_ingest.model import isin_from_cusip
-    from parvum_ingest.reference import domicile_of
+    from parvum_reference.domicile import domicile_of
 
     assert domicile_of("94106L109") == "US"
     assert domicile_of("94106B101") == "CA"

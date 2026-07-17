@@ -1,0 +1,11 @@
+# uv workspace root — a "virtual" root: it defines no package of its own,
+# only the membership. One uv.lock lives here for every member, so ingest
+# and reference always resolve the exact same dependency versions; a
+# version skew between them becomes unrepresentable rather than unlikely.
+#
+# `uv run` from inside any member directory walks up to this file, syncs
+# the shared environment, and runs with the member's cwd — which is why
+# the Makefile's `cd ingest && uv run pytest` keeps working unchanged.
+
+[tool.uv.workspace]
+members = ["ingest", "reference"]

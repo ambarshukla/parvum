@@ -29,7 +29,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from parvum_ingest.accounts import UNIVERSE
+from parvum_reference.accounts import UNIVERSE
 
 _KNOWN_ACCOUNTS = frozenset(spec.account_id for spec in UNIVERSE)
 

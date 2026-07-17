@@ -8,8 +8,8 @@ CI never depends on OpenFIGI being reachable.
 import json
 from pathlib import Path
 
-from parvum_ingest.openfigi import FigiRecord
-from parvum_ingest.securities_master import (
+from parvum_reference.openfigi import FigiRecord
+from parvum_reference.securities_master import (
     SecurityMasterEntry,
     build_entries,
     load_master,

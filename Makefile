@@ -51,14 +51,17 @@ psql: ## open a psql shell in the running container
 clean: ## stop containers AND DELETE the data volume (destructive)
 	$(COMPOSE) down -v
 
-test: ## run Python tests (mirrors CI)
+test: ## run Python tests, both workspace packages (mirrors CI)
 	cd ingest && uv run pytest
+	cd reference && uv run pytest
 
-lint: ## lint + format check (mirrors CI)
+lint: ## lint + format check, both workspace packages (mirrors CI)
 	cd ingest && uv run ruff format --check . && uv run ruff check .
+	cd reference && uv run ruff format --check . && uv run ruff check .
 
-fmt: ## auto-format and auto-fix lint findings
+fmt: ## auto-format and auto-fix lint findings, both workspace packages
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
+	cd reference && uv run ruff format . && uv run ruff check --fix .
 
 # Incremental: filings are immutable, so anything already in data/edgar is
 # never re-fetched. SEC requires a contact in the User-Agent — see .env.example.

@@ -183,3 +183,10 @@ Append-only. Format: context / choice / why / alternatives. Newest last.
 ## D-021 amendment · 2026-07-17 · `reference/` package extraction deferred to the silver slice
 
 - D-021 planned to extract `reference/` into its own package the moment the securities master arrived, moving ownership/domicile/accounts with it. In practice the securities master needs the universe's ISINs, which come from `accounts` + the 13F store in `parvum_ingest` — so it was built as `parvum_ingest.openfigi` + `parvum_ingest.securities_master` alongside them. **Revised trigger:** extract `reference/` as its own package during the silver build, when the ingest-vs-reference boundary is being drawn for real and the move is one focused refactor rather than a split done ahead of need. No behaviour changes; only where the modules live.
+
+## D-021 amendment II · 2026-07-18 · `reference/` extracted as `parvum-reference` (uv workspace)
+
+- The trigger set in amendment I (the silver build) arrived; the split is done. `accounts`, `domicile` (renamed from `reference.py`), `ownership`, `openfigi`, `securities_master` + their tests now live in the `parvum-reference` package; **the dependency rule is one-directional: ingest → reference, never back**. `accounts` moved *with* reference (the universe is the firm's account master — reference data; `ownership` validates against it). `parvum-build-master` stays in ingest: it reads the 13F store, so it is pipeline orchestration that *calls* reference.
+- Both packages are members of a uv workspace with a virtual root and a single lockfile — version skew between them is unrepresentable. Shared `ruff.toml` at the root so both packages are first-party to the import sorter and style cannot drift.
+- CI: a second explicit job (`reference`), not a matrix — a matrix renames status checks and would detach the branch-protection requirement on `ingest`. The `reference` check should be added to the required list.
+- The bronze notebook's `sys.path` gained `reference/src` in the same commit, verified on a bare interpreter (not the workspace venv, which would mask a path bug by having the packages installed).
