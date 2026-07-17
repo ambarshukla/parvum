@@ -13,6 +13,7 @@ from parvum_reference.ownership import (
     LegalEntity,
     OwnershipEdge,
     OwnershipGraph,
+    ownership_bridge,
 )
 
 ALL_ACCOUNTS = [spec.account_id for spec in UNIVERSE]
@@ -110,3 +111,21 @@ def test_a_cycle_is_rejected() -> None:
 def test_immutability() -> None:
     with pytest.raises(ValidationError):
         OWNERSHIP.clients[0].name = "changed"  # type: ignore[misc]
+
+
+def test_bridge_covers_every_account_and_closes_at_100pct() -> None:
+    rows = ownership_bridge()
+    by_account: dict[str, Decimal] = {}
+    for row in rows:
+        by_account[row["account_id"]] = (
+            by_account.get(row["account_id"], Decimal(0)) + row["ownership_pct"]
+        )
+    assert set(by_account) == {spec.account_id for spec in UNIVERSE}
+    assert all(total == Decimal(1) for total in by_account.values())
+
+
+def test_bridge_splits_the_shared_account() -> None:
+    shared = {r["client_id"]: r for r in ownership_bridge() if r["account_id"] == "X4478210"}
+    assert shared["CLI-REYES"]["ownership_pct"] == Decimal("0.6")
+    assert shared["CLI-OKAFOR"]["ownership_pct"] == Decimal("0.4")
+    assert shared["CLI-REYES"]["client_name"] == "Reyes Family"

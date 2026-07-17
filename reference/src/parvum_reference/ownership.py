@@ -224,3 +224,25 @@ _EDGES = (
 )
 
 OWNERSHIP = OwnershipGraph(clients=_CLIENTS, entities=_ENTITIES, edges=_EDGES)
+
+
+def ownership_bridge(graph: OwnershipGraph = OWNERSHIP) -> tuple[dict, ...]:
+    """The account → client bridge, flattened for a join: one row per
+    (account, ultimately-owning client) with the effective fraction.
+
+    This is the resolver's output in table shape — what silver joins
+    positions against. Lives here rather than in a notebook so the flattening
+    (and the guarantee that each account's fractions close at 100%) is
+    testable offline; the notebook only turns rows into a DataFrame.
+    """
+    names = {c.client_id: c.name for c in graph.clients}
+    return tuple(
+        {
+            "account_id": spec.account_id,
+            "client_id": client_id,
+            "client_name": names[client_id],
+            "ownership_pct": pct,
+        }
+        for spec in UNIVERSE
+        for client_id, pct in sorted(graph.effective_ownership(spec.account_id).items())
+    )

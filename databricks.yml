@@ -75,6 +75,19 @@ resources:
             notebook_path: spark/bronze_ingest
             source: GIT
 
+        # Silver rides the same trigger, downstream of bronze — file
+        # arrives → bronze → silver, one chain. No trigger of its own to
+        # go dark, and the job's failure/long-run alerting covers both
+        # tasks for free. Silver is a full rebuild (a pure projection of
+        # bronze × reference), so running it after every bronze run is
+        # correct by construction, not just convenient.
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          notebook_task:
+            notebook_path: spark/silver_positions
+            source: GIT
+
       # Event-driven, not a timer. A cron would have to *guess* how long
       # after 06:15 UTC the feed finishes landing, and would silently
       # process nothing whenever that guess was wrong.

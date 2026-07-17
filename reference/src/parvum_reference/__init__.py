@@ -18,6 +18,7 @@ from parvum_reference.ownership import (
     LegalEntity,
     OwnershipEdge,
     OwnershipGraph,
+    ownership_bridge,
 )
 from parvum_reference.securities_master import (
     SecurityMasterEntry,
@@ -49,5 +50,6 @@ __all__ = [
     "domicile_of",
     "load_master",
     "map_isins",
+    "ownership_bridge",
     "write_master",
 ]
