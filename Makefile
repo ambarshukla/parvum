@@ -6,6 +6,7 @@
 -include .env
 export DATABRICKS_HOST
 export SEC_USER_AGENT
+export ALERT_EMAIL
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
 # missing file); without it the compose file's ${VAR:-default} values apply.
@@ -71,9 +72,10 @@ land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_H
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
 
-deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST)
+deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST, ALERT_EMAIL)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
-	databricks bundle deploy
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (job failure notifications are sent here)"; exit 1; }
+	BUNDLE_VAR_alert_email="$(ALERT_EMAIL)" databricks bundle deploy
 
 # Normally the file-arrival trigger runs this; the target exists for the first
 # run after a deploy, and for reprocessing on demand (safe — the job is idempotent).

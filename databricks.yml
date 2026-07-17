@@ -9,6 +9,13 @@
 bundle:
   name: parvum
 
+# Supplied at deploy time (BUNDLE_VAR_alert_email, from .env via `make
+# deploy-job`), never written here — a real address in a public repo is both a
+# privacy leak and spam bait. `make deploy-job` requires it.
+variables:
+  alert_email:
+    description: Address for this job's failure and long-run notifications.
+
 # Deploy the job definition and nothing else. By default a bundle uploads its
 # whole directory to the workspace; since the job runs from a git checkout
 # (see git_source), those files would never be read — a third copy of the code
@@ -25,6 +32,25 @@ resources:
         Triggered by file arrival in the landing volume, so it follows the
         data rather than a clock. Idempotent: re-runs skip files already in
         bronze_file_registry.
+
+      # This job runs unattended — nobody is watching it — so a failure has to
+      # announce itself. Email covers "ran and failed"; a hung run trips the
+      # duration warning below. What email CANNOT catch is "never fired" (a job
+      # that doesn't start sends nothing) — the D-018 trigger blind spot — which
+      # is why daily-feeds.yml carries a separate freshness gate.
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+        on_duration_warning_threshold_exceeded:
+          - ${var.alert_email}
+
+      # The duration the warning above fires on. A normal run is ~2 minutes;
+      # 20 means something is wedged and burning the serverless quota.
+      health:
+        rules:
+          - metric: RUN_DURATION_SECONDS
+            op: GREATER_THAN
+            value: 1200
 
       # The job checks out this repo per run and executes the notebook from
       # that checkout. Two reasons, both load-bearing:
