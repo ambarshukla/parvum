@@ -26,6 +26,10 @@ magic — every term gets defined here on first use.
 - **CINS** — the CUSIP International Numbering System: CUSIP-shaped codes for **foreign** issuers, distinguished by a leading letter (Chubb's `H1467J104`, H = Switzerland). The tell that "US" + CUSIP would fabricate an ISIN.
 - **ISIN construction (ISO 6166)** — a North American ISIN *is* country code + 9-character CUSIP + a check digit, so it can be legitimately derived rather than looked up — but only once the issuer's **country** is known. Numeric CUSIPs go to Canadian issuers too, so the domicile cannot be read off the code.
 - **SEC fair-access policy** — SEC requires every EDGAR request to identify its sender in the User-Agent (a name and contact email) and answers HTTP 403 otherwise; also a 10 requests/second ceiling.
+- **Point-in-time** — building the view for date D from only the data that was *public* by D. Here: a statement uses the latest 13F with filing date ≤ D, so a new filing changes only future dates and history stops being rewritable by construction.
+- **As-of vs filed-at (bitemporal)** — two time axes on the same fact: the date it describes (period end) vs the date it became known (filing date). Point-in-time selection keys on the second; confusing them backdates knowledge nobody had.
+- **Filing regime** — the span of days governed by one filing: from its filing date until the next one lands. The book is constant within a regime and steps at the boundary.
+- **13F-HR/A (amendment)** — a corrected re-filing of an earlier 13F. Skipped here (a faithful point-in-time store would supersede the original from the amendment's own filing date — recorded backlog, not oversight).
 - **FIGI / OpenFIGI** — Financial Instrument Global Identifier; free, open instrument identifier with a free mapping API (Bloomberg-operated).
 - **LEI / GLEIF** — Legal Entity Identifier; open global register of legal entities, published by GLEIF.
 - **ISIN / CUSIP / SEDOL** — proprietary-ish security identifiers custodians actually put in feeds; mapping them to FIGI is the securities-master job.

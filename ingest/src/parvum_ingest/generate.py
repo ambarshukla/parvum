@@ -62,9 +62,10 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def generate_day(day: date, out_dir: Path) -> dict:
+def generate_day(day: date, out_dir: Path, edgar_cache: Path | None = None) -> dict:
     """Write one day's delivery; return its manifest entry."""
-    account_id = build_book(day).account.account_id
+    book = build_book(day, cache_dir=edgar_cache)
+    account_id = book.account.account_id
     day_dir = out_dir / f"date={day.isoformat()}"
     day_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +83,6 @@ def generate_day(day: date, out_dir: Path) -> dict:
             }
         )
 
-    book = build_book(day)
     cash = build_cash_statement(day)
 
     semt_cfg = DefectConfig(
@@ -106,7 +106,7 @@ def generate_day(day: date, out_dir: Path) -> dict:
     return {"date": day.isoformat(), "account": account_id, "files": streams}
 
 
-def generate(end: date, days: int, out_dir: Path) -> list[dict]:
+def generate(end: date, days: int, out_dir: Path, edgar_cache: Path | None = None) -> list[dict]:
     """Generate deliveries for the `days` calendar days ending at `end`,
     skipping weekends (custodians send on business days). Returns the
     manifests, which are also written to <out>/../manifests/."""
@@ -118,7 +118,7 @@ def generate(end: date, days: int, out_dir: Path) -> list[dict]:
         day = end - timedelta(days=offset)
         if day.weekday() >= 5:  # 5=Sat, 6=Sun
             continue
-        manifest = generate_day(day, out_dir)
+        manifest = generate_day(day, out_dir, edgar_cache)
         (manifest_dir / f"{day.isoformat()}.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8", newline="\n"
         )
@@ -131,9 +131,15 @@ def main() -> None:
     parser.add_argument("--end", type=date.fromisoformat, default=date.today(), help="last day")
     parser.add_argument("--days", type=int, default=90, help="calendar days back from --end")
     parser.add_argument("--out", type=Path, default=Path("../data/raw"), help="landing directory")
+    parser.add_argument(
+        "--edgar-cache",
+        type=Path,
+        default=Path("../data/edgar"),
+        help="13F filing store (populate with `make fetch-13f`)",
+    )
     args = parser.parse_args()
 
-    manifests = generate(args.end, args.days, args.out)
+    manifests = generate(args.end, args.days, args.out, args.edgar_cache)
     total_files = sum(len(m["files"]) for m in manifests)
     print(f"{len(manifests)} business days -> {total_files} files under {args.out}")
 

@@ -68,7 +68,7 @@ Optional: `cp .env.example .env` to override local DB credentials/port.
 ### The feed pipeline
 
 ```sh
-make fetch-13f                     # refresh the committed 13F seed from SEC EDGAR
+make fetch-13f                     # sync the local 13F filing store from SEC EDGAR
 make generate                      # ~90 business days of feeds into data/raw
 make generate DAYS=1               # just today's delivery
 make generate DAYS=1 END=2026-07-10  # replay one historical day, byte-identically

@@ -58,10 +58,9 @@ lint: ## lint + format check (mirrors CI)
 fmt: ## auto-format and auto-fix lint findings
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 
-# Occasional and reviewed, not part of generation: the seed is committed so
-# feeds stay byte-identical per date (D-011). SEC requires a contact in the
-# User-Agent — see .env.example.
-fetch-13f: ## refresh the committed 13F seed from SEC EDGAR (needs SEC_USER_AGENT)
+# Incremental: filings are immutable, so anything already in data/edgar is
+# never re-fetched. SEC requires a contact in the User-Agent — see .env.example.
+fetch-13f: ## sync the local 13F filing store from SEC EDGAR (needs SEC_USER_AGENT)
 	@test -n "$(SEC_USER_AGENT)" || { echo "SEC_USER_AGENT not set — see .env.example (SEC rejects anonymous requests)"; exit 1; }
 	cd ingest && uv run parvum-fetch-13f
 
