@@ -66,13 +66,13 @@ PARSERS = {
 # COMMAND ----------
 
 spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_file_registry (
-    file_path      STRING  COMMENT 'full volume path — lineage key',
+    file_path      STRING,
     file_name      STRING,
     format         STRING,
-    statement_date DATE    COMMENT 'from the date= directory name',
+    statement_date DATE,
     size_bytes     BIGINT,
     sha256         STRING,
-    status         STRING  COMMENT 'PARSED | FAILED',
+    status         STRING,
     error          STRING,
     ingested_at    TIMESTAMP
 ) COMMENT 'One row per raw file received — the answer to: what raw data do we have?'""")  # noqa: F821
@@ -122,6 +122,91 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_balances (
     currency     STRING,
     ingested_at  TIMESTAMP
 ) COMMENT 'Opening/closing balances as received.'""")  # noqa: F821
+
+# COMMAND ----------
+
+# MAGIC %md ## Column descriptions (Unity Catalog metadata)
+# MAGIC
+# MAGIC `CREATE IF NOT EXISTS` never touches an existing table, so column
+# MAGIC comments live here as data and are applied idempotently — one dict as
+# MAGIC the single source of truth, a sentinel check per table so steady-state
+# MAGIC runs pay one DESCRIBE each, not a pile of ALTERs.
+
+# COMMAND ----------
+
+COLUMN_COMMENTS = {
+    "bronze_file_registry": {
+        "file_path": "Full volume path — the lineage key every bronze row points back to",
+        "file_name": "Base name of the delivered file",
+        "format": "Wire format as detected from the filename: semt.002 | MT535 | camt.053",
+        "statement_date": "Business date, from the date= directory the file landed in",
+        "size_bytes": "File size on arrival",
+        "sha256": "Content digest — how a restatement (same path, new bytes) is detected",
+        "status": "PARSED | FAILED; failures are recorded, not dropped",
+        "error": "Parse error message when status = FAILED, else NULL",
+        "ingested_at": "When this file was processed into bronze (UTC)",
+    },
+    "bronze_holdings": {
+        "file_path": "Source file (see bronze_file_registry) — lineage",
+        "statement_id": "Statement identifier as carried in the feed message",
+        "source_format": "Which holdings format this row came from: semt.002 | MT535",
+        "as_of": "Position date the statement reports",
+        "account_id": "Custodial account identifier, as received (opaque here; meaning lives in reference data)",
+        "security_scheme": "Identifier scheme of security_id: ISIN | CUSIP | SEDOL | TICKER | FIGI",
+        "security_id": "Security identifier exactly as received — including any feed defects",
+        "security_name": "Security name exactly as received",
+        "quantity": "Units held, as received",
+        "price_amount": "Unit price, as received",
+        "price_currency": "Currency of price_amount",
+        "price_as_of": "Price date carried by the feed (may trail as_of)",
+        "market_value": "Position market value, as received — bronze does not recompute",
+        "market_value_ccy": "Currency of market_value",
+        "cost_basis": "Cost basis, as received",
+        "cost_basis_ccy": "Currency of cost_basis",
+        "ingested_at": "When this row was parsed into bronze (UTC)",
+    },
+    "bronze_cash_entries": {
+        "file_path": "Source file (see bronze_file_registry) — lineage",
+        "statement_id": "Statement identifier as carried in the camt.053 message",
+        "as_of": "Statement date",
+        "account_id": "Custodial account identifier, as received",
+        "transaction_id": "Transaction reference from the feed",
+        "type": "Transaction type as received (dividend, fee, transfer, …)",
+        "trade_date": "Trade/booking date",
+        "settlement_date": "Settlement/value date",
+        "amount": "Signed cash movement, as received",
+        "currency": "Currency of amount",
+        "description": "Free-text narrative from the feed",
+        "ingested_at": "When this row was parsed into bronze (UTC)",
+    },
+    "bronze_cash_balances": {
+        "file_path": "Source file (see bronze_file_registry) — lineage",
+        "statement_id": "Statement identifier as carried in the camt.053 message",
+        "as_of": "Statement date",
+        "account_id": "Custodial account identifier, as received",
+        "balance_type": "OPENING | CLOSING, from the camt.053 balance code",
+        "amount": "Balance amount, as received",
+        "currency": "Currency of the balance — the account's cash currency",
+        "ingested_at": "When this row was parsed into bronze (UTC)",
+    },
+}
+
+
+def sync_column_comments(table: str, comments: dict[str, str]) -> None:
+    """Apply column comments unless already present (sentinel: first column)."""
+    sentinel_col, sentinel_comment = next(iter(comments.items()))
+    described = spark.sql(f"DESCRIBE TABLE {SCHEMA}.{table}").collect()  # noqa: F821
+    current = {r["col_name"]: r["comment"] for r in described}
+    if current.get(sentinel_col) == sentinel_comment:
+        return
+    for col, comment in comments.items():
+        escaped = comment.replace("'", "''")
+        spark.sql(f"ALTER TABLE {SCHEMA}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
+    print(f"column comments applied: {table}")
+
+
+for _table, _comments in COLUMN_COMMENTS.items():
+    sync_column_comments(_table, _comments)
 
 # COMMAND ----------
 
