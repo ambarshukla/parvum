@@ -21,7 +21,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f build-master check-freshness
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master deploy-job run-job fetch-13f build-master check-freshness
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -82,6 +82,18 @@ generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replay
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
+
+# Manual and occasional, unlike the daily feed landing: the master changes on
+# operator action (a rerun of build-master), not on a schedule. Overwriting
+# this path deliberately does NOT fire the file-arrival trigger (D-018 —
+# overwrites are invisible to it): a master refresh alone shouldn't rerun
+# bronze, and silver picks the new master up on the next feed arrival — or
+# immediately via `make run-job`.
+land-master: ## upload the securities master to the landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	@test -f data/reference/securities_master.json || { echo "no local master — run 'make build-master' first"; exit 1; }
+	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
+	databricks fs cp data/reference/securities_master.json dbfs:/Volumes/workspace/parvum/landing/reference/securities_master.json --overwrite
 
 deploy-job: ## deploy the Databricks job definitions in databricks.yml (needs DATABRICKS_HOST, ALERT_EMAIL)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
