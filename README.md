@@ -21,7 +21,7 @@ flowchart LR
         EX[13F checks<br/>ETF proxies]
     end
     GHA -->|raw files via CLI/API| UC[Unity Catalog volume]
-    UC --> B[Bronze<br/>raw as received]
+    UC -->|file-arrival trigger| B[Bronze<br/>raw as received]
     B --> S[Silver<br/>normalised, ID-mapped]
     S --> G[Gold<br/>portfolio views]
     subgraph DBX [Databricks Free Edition — Delta Lake, Workflows]
@@ -78,6 +78,16 @@ make land                          # upload data/raw to the Unity Catalog volume
 same two commands run unattended on weekdays via
 [`daily-feeds.yml`](.github/workflows/daily-feeds.yml) — CI has no code path of
 its own, it just sets `DAYS=1`.
+
+Landing a file is all it takes: a **file-arrival trigger** starts the bronze
+job, so nothing downstream has to know when the feed runs.
+
+```sh
+make deploy-job   # apply databricks.yml (the job defined as code)
+make run-job      # run bronze now, without waiting for a file
+```
+
+The full loop — generate → land → parse to bronze — runs with no human in it.
 
 ## Repo layout
 

@@ -38,6 +38,12 @@ magic — every term gets defined here on first use.
 - **Unity Catalog** — Databricks' governance layer: catalogs/schemas/tables/volumes with permissions.
 - **Unity Catalog volume** — file storage governed by Unity Catalog; our GitHub Actions push raw files here (Free Edition has no external bucket access).
 - **Databricks Workflows** — Databricks' built-in job scheduler/orchestrator.
+- **Job / task / run (Databricks)** — the *job* is the definition (what to run, and what starts it), a *task* is one unit of work inside it, a *run* is one execution of the job.
+- **Databricks Asset Bundle (DAB)** — YAML declaring Databricks resources (jobs, pipelines) as code, applied with `databricks bundle deploy`: the Databricks-native infrastructure-as-code. CLI 1.8 rebrands them "Declarative Automation Bundles" — same thing, newer name.
+- **File-arrival trigger** — starts a job when new files appear at a storage location rather than at a fixed time; the job follows the data instead of guessing when it will be there.
+- **Trigger coalescing (`wait_after_last_change_seconds`)** — wait until arrivals go quiet before firing, so a multi-file delivery becomes one run instead of one run per file.
+- **`git_source` (Databricks job)** — job setting that checks the repository out from git on each run and executes from that checkout, instead of from code copied into the workspace; keeps one canonical copy of the code.
+- **Quartz cron** — the scheduling syntax Databricks uses (`0 0 7 * * ?` — seconds first, plus `?`), deliberately *not* the same 5-field syntax as Unix/GitHub Actions cron; a classic trap when running both schedulers.
 - **HITL** — human-in-the-loop: pipeline steps where low-confidence machine output is routed to a person for review.
 - **Quarkus** — a Java framework optimised for fast startup and low memory (container-friendly), with optional native-image compilation.
 - **jOOQ** — a Java library that generates typesafe code from your schema so you write explicit SQL, not ORM abstractions.
