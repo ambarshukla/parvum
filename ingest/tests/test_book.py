@@ -5,7 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from parvum_ingest.book import build_book
+from parvum_ingest.accounts import UNIVERSE
+from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.edgar import EdgarError
 
 AS_OF = date(2026, 7, 15)
@@ -64,3 +65,76 @@ def test_cins_holdings_never_reach_the_book() -> None:
     # Chubb (CINS H1467J104) is in the Q1 fixture filing; deriving a "US"
     # ISIN for it would fabricate an identifier (D-014).
     assert not any("CHUBB" in p.security_name for p in build_book(AS_OF).positions)
+
+
+# --- the account universe --------------------------------------------------
+
+
+def _isins(spec) -> dict[str, str]:
+    return {p.security_name: p.security.value for p in build_book(AS_OF, spec).positions}
+
+
+def test_canadian_cross_listings_get_their_real_isins() -> None:
+    # The trap that forced the curated domicile slice: Canadian issuers carry
+    # numeric, US-looking CUSIPs. These are the issuers' real published
+    # ISINs — a default-US derivation would have minted US1363751029 etc.,
+    # identifiers that exist nowhere yet pass our own checksum.
+    gates = _isins(next(s for s in UNIVERSE if s.account_id == "FQ5521"))
+    pershing = _isins(next(s for s in UNIVERSE if s.account_id == "X4478210"))
+    assert gates["CANADIAN NATL RY CO"] == "CA1363751027"
+    assert pershing["BROOKFIELD CORP"] == "CA11271J1075"
+    assert pershing["RESTAURANT BRANDS INTL INC"] == "CA76131D1033"
+
+
+def test_us_names_still_derive_us_isins() -> None:
+    gates = _isins(next(s for s in UNIVERSE if s.account_id == "FQ5521"))
+    assert gates["MICROSOFT CORP"] == "US5949181045"
+
+
+def test_the_waste_pair_lands_on_opposite_sides_of_the_border() -> None:
+    # Two waste companies, CUSIPs one character apart, different countries:
+    # Waste Management (94106L109) is US; Waste Connections (94106B101)
+    # redomiciled to Canada in 2016. The fetch-time audit caught the second —
+    # the curated map had missed it — so this pins both, against the issuers'
+    # real ISINs.
+    from parvum_ingest.model import isin_from_cusip
+    from parvum_ingest.reference import domicile_of
+
+    assert domicile_of("94106L109") == "US"
+    assert domicile_of("94106B101") == "CA"
+    assert isin_from_cusip("94106L109", country="US").value == "US94106L1098"
+    assert isin_from_cusip("94106B101", country="CA").value == "CA94106B1013"
+
+
+def test_same_filer_two_accounts_differ_only_in_scale() -> None:
+    growth = build_book(AS_OF, next(s for s in UNIVERSE if s.account_id == "60011234"))
+    retirement = build_book(AS_OF, next(s for s in UNIVERSE if s.account_id == "60018852"))
+    assert {p.security.value for p in growth.positions} == {
+        p.security.value for p in retirement.positions
+    }
+    g = {p.security.value: p.quantity for p in growth.positions}
+    r = {p.security.value: p.quantity for p in retirement.positions}
+    # Divisors 10k vs 20k: the retirement account holds about half throughout.
+    assert all(r[isin] <= g[isin] for isin in g)
+
+
+def test_cost_basis_differs_between_accounts_holding_the_same_name() -> None:
+    # Two accounts bought the same security at different times; identical
+    # cost bases across the universe would be a fingerprint no real book has.
+    growth = build_book(AS_OF, next(s for s in UNIVERSE if s.account_id == "60011234"))
+    retirement = build_book(AS_OF, next(s for s in UNIVERSE if s.account_id == "60018852"))
+    g = {p.security.value: p.cost_basis for p in growth.positions}
+    r = {p.security.value: p.cost_basis for p in retirement.positions}
+    both = [i for i in g if g[i] is not None and r[i] is not None]
+    assert both and any(g[i] != r[i] for i in both)
+
+
+def test_cash_statement_follows_the_account() -> None:
+    eur_spec = next(s for s in UNIVERSE if s.account_id == "FQ5521")
+    stmt = build_cash_statement(AS_OF, eur_spec)
+    assert stmt.account.account_id == "FQ5521"
+    assert all(e.amount.currency == "EUR" for e in stmt.entries)
+    # Descriptions name securities this account actually holds.
+    dividend = next(e for e in stmt.entries if e.type.name == "DIVIDEND")
+    held = {p.security_name.title() for p in build_book(AS_OF, eur_spec).positions}
+    assert any(name in dividend.description for name in held)

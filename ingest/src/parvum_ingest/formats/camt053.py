@@ -5,6 +5,13 @@ entries that explain the movement between them. Same D-010 scope rules as
 semt.002: real element names and structure for the fields we carry,
 simplified nesting, XSD validation deferred.
 
+**One file, many statements.** camt.053 explicitly allows repeated `Stmt`
+blocks under one `BkToCstmrStmt`, and custodians use that: the daily cash
+file covers every cash account they service for a recipient. So rendering
+takes a *sequence* of statements and parsing returns one — "one file = one
+statement" is an assumption real feeds break, and this format is where our
+pipeline learns that.
+
 Mapping notes:
 - Balance types use the real ISO codes: OPBD (opening booked) / CLBD
   (closing booked).
@@ -54,15 +61,33 @@ _BALANCE_TYPES = {v: k for k, v in _BALANCE_CODES.items()}
 DEBIT_TYPES = frozenset({TransactionType.BUY, TransactionType.FEE, TransactionType.TRANSFER_OUT})
 
 
-def render_camt053(stmt: CashStatement) -> str:
+def render_camt053(statements: CashStatement | tuple[CashStatement, ...]) -> str:
+    """Render one camt.053 file carrying one `Stmt` block per statement.
+
+    Accepts a single statement or a tuple — a single-account file is just the
+    degenerate case of the same document, not a different shape.
+    """
+    stmts = (statements,) if isinstance(statements, CashStatement) else tuple(statements)
+    if not stmts:
+        raise ValueError("a camt.053 file must carry at least one statement")
+
     ET.register_namespace("", NS)
     root = ET.Element(qname(NS, "Document"))
     b2c = child(root, NS, "BkToCstmrStmt")
 
     grp = child(b2c, NS, "GrpHdr")
-    child(grp, NS, "MsgId", stmt.statement_id)
-    child(grp, NS, "CreDtTm", f"{stmt.as_of.isoformat()}T00:00:00")
+    # File-level message id — distinct from the per-statement ids below.
+    child(grp, NS, "MsgId", f"CAMT-{stmts[0].as_of.isoformat()}")
+    child(grp, NS, "CreDtTm", f"{stmts[0].as_of.isoformat()}T00:00:00")
 
+    for stmt in stmts:
+        _render_statement(b2c, stmt)
+
+    ET.indent(root)
+    return ET.tostring(root, encoding="unicode", xml_declaration=True)
+
+
+def _render_statement(b2c: ET.Element, stmt: CashStatement) -> None:
     st = child(b2c, NS, "Stmt")
     child(st, NS, "Id", stmt.statement_id)
 
@@ -95,9 +120,6 @@ def render_camt053(stmt: CashStatement) -> str:
         child(child(child(ntry, NS, "BkTxCd"), NS, "Prtry"), NS, "Cd", txn.type.value)
         if txn.description:
             child(ntry, NS, "AddtlNtryInf", txn.description)
-
-    ET.indent(root)
-    return ET.tostring(root, encoding="unicode", xml_declaration=True)
 
 
 # --- parsing --------------------------------------------------------------
@@ -145,13 +167,22 @@ def _parse_entry(ntry: ET.Element, account_id: str, idx: int) -> Transaction:
     )
 
 
-def parse_camt053(xml_text: str) -> CashStatement:
+def parse_camt053(xml_text: str) -> tuple[CashStatement, ...]:
+    """Parse a camt.053 file into its statements — one per `Stmt` block.
+
+    Returns a tuple even for a single-account file: how many statements a
+    file carries is the sender's choice, and downstream code that assumed
+    "one file = one statement" would silently drop the rest.
+    """
     root = parse_document(xml_text, NS, FMT)
 
-    st = root.find("c:BkToCstmrStmt/c:Stmt", _NSMAP)
-    if st is None:
+    stmt_elements = root.findall("c:BkToCstmrStmt/c:Stmt", _NSMAP)
+    if not stmt_elements:
         raise FeedParseError(f"{FMT}: missing BkToCstmrStmt/Stmt")
+    return tuple(_parse_statement(st) for st in stmt_elements)
 
+
+def _parse_statement(st: ET.Element) -> CashStatement:
     statement_id = find_text(st, _NSMAP, "c:Id", "Stmt", FMT)
 
     acct_el = st.find("c:Acct", _NSMAP)

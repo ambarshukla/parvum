@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 
+from parvum_ingest.accounts import UNIVERSE
 from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.formats import FeedParseError
 from parvum_ingest.formats.camt053 import DEBIT_TYPES, parse_camt053, render_camt053
@@ -39,9 +40,32 @@ def test_rendered_statement_looks_like_camt053() -> None:
     assert "<CdtDbtInd>DBIT</CdtDbtInd>" in xml
 
 
+def test_one_file_carries_many_statements() -> None:
+    # camt.053's real shape: the custodian's daily cash file has a Stmt block
+    # per account. Assuming one-file-one-statement silently drops the rest.
+    universe_cash = tuple(build_cash_statement(AS_OF, spec) for spec in UNIVERSE)
+    parsed = parse_camt053(render_camt053(universe_cash))
+
+    assert len(parsed) == len(UNIVERSE)
+    assert [s.account.account_id for s in parsed] == [spec.account_id for spec in UNIVERSE]
+    # Round trip holds per statement, not just per file.
+    for original, back in zip(universe_cash, parsed, strict=True):
+        assert back.balances == original.balances
+        assert back.entries == original.entries
+
+
+def test_statements_keep_their_own_currencies() -> None:
+    universe_cash = tuple(build_cash_statement(AS_OF, spec) for spec in UNIVERSE)
+    parsed = parse_camt053(render_camt053(universe_cash))
+    by_account = {s.account.account_id: s for s in parsed}
+    assert by_account["FQ5521"].balances[0].balance.currency == "EUR"
+    assert all(e.amount.currency == "EUR" for e in by_account["FQ5521"].entries)
+    assert by_account["60011234"].balances[0].balance.currency == "USD"
+
+
 def test_round_trip_preserves_everything_it_carries() -> None:
     original = build_cash_statement(AS_OF)
-    parsed = parse_camt053(render_camt053(original))
+    (parsed,) = parse_camt053(render_camt053(original))
 
     assert parsed.statement_id == original.statement_id
     assert parsed.account == original.account  # camt carries full account details

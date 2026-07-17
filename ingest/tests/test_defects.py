@@ -69,7 +69,7 @@ def test_mistyped_isin_survives_the_wire() -> None:
 def test_duplicate_breaks_the_balance_invariant() -> None:
     config = DefectConfig(seed=7, defects=(DefectType.DUPLICATE_TRANSACTION,))
     corrupted, _ = inject_cash(build_cash_statement(AS_OF), config)
-    parsed = parse_camt053(render_camt053(corrupted))
+    (parsed,) = parse_camt053(render_camt053(corrupted))
 
     opening = next(b for b in parsed.balances if b.balance_type is BalanceType.OPENING)
     closing = next(b for b in parsed.balances if b.balance_type is BalanceType.CLOSING)

@@ -270,36 +270,40 @@ for f, digest in new_files + restated_files:
                 }
             )
     else:
-        for t in stmt.entries:
-            entry_rows.append(
-                {
-                    "file_path": str(f),
-                    "statement_id": stmt.statement_id,
-                    "as_of": stmt.as_of,
-                    "account_id": t.account_id,
-                    "transaction_id": t.transaction_id,
-                    "type": t.type.value,
-                    "trade_date": t.trade_date,
-                    "settlement_date": t.settlement_date,
-                    "amount": t.amount.amount,
-                    "currency": t.amount.currency,
-                    "description": t.description,
-                    "ingested_at": run_ts,
-                }
-            )
-        for b in stmt.balances:
-            balance_rows.append(
-                {
-                    "file_path": str(f),
-                    "statement_id": stmt.statement_id,
-                    "as_of": stmt.as_of,
-                    "account_id": b.account_id,
-                    "balance_type": b.balance_type.value,
-                    "amount": b.balance.amount,
-                    "currency": b.balance.currency,
-                    "ingested_at": run_ts,
-                }
-            )
+        # camt.053 parses to a TUPLE of statements: one file carries a Stmt
+        # block per cash account. Iterating here is what keeps "one file =
+        # one statement" from being silently assumed ever again.
+        for cash_stmt in stmt:
+            for t in cash_stmt.entries:
+                entry_rows.append(
+                    {
+                        "file_path": str(f),
+                        "statement_id": cash_stmt.statement_id,
+                        "as_of": cash_stmt.as_of,
+                        "account_id": t.account_id,
+                        "transaction_id": t.transaction_id,
+                        "type": t.type.value,
+                        "trade_date": t.trade_date,
+                        "settlement_date": t.settlement_date,
+                        "amount": t.amount.amount,
+                        "currency": t.amount.currency,
+                        "description": t.description,
+                        "ingested_at": run_ts,
+                    }
+                )
+            for b in cash_stmt.balances:
+                balance_rows.append(
+                    {
+                        "file_path": str(f),
+                        "statement_id": cash_stmt.statement_id,
+                        "as_of": cash_stmt.as_of,
+                        "account_id": b.account_id,
+                        "balance_type": b.balance_type.value,
+                        "amount": b.balance.amount,
+                        "currency": b.balance.currency,
+                        "ingested_at": run_ts,
+                    }
+                )
 
 print(
     f"parsed: {sum(1 for r in registry_rows if r['status'] == 'PARSED')}, "

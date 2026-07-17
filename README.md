@@ -17,8 +17,8 @@ drive reconciliation and data-quality work in practice.
 ```mermaid
 flowchart LR
     subgraph GHA [GitHub Actions cron — the fetch half, open egress]
-        FG[Feed generator<br/>semt.002 / MT535 / camt.053<br/>+ injected defects]
-        EX[13F checks<br/>ETF proxies]
+        FG[Feed generator<br/>5 accounts × semt.002 / MT535<br/>+ consolidated camt.053<br/>+ injected defects]
+        EX[13F filings<br/>ETF proxies]
     end
     GHA -->|raw files via CLI/API| UC[Unity Catalog volume]
     UC -->|file-arrival trigger| B[Bronze<br/>raw as received]

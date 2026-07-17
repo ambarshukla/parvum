@@ -9,12 +9,14 @@ already on disk is never fetched again — and therefore cheap to run daily.
 import argparse
 from pathlib import Path
 
+from parvum_ingest.accounts import BERKSHIRE_CIK, GATES_TRUST_CIK, PERSHING_SQUARE_CIK
 from parvum_ingest.edgar_store import sync
 
-# The filers whose books seed the generated accounts. One for now; the
-# multi-account universe adds more.
+# The filers whose books seed the generated accounts (see accounts.UNIVERSE).
 FILERS: dict[int, str] = {
-    1067983: "Berkshire Hathaway",
+    BERKSHIRE_CIK: "Berkshire Hathaway",
+    GATES_TRUST_CIK: "Gates Foundation Trust",
+    PERSHING_SQUARE_CIK: "Pershing Square",
 }
 
 DEFAULT_CACHE = Path("../data/edgar")
