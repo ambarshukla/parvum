@@ -5,6 +5,7 @@
 # -include tolerates its absence.
 -include .env
 export DATABRICKS_HOST
+export SEC_USER_AGENT
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
 # missing file); without it the compose file's ${VAR:-default} values apply.
@@ -18,13 +19,17 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job
+.PHONY: help up down status logs psql clean test lint fmt generate land deploy-job run-job fetch-13f
 
-# -h: MAKEFILE_LIST is "Makefile .env" (from -include above), and grep prefixes
-# every match with its filename once given more than one file — which awk then
-# reads as the target name. Suppress the prefix.
+# Two traps here, both of which have already bitten:
+#  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
+#            prefixes every match with its filename once given more than one
+#            file — which awk then reads as the target name.
+#  [a-z0-9-] the character class must cover every character a target name can
+#            contain, or that target silently vanishes from the help. Hyphens
+#            and digits both had to be added after a target went missing.
 help: ## show available targets
-	@grep -hE '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-11s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-11s %s\n", $$1, $$2}'
 
 up: ## start local Postgres (detached, waits until healthy)
 	$(COMPOSE) up -d --wait
@@ -52,6 +57,13 @@ lint: ## lint + format check (mirrors CI)
 
 fmt: ## auto-format and auto-fix lint findings
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
+
+# Occasional and reviewed, not part of generation: the seed is committed so
+# feeds stay byte-identical per date (D-011). SEC requires a contact in the
+# User-Agent — see .env.example.
+fetch-13f: ## refresh the committed 13F seed from SEC EDGAR (needs SEC_USER_AGENT)
+	@test -n "$(SEC_USER_AGENT)" || { echo "SEC_USER_AGENT not set — see .env.example (SEC rejects anonymous requests)"; exit 1; }
+	cd ingest && uv run parvum-fetch-13f
 
 generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replays one day)
 	cd ingest && uv run parvum-generate --days $(DAYS) $(if $(END),--end $(END)) --out ../data/raw

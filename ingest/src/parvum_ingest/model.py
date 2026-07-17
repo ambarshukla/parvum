@@ -128,6 +128,65 @@ class SecurityIdentifier(_Frozen):
         return total % 10 == 0
 
 
+def is_cins(cusip: str) -> bool:
+    """True if this is a CINS — a CUSIP-shaped code issued to a *foreign* issuer.
+
+    The tell is a leading letter (H = Switzerland, and so on) where a
+    US/Canadian CUSIP starts with a digit. It matters because a CINS states
+    plainly that the issuer's country is not the US, which is exactly what
+    `isin_from_cusip` needs and cannot otherwise know.
+    """
+    return bool(cusip) and not cusip[0].isdigit()
+
+
+def _isin_check_digit(body: str) -> str:
+    """The ISO 6166 check digit for an 11-character ISIN body.
+
+    The inverse of `SecurityIdentifier.has_valid_checksum`: expand letters to
+    base-36 digit pairs, then pick the digit that makes the Luhn sum a
+    multiple of ten. Doubling starts at the body's rightmost digit here,
+    rather than the second-rightmost, because appending the check digit
+    shifts every position along by one.
+    """
+    digits = "".join(str(int(ch, 36)) for ch in body)
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2 == 0:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return str(-total % 10)
+
+
+def isin_from_cusip(cusip: str, country: str = "US") -> SecurityIdentifier:
+    """Construct a North American security's ISIN from its CUSIP.
+
+    This applies a real ISO 6166 rule rather than approximating one: a North
+    American ISIN *is* the country code + the 9-character CUSIP + a check
+    digit. That is why deriving it is legitimate where inventing an
+    identifier would not be (D-004) — this is the standard's own arithmetic,
+    not a guessed mapping.
+
+    The honest limit is `country`, and it is the caller's problem on purpose:
+    a CUSIP does not tell you where its issuer is domiciled. Numeric CUSIPs
+    are issued to Canadian companies too, so a Canadian name derived with the
+    default "US" yields a plausible-looking ISIN that does not exist
+    anywhere. Knowing the domicile is the securities master's job (Phase 2);
+    until then callers must supply what they actually know. CINS codes carry
+    their own answer and are refused outright.
+    """
+    cusip = cusip.strip().upper()
+    if is_cins(cusip):
+        raise ValueError(
+            f"{cusip!r} is a CINS (foreign issuer): the country prefix of its ISIN cannot "
+            "be constructed from the code — it has to be looked up"
+        )
+    body = f"{country.strip().upper()}{cusip}"
+    return SecurityIdentifier(scheme=IdentifierScheme.ISIN, value=body + _isin_check_digit(body))
+
+
 # --- entities ------------------------------------------------------------
 
 

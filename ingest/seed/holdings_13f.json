@@ -1,0 +1,244 @@
+{
+  "source": {
+    "filer": "BERKSHIRE HATHAWAY INC",
+    "cik": 1067983,
+    "form": "13F-HR",
+    "accession": "0001193125-26-226661",
+    "period": "2026-03-31",
+    "filing_date": "2026-05-15",
+    "licence": "public domain (US government work)"
+  },
+  "holdings": [
+    {
+      "cusip": "037833100",
+      "isin": "US0378331005",
+      "issuer": "APPLE INC",
+      "title_of_class": "COM",
+      "shares": "227917808",
+      "value_usd": "57843260493"
+    },
+    {
+      "cusip": "025816109",
+      "isin": "US0258161092",
+      "issuer": "AMERICAN EXPRESS CO",
+      "title_of_class": "COM",
+      "shares": "151610700",
+      "value_usd": "45859204536"
+    },
+    {
+      "cusip": "191216100",
+      "isin": "US1912161007",
+      "issuer": "COCA COLA CO",
+      "title_of_class": "COM",
+      "shares": "400000000",
+      "value_usd": "30420000000"
+    },
+    {
+      "cusip": "060505104",
+      "isin": "US0605051046",
+      "issuer": "BANK AMERICA CORP",
+      "title_of_class": "COM",
+      "shares": "513624165",
+      "value_usd": "25039178044"
+    },
+    {
+      "cusip": "166764100",
+      "isin": "US1667641005",
+      "issuer": "CHEVRON CORPORATION",
+      "title_of_class": "COM",
+      "shares": "84375856",
+      "value_usd": "17457364606"
+    },
+    {
+      "cusip": "674599105",
+      "isin": "US6745991058",
+      "issuer": "OCCIDENTAL PETE CORP",
+      "title_of_class": "COM",
+      "shares": "264941431",
+      "value_usd": "17221193015"
+    },
+    {
+      "cusip": "02079K305",
+      "isin": "US02079K3059",
+      "issuer": "ALPHABET INC",
+      "title_of_class": "CAP STK CL A",
+      "shares": "54249798",
+      "value_usd": "15600071913"
+    },
+    {
+      "cusip": "615369105",
+      "isin": "US6153691059",
+      "issuer": "MOODYS CORP",
+      "title_of_class": "COM",
+      "shares": "24669778",
+      "value_usd": "10762190653"
+    },
+    {
+      "cusip": "500754106",
+      "isin": "US5007541064",
+      "issuer": "KRAFT HEINZ CO",
+      "title_of_class": "COM",
+      "shares": "325634818",
+      "value_usd": "7323527057"
+    },
+    {
+      "cusip": "23918K108",
+      "isin": "US23918K1088",
+      "issuer": "DAVITA INC",
+      "title_of_class": "COM",
+      "shares": "30100585",
+      "value_usd": "4626158909"
+    },
+    {
+      "cusip": "501044101",
+      "isin": "US5010441013",
+      "issuer": "KROGER CO",
+      "title_of_class": "COM",
+      "shares": "50000000",
+      "value_usd": "3618000000"
+    },
+    {
+      "cusip": "829933100",
+      "isin": "US8299331004",
+      "issuer": "SIRIUSXM HOLDINGS INC",
+      "title_of_class": "COMMON STOCK",
+      "shares": "124807117",
+      "value_usd": "2880548260"
+    },
+    {
+      "cusip": "247361702",
+      "isin": "US2473617023",
+      "issuer": "DELTA AIR LINES INC",
+      "title_of_class": "COM NEW",
+      "shares": "39809456",
+      "value_usd": "2646532635"
+    },
+    {
+      "cusip": "92343E102",
+      "isin": "US92343E1029",
+      "issuer": "VERISIGN INC",
+      "title_of_class": "COM",
+      "shares": "8989880",
+      "value_usd": "2232726597"
+    },
+    {
+      "cusip": "14040H105",
+      "isin": "US14040H1059",
+      "issuer": "CAPITAL ONE FINL CORP",
+      "title_of_class": "COM",
+      "shares": "7150000",
+      "value_usd": "1304374500"
+    },
+    {
+      "cusip": "650111107",
+      "isin": "US6501111073",
+      "issuer": "NEW YORK TIMES CO MTN BE",
+      "title_of_class": "CL A",
+      "shares": "15146535",
+      "value_usd": "1268219376"
+    },
+    {
+      "cusip": "02005N100",
+      "isin": "US02005N1000",
+      "issuer": "ALLY FINL INC",
+      "title_of_class": "COM",
+      "shares": "29000000",
+      "value_usd": "1137670000"
+    },
+    {
+      "cusip": "02079K107",
+      "isin": "US02079K1079",
+      "issuer": "ALPHABET INC",
+      "title_of_class": "CAP STK CL C",
+      "shares": "3585215",
+      "value_usd": "1028454775"
+    },
+    {
+      "cusip": "530909308",
+      "isin": "US5309093087",
+      "issuer": "LIBERTY LIVE HOLDINGS INC",
+      "title_of_class": "COM SHS SER C",
+      "shares": "10587143",
+      "value_usd": "996356028"
+    },
+    {
+      "cusip": "526057104",
+      "isin": "US5260571048",
+      "issuer": "LENNAR CORP",
+      "title_of_class": "CL A",
+      "shares": "10099642",
+      "value_usd": "877052911"
+    },
+    {
+      "cusip": "670346105",
+      "isin": "US6703461052",
+      "issuer": "NUCOR CORP",
+      "title_of_class": "COM",
+      "shares": "3907075",
+      "value_usd": "660686383"
+    },
+    {
+      "cusip": "530909100",
+      "isin": "US5309091008",
+      "issuer": "LIBERTY LIVE HOLDINGS INC",
+      "title_of_class": "COM SER A",
+      "shares": "4986588",
+      "value_usd": "456970925"
+    },
+    {
+      "cusip": "546347105",
+      "isin": "US5463471053",
+      "issuer": "LOUISIANA PAC CORP",
+      "title_of_class": "COM",
+      "shares": "5664793",
+      "value_usd": "412113691"
+    },
+    {
+      "cusip": "21036P108",
+      "isin": "US21036P1084",
+      "issuer": "CONSTELLATION BRANDS INC",
+      "title_of_class": "CL A",
+      "shares": "632890",
+      "value_usd": "94933500"
+    },
+    {
+      "cusip": "62944T105",
+      "isin": "US62944T1051",
+      "issuer": "NVR INC",
+      "title_of_class": "COM",
+      "shares": "11112",
+      "value_usd": "73226191"
+    },
+    {
+      "cusip": "55616P104",
+      "isin": "US55616P1049",
+      "issuer": "MACYS INC",
+      "title_of_class": "COM",
+      "shares": "3038355",
+      "value_usd": "54963842"
+    },
+    {
+      "cusip": "526057302",
+      "isin": "US5260573028",
+      "issuer": "LENNAR CORP",
+      "title_of_class": "CL B",
+      "shares": "237703",
+      "value_usd": "19995576"
+    },
+    {
+      "cusip": "47233W109",
+      "isin": "US47233W1099",
+      "issuer": "JEFFERIES FINANCIAL GROUP IN",
+      "title_of_class": "COM",
+      "shares": "433558",
+      "value_usd": "17892939"
+    }
+  ],
+  "excluded": [
+    {
+      "cusip": "H1467J104",
+      "issuer": "CHUBB LTD SWITZ",
+      "reason": "'H1467J104' is a CINS (foreign issuer): the country prefix of its ISIN cannot be constructed from the code \u2014 it has to be looked up"
+    }
+  ]
+}
