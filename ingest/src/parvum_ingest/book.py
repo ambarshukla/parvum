@@ -1,18 +1,39 @@
 """Deterministic seed book: the 'truth' the feed generator renders.
 
-One small portfolio of real, liquid securities (ISINs verified by their
-check digits in tests). Deterministic on purpose: the same (as_of) input
-always yields an identical statement, so renderers and parsers can be
-round-trip tested against a stable fixture. Defect injection (a later PR)
-will take this clean book and corrupt copies of it — the seed itself stays
-pristine.
+The portfolio's *shape* is real. Positions, relative weights and prices come
+from a committed SEC 13F extract (D-014) — Berkshire Hathaway's actual
+disclosed holdings — rather than from names someone picked. Its *scale* is
+honest fiction: share counts are divided by a constant so the book reads like
+a private client's account rather than a $263bn institution's.
 
-Prices are plausible constants, not market data: this book exists to
-exercise formats and reconciliation, not to be current.
+Deterministic on purpose: the same `as_of` always yields an identical
+statement, so renderers, parsers and defect injection all have a stable
+fixture, and any historical day regenerates byte-identically (D-011). Defect
+injection corrupts *copies* of this book; the seed itself stays pristine.
+
+What 13F does not carry, and how it's filled:
+
+- **Prices** aren't reported, but `value / shares` recovers the real
+  quarter-end price — which is where these come from. Static thereafter: this
+  book exists to exercise formats and reconciliation, not to be current.
+- **Cost basis** isn't reported at all. Synthesized deterministically from
+  each security's own identifier, and left absent for roughly a fifth of
+  positions, because sparse optional data is normal rather than only a defect.
+
+Note that duplicate `security_name`s are deliberate and real: Alphabet is held
+in two share classes, one issuer name across two distinct ISINs. Anything
+downstream that keys on name rather than identifier deserves to break here
+rather than in production.
 """
 
+import hashlib
+import json
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
+from importlib import resources
+from random import Random
+from typing import NamedTuple
 
 from parvum_ingest.model import (
     Account,
@@ -36,60 +57,129 @@ _ACCOUNT = Account(
     base_currency="USD",
 )
 
-# (isin, name, quantity, price, price_ccy, cost_basis or None)
-# Cost basis deliberately absent for two names even in the *clean* book:
-# sparse optional data is normal, not only a defect condition.
-_SEED_HOLDINGS: tuple[tuple[str, str, str, str, str, str | None], ...] = (
-    ("US0378331005", "Apple Inc", "220", "185.40", "USD", "31570.00"),
-    ("US5949181045", "Microsoft Corp", "150", "402.10", "USD", "48910.00"),
-    ("US0231351067", "Amazon.com Inc", "180", "178.25", "USD", "27300.00"),
-    ("US02079K3059", "Alphabet Inc Class A", "160", "156.80", "USD", "21120.00"),
-    ("US46625H1005", "JPMorgan Chase & Co", "130", "198.55", "USD", "22750.00"),
-    ("US4781601046", "Johnson & Johnson", "140", "147.30", "USD", "19460.00"),
-    ("US30231G1022", "Exxon Mobil Corp", "170", "112.90", "USD", None),
-    ("GB00BH4HKS39", "Vodafone Group Plc", "5200", "0.92", "USD", "5100.00"),
-    ("CH0038863350", "Nestle SA", "90", "104.75", "USD", None),
-    ("DE0007164600", "SAP SE", "75", "191.60", "USD", "12980.00"),
-)
+# Berkshire's book is institutional: 227.9m Apple shares. Dividing by a
+# constant preserves the relative weights — the thing that makes the book look
+# real — while yielding a plausible private-client account of roughly $26m.
+#
+# The divisor applies to *shares*, uniformly. Scaling by value instead would
+# look more principled and be wrong: NVR trades near $6,590, so its 11,112
+# shares are $73m of the book yet round to nothing on any value-based scale
+# that keeps Apple's 227.9m shares sensible.
+_SHARE_DIVISOR = Decimal(10_000)
+
+# Cost basis is absent for about a fifth of positions, and where present sits
+# between roughly half and a little above market — a book of holdings bought
+# at various times, mostly up.
+_COST_BASIS_MISSING_RATE = 0.2
+_COST_BASIS_MIN_FACTOR = Decimal("0.55")
+_COST_BASIS_MAX_FACTOR = Decimal("1.15")
+
+
+@lru_cache(maxsize=1)
+def _seed_document() -> dict:
+    """The committed 13F extract.
+
+    Loaded lazily and cached, deliberately: `parvum_ingest/__init__` imports
+    this module, and the Databricks bronze job imports the package purely for
+    its parsers. Reading a data file at import time would make an unrelated
+    job fail if that file were ever missing.
+    """
+    path = resources.files("parvum_ingest").joinpath("seed", "holdings_13f.json")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _cost_basis(cusip: str, market_value: Decimal) -> Money | None:
+    """A deterministic, plausible cost basis — 13F reports none.
+
+    Seeded from the security's own identifier via sha256 rather than
+    `hash()`, which Python salts per process: a book that differed between
+    runs would break byte-identical regeneration (D-011) in a way that only
+    showed up on someone else's machine.
+    """
+    rng = Random(int.from_bytes(hashlib.sha256(cusip.encode()).digest()[:8], "big"))
+    if rng.random() < _COST_BASIS_MISSING_RATE:
+        return None
+    spread = _COST_BASIS_MAX_FACTOR - _COST_BASIS_MIN_FACTOR
+    factor = _COST_BASIS_MIN_FACTOR + spread * Decimal(str(rng.random()))
+    return Money(amount=(market_value * factor).quantize(Decimal("0.01")), currency="USD")
+
+
+class _SeedPosition(NamedTuple):
+    isin: str
+    name: str
+    quantity: Decimal
+    price: Money
+    market_value: Money
+    cost_basis: Money | None
+
+
+@lru_cache(maxsize=1)
+def _seed_positions() -> tuple[_SeedPosition, ...]:
+    positions = []
+    for holding in _seed_document()["holdings"]:
+        shares = Decimal(holding["shares"])
+        value = Decimal(holding["value_usd"])
+
+        price = (value / shares).quantize(Decimal("0.01"))
+        quantity = (shares / _SHARE_DIVISOR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        if quantity <= 0:
+            # Refuse rather than silently drop: a zero-share position means the
+            # divisor no longer suits the filer, which is a decision to make
+            # consciously, not a hole to discover in the data later.
+            raise ValueError(
+                f"{holding['issuer']} ({holding['shares']} shares) scales to zero at a "
+                f"divisor of {_SHARE_DIVISOR} — choose a divisor that fits this seed"
+            )
+
+        market_value = (quantity * price).quantize(Decimal("0.01"))
+        positions.append(
+            _SeedPosition(
+                isin=holding["isin"],
+                name=holding["issuer"],
+                quantity=quantity,
+                price=Money(amount=price, currency="USD"),
+                market_value=Money(amount=market_value, currency="USD"),
+                cost_basis=_cost_basis(holding["cusip"], market_value),
+            )
+        )
+    return tuple(positions)
 
 
 def build_book(as_of: date) -> HoldingsStatement:
     """Build the clean seed holdings statement as of a given date."""
-    positions = []
-    for isin, name, qty, price, ccy, cost in _SEED_HOLDINGS:
-        quantity = Decimal(qty)
-        price_money = Money(amount=Decimal(price), currency=ccy)
-        positions.append(
-            Position(
-                account_id=_ACCOUNT.account_id,
-                security=SecurityIdentifier(scheme=IdentifierScheme.ISIN, value=isin),
-                security_name=name,
-                quantity=quantity,
-                as_of=as_of,
-                price=price_money,
-                price_as_of=as_of,
-                market_value=Money(
-                    amount=(quantity * price_money.amount).quantize(Decimal("0.01")),
-                    currency=ccy,
-                ),
-                cost_basis=None if cost is None else Money(amount=Decimal(cost), currency=ccy),
-            )
+    positions = tuple(
+        Position(
+            account_id=_ACCOUNT.account_id,
+            security=SecurityIdentifier(scheme=IdentifierScheme.ISIN, value=seed.isin),
+            security_name=seed.name,
+            quantity=seed.quantity,
+            as_of=as_of,
+            price=seed.price,
+            price_as_of=as_of,
+            market_value=seed.market_value,
+            cost_basis=seed.cost_basis,
         )
+        for seed in _seed_positions()
+    )
     return HoldingsStatement(
         statement_id=f"STMT-{as_of.isoformat()}-{_ACCOUNT.account_id}",
         account=_ACCOUNT,
         as_of=as_of,
         source_format=FeedFormat.SEMT_002,
-        positions=tuple(positions),
+        positions=positions,
     )
 
 
 # (type, amount, days_before_as_of for booking, settle_lag_days, description)
+# Securities named here are ones the book actually holds, at quantities and
+# prices consistent with it — a cash statement referencing a position the
+# account doesn't own is the kind of detail that quietly undermines the whole
+# fixture.
 _SEED_CASH: tuple[tuple[TransactionType, str, int, int, str], ...] = (
     (TransactionType.DIVIDEND, "484.00", 2, 0, "Dividend Apple Inc"),
     (TransactionType.INTEREST, "112.35", 2, 0, "Credit interest June"),
-    (TransactionType.BUY, "30157.50", 4, 2, "Purchase 75 Microsoft Corp"),
-    (TransactionType.SELL, "9051.30", 3, 2, "Sale 80 Exxon Mobil Corp"),
+    (TransactionType.BUY, "30420.00", 4, 2, "Purchase 400 Coca Cola Co"),
+    (TransactionType.SELL, "9103.60", 3, 2, "Sale 44 Chevron Corporation"),
     (TransactionType.FEE, "45.00", 1, 0, "Custody fee Q2"),
     (TransactionType.TRANSFER_IN, "25000.00", 1, 0, "Client cash contribution"),
 )

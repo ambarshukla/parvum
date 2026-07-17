@@ -35,7 +35,10 @@ from parvum_ingest.model import isin_from_cusip
 # down — as opposed to a quant filer's several thousand micro-positions.
 BERKSHIRE_CIK = 1067983
 
-DEFAULT_SEED_PATH = Path("seed/holdings_13f.json")
+# Package data, not a loose repo file: `book.py` reads it as a library would,
+# so it must travel with the package rather than be found by walking up from
+# __file__ to a directory that only exists in a source checkout.
+DEFAULT_SEED_PATH = Path("src/parvum_ingest/seed/holdings_13f.json")
 
 
 def build_seed(filing: Filing13F, holdings: tuple[Holding13F, ...]) -> dict:

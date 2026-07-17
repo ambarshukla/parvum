@@ -122,22 +122,88 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_balances (
 
 # COMMAND ----------
 
-# MAGIC %md ## Discover new files (idempotency = anti-join against the registry)
+# MAGIC %md ## Discover work: new files, and restatements
+# MAGIC
+# MAGIC The registry has always stored a `sha256`; until now nothing read it.
+# MAGIC The anti-join asked *"have I seen this path?"*, which quietly assumes a
+# MAGIC file's content never changes once written. Real feeds break that
+# MAGIC assumption constantly — a custodian re-sends a corrected file for a past
+# MAGIC date under the same name. That's a **restatement**, and under a
+# MAGIC path-only check it is invisible: the job skips the file, reports
+# MAGIC success, and bronze silently disagrees with the volume forever.
+# MAGIC
+# MAGIC So the question is *"have I seen this **content** at this path?"*:
+# MAGIC
+# MAGIC | registry says | meaning | action |
+# MAGIC |---|---|---|
+# MAGIC | path unknown | new file | parse and append |
+# MAGIC | sha256 differs | **restated** | delete its rows, re-parse |
+# MAGIC | sha256 matches | unchanged | skip |
+# MAGIC
+# MAGIC The cost is re-hashing every file each run. At hundreds of small files
+# MAGIC that is nothing; at millions you would track a source-side version or
+# MAGIC modification time instead of reading the data to discover it changed.
 
 # COMMAND ----------
 
-already_ingested = {
-    r.file_path
-    for r in spark.table(f"{SCHEMA}.bronze_file_registry").select("file_path").collect()  # noqa: F821
+registry_sha = {
+    r.file_path: r.sha256
+    for r in spark.table(f"{SCHEMA}.bronze_file_registry")  # noqa: F821
+    .select("file_path", "sha256")
+    .collect()
 }
 
-new_files = []
+new_files: list[tuple[Path, str]] = []
+restated_files: list[tuple[Path, str]] = []
+unchanged = 0
+
 for day_dir in sorted(RAW_ROOT.glob("date=*")):
     for f in sorted(day_dir.iterdir()):
-        if str(f) not in already_ingested:
-            new_files.append(f)
+        # Hashed exactly as the parse step records it, or every file would look
+        # restated on the next run.
+        digest = hashlib.sha256(f.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+        known = registry_sha.get(str(f))
+        if known is None:
+            new_files.append((f, digest))
+        elif known != digest:
+            restated_files.append((f, digest))
+        else:
+            unchanged += 1
 
-print(f"{len(already_ingested)} files already ingested; {len(new_files)} new")
+print(f"{unchanged} unchanged; {len(new_files)} new; {len(restated_files)} restated")
+
+# COMMAND ----------
+
+# MAGIC %md ## Supersede restated files
+# MAGIC
+# MAGIC Delete before re-parsing, or the append would duplicate every row. The
+# MAGIC registry row goes too, and that ordering is deliberate: if the run dies
+# MAGIC here, the file looks un-ingested and the next run redoes it cleanly —
+# MAGIC the same argument as writing the registry last.
+# MAGIC
+# MAGIC Note the honest limitation: landing overwrites the raw file, so the
+# MAGIC superseded *bytes* are already gone. A platform that must prove what it
+# MAGIC received on a given day would land restatements to a versioned path and
+# MAGIC keep both.
+
+# COMMAND ----------
+
+if restated_files:
+    spark.createDataFrame(  # noqa: F821
+        [(str(f),) for f, _ in restated_files], "file_path STRING"
+    ).createOrReplaceTempView("restated_paths")
+
+    for table in (
+        "bronze_holdings",
+        "bronze_cash_entries",
+        "bronze_cash_balances",
+        "bronze_file_registry",
+    ):
+        spark.sql(  # noqa: F821
+            f"DELETE FROM {SCHEMA}.{table} "
+            "WHERE file_path IN (SELECT file_path FROM restated_paths)"
+        )
+    print(f"superseded {len(restated_files)} restated files")
 
 # COMMAND ----------
 
@@ -148,7 +214,10 @@ print(f"{len(already_ingested)} files already ingested; {len(new_files)} new")
 run_ts = datetime.now(timezone.utc)
 registry_rows, holdings_rows, entry_rows, balance_rows = [], [], [], []
 
-for f in new_files:
+# Restated files are parsed exactly like new ones — their old rows are already
+# gone, so from here on there is no difference between "never seen" and "seen
+# and superseded".
+for f, digest in new_files + restated_files:
     fmt = next((name for suffix, (name, _) in PARSERS.items() if f.name.endswith(suffix)), None)
     parser = next((p for suffix, (_, p) in PARSERS.items() if f.name.endswith(suffix)), None)
     text = f.read_text(encoding="utf-8")
@@ -160,7 +229,7 @@ for f in new_files:
         "format": fmt or "UNKNOWN",
         "statement_date": stmt_date,
         "size_bytes": len(text.encode("utf-8")),
-        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "sha256": digest,
         "ingested_at": run_ts,
     }
 
