@@ -10,6 +10,7 @@ from parvum_reference.accounts import (
     AccountSpec,
 )
 from parvum_reference.domicile import domicile_of
+from parvum_reference.ecb import fetch_rates, fill_forward, load_rates, write_rates
 from parvum_reference.openfigi import FigiRecord, OpenFigiError, map_isins
 from parvum_reference.ownership import (
     OWNERSHIP,
@@ -48,8 +49,12 @@ __all__ = [
     "build_entries",
     "build_master",
     "domicile_of",
+    "fetch_rates",
+    "fill_forward",
     "load_master",
+    "load_rates",
     "map_isins",
     "ownership_bridge",
     "write_master",
+    "write_rates",
 ]

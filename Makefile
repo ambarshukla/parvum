@@ -21,7 +21,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master deploy-job run-job fetch-13f build-master check-freshness
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -82,6 +82,22 @@ generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replay
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
+
+# ECB reference rates for gold's EUR->USD conversion (D-026). No key needed;
+# the store is exactly what the ECB published (gap-filling happens at
+# consumption, in fill_forward, where it is visible and tested).
+fetch-fx: ## fetch ECB EUR/USD reference rates into data/reference
+	cd reference && uv run parvum-fetch-fx --out ../data/reference/fx_rates.json
+
+# Daily, unlike the securities master: rates change every business day, so the
+# daily workflow lands this after fetching. Same D-018 note as the master:
+# overwriting this path does not fire the trigger — gold picks fresh rates up
+# when the day's feed arrival runs the job.
+land-fx: ## upload the FX rates to the landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	@test -f data/reference/fx_rates.json || { echo "no local rates — run 'make fetch-fx' first"; exit 1; }
+	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
+	databricks fs cp data/reference/fx_rates.json dbfs:/Volumes/workspace/parvum/landing/reference/fx_rates.json --overwrite
 
 # Manual and occasional, unlike the daily feed landing: the master changes on
 # operator action (a rerun of build-master), not on a schedule. Overwriting
