@@ -3,6 +3,7 @@ package dev.parvum.serving.api;
 import static dev.parvum.serving.jooq.Tables.ASSET_ALLOCATION;
 import static dev.parvum.serving.jooq.Tables.CLIENT_WEALTH;
 import static dev.parvum.serving.jooq.Tables.INCOME;
+import static dev.parvum.serving.jooq.Tables.OWNERSHIP;
 import static dev.parvum.serving.jooq.Tables.TOP_HOLDINGS;
 import static org.jooq.impl.DSL.max;
 
@@ -17,9 +18,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Read-only endpoints over the four gold projections, one advisory firm (tenant) at a time. The
- * tenant is the first path segment, so a firm's whole API lives under {@code /tenants/{id}/...} and
- * every call is routed to that firm's schema by {@link TenantQuery}.
+ * Read-only endpoints over the gold projections, one advisory firm (tenant) at a time. The tenant
+ * is the first path segment, so a firm's whole API lives under {@code /tenants/{id}/...} and every
+ * call is routed to that firm's schema by {@link TenantQuery}.
  *
  * <p>{@code rebuilt_at} is deliberately not exposed: it is an internal reload marker, not part of
  * the reported figures.
@@ -127,6 +128,30 @@ public class ProjectionResource {
                             r.getWeight())));
   }
 
+  /**
+   * The ownership graph: which clients own each account, at what fraction. Ordered so each
+   * account's owners are grouped, largest share first — the shared 60/40 account shows both its
+   * owners.
+   */
+  @GET
+  @Path("/ownership")
+  public List<OwnershipRow> ownership(@PathParam("tenantId") String tenantId) {
+    return tenantQuery.inTenant(
+        tenantId,
+        dsl ->
+            dsl.selectFrom(OWNERSHIP)
+                .orderBy(OWNERSHIP.ACCOUNT_ID, OWNERSHIP.OWNERSHIP_PCT.desc())
+                .fetch(
+                    r ->
+                        new OwnershipRow(
+                            r.getAccountId(),
+                            r.getClientId(),
+                            r.getClientName(),
+                            r.getOwnershipPct(),
+                            r.getOwnerCount(),
+                            r.getIsShared())));
+  }
+
   public record WealthRow(
       LocalDate asOf,
       String clientId,
@@ -165,4 +190,12 @@ public class ProjectionResource {
       String assetClass,
       BigDecimal ownedUsd,
       BigDecimal weight) {}
+
+  public record OwnershipRow(
+      String accountId,
+      String clientId,
+      String clientName,
+      BigDecimal ownershipPct,
+      int ownerCount,
+      boolean isShared) {}
 }

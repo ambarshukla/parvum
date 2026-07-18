@@ -47,7 +47,34 @@ def wealth_table(*rows: tuple) -> GoldTable:
     return GoldTable(name="gold_client_wealth", columns=WEALTH_COLUMNS, rows=rows)
 
 
-def empty_income_and_holdings() -> list[GoldTable]:
+OWNERSHIP_COLUMNS = (
+    "account_id",
+    "client_id",
+    "client_name",
+    "ownership_pct",
+    "owner_count",
+    "is_shared",
+    "rebuilt_at",
+)
+
+
+def ownership_row(account_id: str, client_id: str, pct: str, owners: int) -> tuple:
+    return (
+        account_id,
+        client_id,
+        f"{client_id} name",
+        Decimal(pct),
+        owners,
+        owners > 1,
+        REBUILT,
+    )
+
+
+def ownership_table(*rows: tuple) -> GoldTable:
+    return GoldTable(name="gold_ownership", columns=OWNERSHIP_COLUMNS, rows=rows)
+
+
+def empty_other_tables() -> list[GoldTable]:
     income_columns = (
         "client_id",
         "client_name",
@@ -83,6 +110,7 @@ def empty_income_and_holdings() -> list[GoldTable]:
         GoldTable(name="gold_asset_allocation", columns=allocation_columns, rows=()),
         GoldTable(name="gold_income", columns=income_columns, rows=()),
         GoldTable(name="gold_top_holdings", columns=holdings_columns, rows=()),
+        ownership_table(),
     ]
 
 
@@ -97,8 +125,8 @@ def test_tenants_only_see_their_own_rows(connection, tenant_schemas):
         wealth_row("CLI-OKAFOR", date(2026, 7, 17), "2870000.00"),
         wealth_row("CLI-REYES", date(2026, 7, 17), "1694300.83"),
     )
-    counts_a = load_tenant(connection, schema_a, [hartwell, *empty_income_and_holdings()])
-    counts_b = load_tenant(connection, schema_b, [stonefield, *empty_income_and_holdings()])
+    counts_a = load_tenant(connection, schema_a, [hartwell, *empty_other_tables()])
+    counts_b = load_tenant(connection, schema_b, [stonefield, *empty_other_tables()])
 
     assert counts_a["client_wealth"] == 1
     assert counts_b["client_wealth"] == 2
@@ -117,12 +145,12 @@ def test_reload_after_restatement_leaves_no_ghost_rows(connection, tenant_schema
         wealth_row("CLI-HARTWELL", date(2026, 7, 16), "41000000.00"),
         wealth_row("CLI-HARTWELL", date(2026, 7, 17), "41090000.00"),
     )
-    load_tenant(connection, schema, [two_days, *empty_income_and_holdings()])
+    load_tenant(connection, schema, [two_days, *empty_other_tables()])
     assert count(connection, schema, "client_wealth") == 2
 
     # Gold restated: the 16th vanished upstream. The projection must follow.
     one_day = wealth_table(wealth_row("CLI-HARTWELL", date(2026, 7, 17), "41090000.00"))
-    load_tenant(connection, schema, [one_day, *empty_income_and_holdings()])
+    load_tenant(connection, schema, [one_day, *empty_other_tables()])
     remaining = connection.execute(f'SELECT as_of FROM "{schema}".client_wealth').fetchall()
     assert remaining == [(date(2026, 7, 17),)]
 
@@ -130,8 +158,8 @@ def test_reload_after_restatement_leaves_no_ghost_rows(connection, tenant_schema
 def test_reload_is_idempotent(connection, tenant_schemas):
     schema, _ = tenant_schemas
     table = wealth_table(wealth_row("CLI-HARTWELL", date(2026, 7, 17), "41090000.00"))
-    load_tenant(connection, schema, [table, *empty_income_and_holdings()])
-    load_tenant(connection, schema, [table, *empty_income_and_holdings()])
+    load_tenant(connection, schema, [table, *empty_other_tables()])
+    load_tenant(connection, schema, [table, *empty_other_tables()])
     assert count(connection, schema, "client_wealth") == 1
 
 
@@ -141,7 +169,7 @@ def test_typed_values_round_trip_through_postgres(connection, tenant_schemas):
     load_tenant(
         connection,
         schema,
-        [wealth_table(wealth_row("CLI-REYES", day, "1694300.83")), *empty_income_and_holdings()],
+        [wealth_table(wealth_row("CLI-REYES", day, "1694300.83")), *empty_other_tables()],
     )
     stored = connection.execute(
         f"SELECT total_wealth_usd, fx_rate_used, books_reconcile, rebuilt_at "
@@ -151,3 +179,26 @@ def test_typed_values_round_trip_through_postgres(connection, tenant_schemas):
     assert stored[1] == Decimal("1.143500")
     assert stored[2] is True
     assert stored[3] == REBUILT
+
+
+def test_ownership_graph_loads_the_shared_account(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # The 60/40 account, both edges routed to one tenant (as tenants.py arranges).
+    owners = ownership_table(
+        ownership_row("ACC-SHARED", "CLI-REYES", "0.600000", 2),
+        ownership_row("ACC-SHARED", "CLI-OKAFOR", "0.400000", 2),
+    )
+    counts = load_tenant(
+        connection,
+        schema,
+        [wealth_table(), *empty_other_tables()[:-1], owners],
+    )
+    assert counts["ownership"] == 2
+    stored = connection.execute(
+        f"SELECT client_id, ownership_pct, owner_count, is_shared "
+        f'FROM "{schema}".ownership ORDER BY ownership_pct DESC'
+    ).fetchall()
+    assert stored == [
+        ("CLI-REYES", Decimal("0.600000"), 2, True),
+        ("CLI-OKAFOR", Decimal("0.400000"), 2, True),
+    ]

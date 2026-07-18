@@ -21,6 +21,7 @@ PROJECTION_TABLES = {
     "gold_asset_allocation": "asset_allocation",
     "gold_income": "income",
     "gold_top_holdings": "top_holdings",
+    "gold_ownership": "ownership",
 }
 
 

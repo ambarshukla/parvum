@@ -266,3 +266,15 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - jOOQ pinned to 3.19.11 (open-source edition covers PostgreSQL) in the serving `pom.xml`, outside the Quarkus BOM.
 - Endpoints are unauthenticated for now — tenant comes from the path. Auth and the ownership-graph view are the next serving slices.
+
+## 2026-07-18 — Phase 5: the ownership-graph projection and endpoint (D-031)
+
+**Done:**
+- **A fifth gold table, `gold_ownership`** — the account→client edges from `silver_account_owners`, projected as-is with two derived columns (`owner_count`, `is_shared` via a window over the account). Structural, not monetary: the money is already prorated into the other four tables, so this one answers *who owns which accounts* and where the sharing is. This is the layer where the signature 60/40 shared account becomes directly visible.
+- **Flows through the existing machinery end to end.** V2 Flyway migration adds an `ownership` projection table (unqualified, so it lands in every tenant schema; `varchar` for the same H2-codegen reason as V1); the exporter gains one line in `GOLD_TABLES` and one in `PROJECTION_TABLES` and otherwise reuses truncate-and-reload and the client_id→tenant routing unchanged; jOOQ regenerates the `OWNERSHIP` table from the migration automatically; a `/tenants/{id}/ownership` endpoint serves it, ordered so each account's owners group together, largest share first.
+- **Tenant routing does the right thing on the shared account.** Both its edges (Reyes 60, Okafor 40) belong to Stonefield, so Stonefield sees the whole account; Aldergate's wholly-owned account shows `is_shared` false. A tenant never sees another firm's edges — and where a shared account is split across firms, `is_shared` stays true on each side even though the co-owner isn't visible.
+- **Tests both sides:** export loader test seeds the shared account and asserts it truncate-reloads with typed values (fractions as `Decimal`, `owner_count`/`is_shared` intact); serving endpoint test seeds two tenant schemas and asserts the ordering, the shared flag, and cross-tenant isolation. `mvn verify` green (8 tests), export `pytest` green (18).
+
+**Notes:**
+- Not yet run on Databricks: `gold_ownership` is a new CTAS in the existing `gold_reports` notebook (not a new task), so it materialises the next time the `parvum-ingest` gold task runs from `main` after merge — no pre-merge deploy, and the real `/ownership` data appears then. Everything here is proven locally against seeded data.
+- Docs that stated "four gold tables" as current fact (gold header, ARCHITECTURE, exporter/endpoint docstrings) now say five; the historical build-log entries that described the four-table state at their time are left as the record.
