@@ -22,7 +22,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -77,6 +77,18 @@ serving-test: ## build + test the Java serving layer (mvn verify; needs JDK 21 +
 
 serving-fmt: ## auto-format the Java serving layer (spotless)
 	cd serving && ./mvnw -B spotless:apply
+
+# Runs the API in dev mode (hot reload) on :8080. Needs JDK 21 (JAVA_HOME or on
+# PATH) and Docker; the projection tables must be filled once (make export-gold).
+serving-run: ## run the serving API locally in dev mode on :8080
+	cd serving && ./mvnw -B quarkus:dev
+
+web-install: ## install the web dashboard's dependencies (one-time)
+	cd web && npm install
+
+# Vite dev server on :5173, proxying API calls to the serving app on :8080.
+web-dev: ## run the web dashboard locally on :5173
+	cd web && npm run dev
 
 # Pulls the four gold tables over the SQL Statements API and truncate-reloads
 # each tenant schema (D-029). The serving app must have started once against

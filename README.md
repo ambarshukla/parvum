@@ -1,16 +1,46 @@
 # Parvum — a wealth-data platform reference build
 
+[![CI](https://github.com/ambarshukla/parvum/actions/workflows/ci.yml/badge.svg)](https://github.com/ambarshukla/parvum/actions/workflows/ci.yml)
+
 A small, honest reference implementation of a wealth-management data platform,
 built end-to-end from open and synthetic data: custodial feeds in **real wire
 formats** → normalisation against a **securities master** → **reconciliation &
 data-quality control** → a **total-portfolio view** served by Java web
-services — plus a human-in-the-loop pipeline for alternatives documents, and an
-infra/observability wrapper.
+services and a React dashboard — plus a human-in-the-loop pipeline for
+alternatives documents, and an infra/observability wrapper.
 
 The interesting constraint: the feeds are synthetic but the *formats* are real
 (ISO 20022, SWIFT MT), seeded with real reference data and real SEC 13F
 holdings, with defects injected deliberately — because the defects are what
 drive reconciliation and data-quality work in practice.
+
+## Stack
+
+Built as a full vertical slice — ingestion, a Databricks lakehouse, data
+quality, a Java API, and a web front end — each layer its own package with its
+own tests and CI.
+
+| Layer | Technologies | Code |
+|-------|--------------|------|
+| Lakehouse & pipeline | **Databricks** (Delta Lake, Unity Catalog, Workflows), **PySpark** — bronze → silver → gold | [`spark/`](spark/) |
+| Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
+| Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
+| Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
+| Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
+| Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
+| Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
+| CI/CD & automation | **GitHub Actions** — per-package PR checks + a daily feed cron | [`.github/workflows/`](.github/workflows/) |
+| Local infra | **Docker Compose** (Terraform planned) | [`infra/`](infra/) |
+
+Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
+(D-001…D-032); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+
+![The web dashboard — client overview](docs/img/dashboard-overview.png)
+
+The dashboard also surfaces the ownership graph — including an account shared
+60/40 between two families, with its co-owner named:
+
+![Ownership view](docs/img/dashboard-ownership.png)
 
 ## Architecture (target)
 
@@ -89,6 +119,29 @@ make run-job      # run the whole chain now, without waiting for a file
 ```
 
 The full loop — generate → land → bronze → silver → reconciliation → gold reports — runs with no human in it, on a file-arrival trigger.
+
+### Run the site locally (API + dashboard)
+
+The serving API and the dashboard run on your machine against the local
+Postgres. You need a **JDK 21** (for the Java API), **Node 20+** (for the web
+app), and Docker running. Use three terminals:
+
+```sh
+# Terminal 1 — start Postgres, then the API (hot-reload) on :8080
+make up
+make serving-run        # needs JDK 21 on PATH or JAVA_HOME set
+
+# Terminal 2 — fill the projection tables from gold (one time; needs .env)
+make export-gold        # needs a Databricks login + DATABRICKS_* in .env
+
+# Terminal 3 — start the dashboard on :5173 (proxies the API)
+make web-install        # first run only
+make web-dev
+```
+
+Then open **http://localhost:5173**. Pick an advisory firm in the top bar, a
+client in the sidebar, and browse the tabs. The dashboard is a static app that
+only reads the API — nothing to deploy to look at it locally.
 
 ## Repo layout
 
