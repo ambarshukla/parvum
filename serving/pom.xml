@@ -27,6 +27,10 @@
     <surefire-plugin.version>3.5.6</surefire-plugin.version>
     <spotless-plugin.version>3.8.0</spotless-plugin.version>
     <google-java-format.version>1.35.0</google-java-format.version>
+    <!-- jOOQ is not in the Quarkus BOM, so its version is pinned here. The
+         open-source edition covers PostgreSQL; 3.19.x is the current line on
+         Java 21. -->
+    <jooq.version>3.19.11</jooq.version>
   </properties>
 
   <dependencyManagement>
@@ -62,6 +66,14 @@
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-smallrye-health</artifactId>
+    </dependency>
+    <!-- Typed SQL over the projection. jOOQ classes are generated from the
+         Flyway migration at build time (see the jooq-codegen plugin below);
+         this is the runtime the endpoints query through. -->
+    <dependency>
+      <groupId>org.jooq</groupId>
+      <artifactId>jooq</artifactId>
+      <version>${jooq.version}</version>
     </dependency>
 
     <dependency>
@@ -133,6 +145,73 @@
             </goals>
           </execution>
         </executions>
+      </plugin>
+
+      <!-- jOOQ code generation. The DDLDatabase parses the Flyway migration
+           scripts directly (no live database at build time), so codegen and
+           Flyway read the one same DDL — the schema has a single source of
+           truth, and CI's serving job needs no Postgres. Output lands in
+           target/ (regenerated every build, never committed), mirroring how
+           Quarkus treats its own generated sources. Tables generate
+           unqualified; at runtime renderSchema=false keeps them that way, so
+           the per-request search_path picks the tenant schema. -->
+      <plugin>
+        <groupId>org.jooq</groupId>
+        <artifactId>jooq-codegen-maven</artifactId>
+        <version>${jooq.version}</version>
+        <executions>
+          <execution>
+            <id>jooq-codegen</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>org.jooq</groupId>
+            <artifactId>jooq-meta-extensions</artifactId>
+            <version>${jooq.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <generator>
+            <database>
+              <name>org.jooq.meta.extensions.ddl.DDLDatabase</name>
+              <properties>
+                <property>
+                  <key>scripts</key>
+                  <value>src/main/resources/db/migration/V*.sql</value>
+                </property>
+                <!-- Apply scripts in Flyway version order, as Flyway itself
+                     will at startup. -->
+                <property>
+                  <key>sort</key>
+                  <value>flyway</value>
+                </property>
+                <!-- Parse and interpret the scripts as PostgreSQL. Without
+                     this the interpreter falls back to H2, where `text`
+                     becomes CLOB and cannot sit in a primary-key index. -->
+                <property>
+                  <key>parseDialect</key>
+                  <value>POSTGRES</value>
+                </property>
+                <property>
+                  <key>defaultNameCase</key>
+                  <value>lower</value>
+                </property>
+              </properties>
+            </database>
+            <generate>
+              <javaTimeTypes>true</javaTimeTypes>
+            </generate>
+            <target>
+              <packageName>dev.parvum.serving.jooq</packageName>
+              <directory>target/generated-sources/jooq</directory>
+            </target>
+          </generator>
+        </configuration>
       </plugin>
     </plugins>
   </build>

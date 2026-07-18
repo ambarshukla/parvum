@@ -253,3 +253,16 @@ Skimmable record of what was done and why. Newest entry last.
 - Token resolution: `DATABRICKS_TOKEN` if set (CI), else the CLI mints one from its OAuth cache — so local runs need no PAT.
 - Stacked on `feat/serving-scaffold` (unmerged): this branch contains that commit too. Merge the scaffold PR first, or rebase this onto main after it lands.
 - New required-check candidate `export` (like `serving`): add to branch protection once merged.
+
+## 2026-07-18 — Phase 5: jOOQ codegen + the read-only projection endpoints (D-030)
+
+**Done:**
+- **jOOQ code generation from the Flyway migrations** — `DDLDatabase` parses `serving/`'s `V*.sql` directly, so nothing runs a database at build time; generated classes land in `target/` (never committed, like Quarkus's own). CI's `serving` job stays a plain `mvn verify`.
+- **One class set, every tenant.** The `DSLContext` is produced with `renderSchema=false`, so tables render as bare names; a per-request `SET LOCAL search_path` in `TenantQuery` points the connection at the right tenant schema. `LOCAL` scopes the change to the transaction, so a pooled connection can never leak one tenant's path into the next request. The schema name is both shape-validated (`TenantSchemas.schemaFor`) and rendered as a quoted identifier — one injection defence stated twice.
+- **Four read-only endpoints** under `/tenants/{id}/…`: `wealth` and `allocation` (latest exported date), `income` (full monthly series, for a time chart), `holdings` (already latest-only in gold). Rows map to small Java records; `rebuilt_at` stays internal. An unknown or malformed tenant is a 404 before any identifier is built.
+- **Tests seed rows straight into two tenant schemas** and read them back over HTTP — the exporter's real source (the lakehouse) is unreachable from a unit test, so this exercises the whole path routing → search_path → jOOQ → JSON. They prove latest-date filtering, that each tenant sees only its own rows, the other three projections map, and hostile tenant ids are rejected. `mvn verify` green: 7 tests (4 new + 3 smoke).
+- **One accommodation, documented (D-030):** `DDLDatabase` interprets DDL in H2, where `text` is a non-indexable CLOB, so the projection's string columns became `varchar` (unbounded) — the same type in PostgreSQL. The V1 migration carries a one-line note; nothing about the exporter or its tests changes.
+
+**Notes:**
+- jOOQ pinned to 3.19.11 (open-source edition covers PostgreSQL) in the serving `pom.xml`, outside the Quarkus BOM.
+- Endpoints are unauthenticated for now — tenant comes from the path. Auth and the ownership-graph view are the next serving slices.
