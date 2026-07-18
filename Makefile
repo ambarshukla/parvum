@@ -21,7 +21,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -62,6 +62,15 @@ lint: ## lint + format check, both workspace packages (mirrors CI)
 fmt: ## auto-format and auto-fix lint findings, both workspace packages
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 	cd reference && uv run ruff format . && uv run ruff check --fix .
+
+# The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
+# pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
+# app against a throwaway Postgres container — Docker must be running.
+serving-test: ## build + test the Java serving layer (mvn verify; needs JDK 21 + Docker)
+	cd serving && ./mvnw -B verify
+
+serving-fmt: ## auto-format the Java serving layer (spotless)
+	cd serving && ./mvnw -B spotless:apply
 
 # Incremental: filings are immutable, so anything already in data/edgar is
 # never re-fetched. SEC requires a contact in the User-Agent — see .env.example.

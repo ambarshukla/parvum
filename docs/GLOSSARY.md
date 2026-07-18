@@ -58,6 +58,12 @@ magic — every term gets defined here on first use.
 - **HITL** — human-in-the-loop: pipeline steps where low-confidence machine output is routed to a person for review.
 - **Quarkus** — a Java framework optimised for fast startup and low memory (container-friendly), with optional native-image compilation.
 - **jOOQ** — a Java library that generates typesafe code from your schema so you write explicit SQL, not ORM abstractions.
+- **Flyway** — versioned database migrations: numbered SQL files applied in order, with a history table recording what already ran; here the same migration set runs once per tenant schema.
+- **Schema-per-tenant** — multi-tenancy where each tenant gets its own database schema with an identical layout; isolation is structural (a query rendered against one schema cannot see another) instead of a WHERE clause every query must remember.
+- **Quarkus Dev Services** — when no datasource URL is configured, Quarkus starts a throwaway database container automatically for tests and dev mode; the test database appears and disappears with the test run.
+- **Maven / pom.xml** — Java's build and dependency manager; `pom.xml` declares dependencies, versions, and build plugins (the Java-side `pyproject.toml`).
+- **Maven wrapper (`mvnw`)** — a committed script that downloads the pinned Maven version before building, so the build never depends on what happens to be installed.
+- **Spotless / google-java-format** — build-enforced Java formatting (ruff format's role on the Python side): `verify` fails on violations, `spotless:apply` fixes them.
 - **RDS / db.t4g.micro** — AWS managed Postgres; t4g.micro is the smallest ARM instance class (~£10/mo).
 - **AWS App Runner** — AWS's closest thing to a PaaS: point it at a container image, get a scaled, TLS-terminated public HTTPS service.
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).

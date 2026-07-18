@@ -49,6 +49,30 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  serving:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: serving
+    steps:
+      - uses: actions/checkout@v5
+
+      # Java 21 LTS to match local dev; temurin is the runner-cached
+      # distribution (the vendor difference from a local Oracle JDK is
+      # immaterial — both build the same bytecode from the same release).
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # verify = compile + tests + format check (spotless). Tests boot the
+      # whole app against a throwaway Postgres container (Quarkus Dev
+      # Services), which needs the runner's Docker daemon.
+      - name: Build and test
+        run: ./mvnw -B verify
+
   reference:
     runs-on: ubuntu-latest
     defaults:
