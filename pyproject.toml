@@ -8,4 +8,4 @@
 # the Makefile's `cd ingest && uv run pytest` keeps working unchanged.
 
 [tool.uv.workspace]
-members = ["ingest", "reference"]
+members = ["ingest", "reference", "export"]

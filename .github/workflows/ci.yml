@@ -49,6 +49,51 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  export:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: export
+    # The loader tests apply the serving Flyway DDL to a real Postgres and
+    # exercise truncate-and-reload against it; a service container gives CI
+    # the database the docker-compose one provides locally. Credentials
+    # mirror the compose defaults, so the tests' default DSN just works.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: parvum
+          POSTGRES_PASSWORD: parvum_local_dev
+          POSTGRES_DB: parvum
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U parvum -d parvum"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      # -rs so a skipped DB test is visible in the log — in CI the service
+      # container exists, so a skip here means something is wrong.
+      - name: Tests
+        run: uv run pytest -rs
+
   serving:
     runs-on: ubuntu-latest
     defaults:
