@@ -69,6 +69,16 @@ jobs:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: make fetch-13f
 
+      # ECB reference rates for gold's currency conversion (D-026). Non-fatal
+      # on purpose: an ECB outage must not block the feed delivery, and gold
+      # degrades gracefully anyway — fill_forward carries the last landed rate
+      # until a fresh one arrives. The ⚠ on a failed step is the alert.
+      # (The dependency sync above covered the whole uv workspace, reference
+      # included — one lockfile, one environment.)
+      - name: Fetch FX reference rates
+        continue-on-error: true
+        run: make fetch-fx
+
       # DAYS/END reach the Makefile through the environment — its `?=` defaults
       # yield to whatever is already set — so CI needs no special flags, and
       # inputs never get interpolated into a shell command.
@@ -82,9 +92,20 @@ jobs:
           echo "files=$(find data/raw -type f 2>/dev/null | wc -l)" >> "$GITHUB_OUTPUT"
 
       # Pinned to the CLI version used locally, so the upload behaves identically.
+      # No longer conditional on generated files: FX rates land daily even on
+      # a zero-file (holiday) day — a US holiday is not a TARGET holiday.
       - name: Install the Databricks CLI
-        if: steps.generate.outputs.files != '0'
         uses: databricks/setup-cli@v1.8.0
+
+      # Rates land before the feeds so that when the feed arrival fires the
+      # job, gold already sees today's rate. Non-fatal, same reasoning as the
+      # fetch: carry-forward covers a stale day; a blocked delivery does not.
+      - name: Land the FX rates
+        continue-on-error: true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: make land-fx
 
       # The CLI reads DATABRICKS_HOST/DATABRICKS_TOKEN straight from the
       # environment, so `make land` is unchanged from its local form (where the

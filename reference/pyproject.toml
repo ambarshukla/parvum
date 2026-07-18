@@ -23,6 +23,9 @@ dev = [
     "ruff>=0.5",
 ]
 
+[project.scripts]
+parvum-fetch-fx = "parvum_reference.fetch_fx:main"
+
 # Ruff config is shared across the workspace: see <repo>/ruff.toml.
 
 [tool.pytest.ini_options]

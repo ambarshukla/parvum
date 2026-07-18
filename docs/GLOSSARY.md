@@ -157,3 +157,6 @@ magic — every term gets defined here on first use.
 - **Break (recon break)** — one unexplained difference found by a reconciliation; breaks are worked, explained, and closed, not deleted. Our findings tables are breaks-as-rows.
 - **Ground truth** — the independently known correct answer used to grade a system (here: the defect injector's manifests). The platform must find defects without it; grading uses it.
 - **CdtDbtInd (credit/debit indicator)** — camt.053's field carrying a movement's direction separately from its (unsigned) amount; forgetting this convention makes every balance check fail at 100%, which is how you notice it.
+- **ECB reference rates** — daily indicative EUR-based exchange rates published free by the European Central Bank (~16:15 CET, TARGET business days). The standard no-cost source for valuation-grade FX; not tradeable quotes.
+- **TARGET calendar** — the euro-area banking calendar the ECB publishes on; no weekends or euro-area holidays. Any daily-rate consumer must bridge its gaps.
+- **Carry-forward (LOCF)** — filling a gap with the last observed value ("last observation carried forward"). Legitimate exactly when labelled: our fill returns each day's rate with its publication date, so a bridged day is visibly bridged.
