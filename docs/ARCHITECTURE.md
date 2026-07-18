@@ -93,16 +93,17 @@ file-arrival trigger runs the five-task Databricks job — bronze (parse,
 restatement-aware) → silver positions ∥ silver cash (conformed,
 owner-attributed) → reconciliation (cross-format findings + cash integrity,
 graded against the generator's defect manifests) → gold (client wealth,
-allocation, income, top holdings; USD headlines at each day's ECB rate).
-Failure email and a freshness gate watch the chain.
+allocation, income, top holdings, ownership graph; USD headlines at each
+day's ECB rate). Failure email and a freshness gate watch the chain.
 
 The serving layer (Phase 5) is under construction: the Quarkus application
 in `serving/` starts, migrates every tenant schema (Flyway, schema-per-tenant
 per D-028), and reports healthy against the local Postgres 16 from
 `infra/docker-compose.yml`; its tests run the same way against a throwaway
-container in CI. The exporter (`export/`, D-029) pulls the four gold tables
+container in CI. The exporter (`export/`, D-029) pulls the five gold tables
 over the SQL Statements API and truncate-reloads each tenant schema —
 verified end-to-end against the live lakehouse: every gold row lands exactly
-once, split per tenant. The jOOQ query layer and endpoints, and the AWS
-deployment, are next. Alts-HITL and Terraform/observability remain planned,
-not built.
+once, split per tenant. Read-only endpoints (`/tenants/{id}/…`) serve those
+projections through jOOQ (D-030), routing each request to its tenant's schema
+with a per-request `search_path`. The AWS deployment is next; alts-HITL and
+Terraform/observability remain planned, not built.

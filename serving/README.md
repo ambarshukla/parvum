@@ -12,6 +12,7 @@ GET /tenants/{tenant}/wealth      # headline wealth per client (latest date)
 GET /tenants/{tenant}/allocation  # asset-class breakdown (latest date)
 GET /tenants/{tenant}/income      # monthly income series
 GET /tenants/{tenant}/holdings    # top holdings (latest date)
+GET /tenants/{tenant}/ownership   # ownership graph: who owns which accounts
 ```
 
 `{tenant}` is `aldergate` or `stonefield`; an unknown one is a 404. Each

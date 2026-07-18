@@ -57,14 +57,25 @@ class ProjectionEndpointsTest {
           ('2026-06-30','HART','Hartwell', 1, 'Apple Inc','US-CUSIP','037833100','Equity', 8000000.00, 0.20, now());
         """);
 
-    // Stonefield: Okafor. Only wealth is needed here — enough to prove one tenant never sees the
-    // other's rows.
+    exec(
+        "tenant_aldergate",
+        """
+        insert into ownership values
+          ('ACC-HART','HART','Hartwell', 1.000000, 1, false, now());
+        """);
+
+    // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
+    // the signature shared account — one account split 60/40 between the two clients this firm
+    // advises, so both edges live in this one tenant.
     reset("tenant_stonefield");
     exec(
         "tenant_stonefield",
         """
         insert into client_wealth values
           ('2026-06-30','OKAF','Okafor', 2800000.00, 67257.58, 2867257.58, 1.1435, '2026-06-30', true, now());
+        insert into ownership values
+          ('ACC-SHARED','REYES','Reyes', 0.600000, 2, true, now()),
+          ('ACC-SHARED','OKAF','Okafor', 0.400000, 2, true, now());
         """);
   }
 
@@ -132,6 +143,34 @@ class ProjectionEndpointsTest {
   }
 
   @Test
+  void ownershipGraphExposesTheSharedAccountWithinOneTenant() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/stonefield/ownership")
+        .then()
+        .statusCode(200)
+        .body("size()", is(2))
+        // Ordered by account then fraction desc: the 60% owner comes first.
+        .body("accountId", contains("ACC-SHARED", "ACC-SHARED"))
+        .body("clientId", contains("REYES", "OKAF"))
+        .body("[0].ownershipPct", comparesEqualTo(new BigDecimal("0.60")))
+        .body("isShared", contains(true, true))
+        .body("[0].ownerCount", is(2));
+
+    // Aldergate's account is wholly owned — not shared, and never shows Stonefield's clients.
+    given()
+        .when()
+        .get("/tenants/aldergate/ownership")
+        .then()
+        .statusCode(200)
+        .body("size()", is(1))
+        .body("[0].clientId", is("HART"))
+        .body("[0].isShared", is(false))
+        .body("clientId", not(hasItem("OKAF")));
+  }
+
+  @Test
   void unknownOrMalformedTenantsAre404() {
     given().when().get("/tenants/ghost/wealth").then().statusCode(404);
     // Uppercase cannot be a schema id (see TenantSchemas.SAFE_TENANT_ID); it is not in the tenant
@@ -140,7 +179,7 @@ class ProjectionEndpointsTest {
   }
 
   private void reset(String schema) throws Exception {
-    exec(schema, "truncate table client_wealth, asset_allocation, income, top_holdings");
+    exec(schema, "truncate table client_wealth, asset_allocation, income, top_holdings, ownership");
   }
 
   /** Runs semicolon-separated statements inside {@code schema} via a temporary search_path. */

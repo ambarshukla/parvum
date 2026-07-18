@@ -1,4 +1,4 @@
-"""CLI: pull the four gold tables, split per tenant, reload each tenant schema.
+"""CLI: pull the five gold tables, split per tenant, reload each tenant schema.
 
 Runs wherever there is open egress to both Databricks and Postgres: locally
 against the docker-compose database today, from GitHub Actions against RDS

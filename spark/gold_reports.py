@@ -2,9 +2,10 @@
 # MAGIC %md
 # MAGIC # Gold — the reports a person reads
 # MAGIC
-# MAGIC Everything below silver is plumbing; these four tables are the product:
-# MAGIC each family's wealth over time, what it's made of, what it earned, and
-# MAGIC what its biggest positions are. Gold only *sums and shapes* — every
+# MAGIC Everything below silver is plumbing; these five tables are the product:
+# MAGIC each family's wealth over time, what it's made of, what it earned, what
+# MAGIC its biggest positions are, and who owns which accounts. Gold only *sums
+# MAGIC and shapes* — every
 # MAGIC number here traces to silver rows that trace to bronze files, the
 # MAGIC proration was done once in silver, and the quality layer's verdicts
 # MAGIC ride along as a flag rather than being asserted anew.
@@ -278,6 +279,39 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
+# MAGIC %md ## `gold_ownership` — the ownership graph
+# MAGIC
+# MAGIC The account→client edges from `silver_account_owners`, projected as-is
+# MAGIC with two derived columns: how many clients own each account, and whether
+# MAGIC it is shared. This is structure, not money — the monetary attribution is
+# MAGIC already prorated into wealth/allocation/holdings. It exists so the serving
+# MAGIC layer can show *who owns what*, including the 60/40 shared account whose
+# MAGIC two owners are why proration matters at all.
+
+# COMMAND ----------
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_ownership
+    COMMENT 'The ownership graph: one row per (account, owning client) with the effective fraction, the number of owners on the account, and whether it is shared. Structural — fractions per account sum to 1.'
+    AS
+    WITH counted AS (
+        SELECT account_id, client_id, client_name, ownership_pct,
+               COUNT(*) OVER (PARTITION BY account_id) AS owner_count
+        FROM {SCHEMA}.silver_account_owners
+    )
+    SELECT
+        account_id,
+        client_id,
+        client_name,
+        CAST(ownership_pct AS DECIMAL(9,6)) AS ownership_pct,
+        CAST(owner_count AS INT)            AS owner_count,
+        owner_count > 1                     AS is_shared,
+        current_timestamp()                 AS rebuilt_at
+    FROM counted"""
+)
+
+# COMMAND ----------
+
 # MAGIC %md ## Column descriptions (Unity Catalog metadata)
 
 # COMMAND ----------
@@ -324,6 +358,15 @@ COLUMN_COMMENTS = {
         "asset_class": "Instrument class from the securities master ('Unknown' if unmapped)",
         "owned_usd": "This client's owner-prorated USD value, summed across their accounts",
         "weight": "owned_usd / the client's total positions value (conventional holdings-report basis)",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
+    "gold_ownership": {
+        "account_id": "Custodial account. Grain: one row per (account, owning client)",
+        "client_id": "A client that owns some fraction of this account",
+        "client_name": "Display name of the client",
+        "ownership_pct": "This client's effective fraction of the account; fractions per account sum to 1",
+        "owner_count": "How many clients own this account (2+ means a shared account)",
+        "is_shared": "True when the account has more than one owner (owner_count > 1)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
 }
