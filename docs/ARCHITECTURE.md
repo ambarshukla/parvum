@@ -80,7 +80,17 @@ Postgres is a **durable, continuously updated projection of the gold layer**
   data — so Postgres can be dropped and rebuilt from gold at any time.
   Operationally: valuable, but disposable.
 
-## Current state (Phase 0)
+## Current state (end of Phase 4)
+
+The lakehouse side is complete and unattended: a daily GitHub Action fetches
+13F filings and ECB FX rates, generates and lands the day's feed files, and a
+file-arrival trigger runs the five-task Databricks job — bronze (parse,
+restatement-aware) → silver positions ∥ silver cash (conformed,
+owner-attributed) → reconciliation (cross-format findings + cash integrity,
+graded against the generator's defect manifests) → gold (client wealth,
+allocation, income, top holdings; USD headlines at each day's ECB rate).
+Failure email and a freshness gate watch the chain.
 
 Local Postgres 16 via `infra/docker-compose.yml` (volume-backed, healthcheck,
-`make up`). Everything else is planned, not built.
+`make up`) awaits the serving layer (Phase 5). Serving, alts-HITL,
+Terraform/observability remain planned, not built.
