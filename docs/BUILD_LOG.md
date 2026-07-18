@@ -316,3 +316,14 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Both applied resources are live: state bucket `parvum-tfstate-656326303611`, budget `parvum-monthly`.
 - Next: an ECR repo + a Dockerfile for the Quarkus serving app (none exists yet), then RDS + App Runner — where standing monthly cost begins, to be confirmed before applying.
+
+## 2026-07-19 — AWS deploy, step 2: containerize serving, ECR repo
+
+**Done:**
+- **`serving/Dockerfile`** — first container image the project has built. Multi-stage: a JDK-only build stage runs the committed `./mvnw package -DskipTests` (same "only a JDK is assumed" contract as running it on a laptop; tests are skipped here because they boot Dev Services containers that would mean Docker-in-Docker, and `mvn verify` already gates every PR before an image is ever built from a merged commit), then a JRE-only runtime stage copies Quarkus's fast-jar layout (`lib/`, the runner jar, `app/`, `quarkus/`) and runs it directly — no build tooling in the shipped image.
+- **`aws_ecr_repository.serving`** + a lifecycle policy expiring untagged images after 7 days (repeated local pushes during iteration shouldn't accumulate storage cost indefinitely).
+- **Verified end-to-end, not just `docker build`:** ran the built image against the local compose Postgres (`host.docker.internal`, prod profile, real `QUARKUS_DATASOURCE_*` env vars — the same "no defaults, fail loudly" contract `application.properties` already documents) — Flyway migrated all three schemas on boot, `/tenants/aldergate/wealth` returned real data (Hartwell $41,091,835.83), `/q/health` reported UP. Then authenticated to the new ECR repo (`aws ecr get-login-password` via the `parvum-tf` profile) and pushed the same image — confirms the IAM user's permissions and the whole local-build-to-registry path work before any CI automation depends on it.
+
+**Notes:**
+- Image pushed manually this session only, to prove the path; the GitHub Actions step (next) is what makes this happen on every merge.
+- Next: RDS Postgres + App Runner — this is where standing monthly cost begins.
