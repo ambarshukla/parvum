@@ -145,25 +145,23 @@ The full loop — generate → land → bronze → silver → reconciliation →
 ### Run the site locally (API + dashboard)
 
 The serving API and the dashboard run on your machine against the local
-Postgres. You need a **JDK 21** (for the Java API), **Node 20+** (for the web
-app), and Docker running. Use three terminals:
+Postgres. You need **JDK 21**, **Node 20+**, and Docker running. Three
+terminals from the repo root:
 
 ```sh
-# Terminal 1 — start Postgres, then the API (hot-reload) on :8080
-make up
-make serving-run        # needs JDK 21 on PATH or JAVA_HOME set
-
-# Terminal 2 — fill the projection tables from gold (one time; needs .env)
-make export-gold        # needs a Databricks login + DATABRICKS_* in .env
-
-# Terminal 3 — start the dashboard on :5173 (proxies the API)
-make web-install        # first run only
-make web-dev
+make up            # 1 · Postgres on :5432
+make serving-run   # 2 · API on :8080   (set JAVA_HOME first if java isn't on PATH)
+make web-dev       # 3 · dashboard on :5173   (run `make web-install` once, first)
 ```
 
-Then open **http://localhost:5173**. Pick an advisory firm in the top bar, a
-client in the sidebar, and browse the tabs. The dashboard is a static app that
-only reads the API — nothing to deploy to look at it locally.
+Then open **http://localhost:5173** — pick a firm, a client, and browse the
+tabs (the dashboard only reads the API, so there's nothing to deploy to look at
+it locally). The projection data is already loaded; `make export-gold` refills
+it if needed.
+
+**First time, or hitting an error?** [docs/RUNNING.md](docs/RUNNING.md) is a
+detailed walkthrough — prerequisites, `JAVA_HOME`, Git Bash vs PowerShell, what
+each step does, and a troubleshooting table.
 
 ## Repo layout
 

@@ -22,6 +22,22 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
+# The Maven wrapper is invoked differently depending on the shell make runs its
+# recipes in. A POSIX shell needs `./mvnw`; cmd.exe — what make uses when it's
+# launched from PowerShell — searches the current directory and wants
+# `mvnw.cmd`. MSYSTEM is set by Git Bash/MSYS and unset under PowerShell/cmd, so
+# it tells the two Windows cases apart; everywhere else (Linux/macOS, CI) it's
+# POSIX. This lets the serving targets run from either shell on Windows.
+ifeq ($(OS),Windows_NT)
+  ifdef MSYSTEM
+    MVNW := ./mvnw
+  else
+    MVNW := mvnw.cmd
+  endif
+else
+  MVNW := ./mvnw
+endif
+
 .PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev
 
 # Two traps here, both of which have already bitten:
@@ -73,15 +89,15 @@ fmt: ## auto-format and auto-fix lint findings, all workspace packages
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
 # app against a throwaway Postgres container — Docker must be running.
 serving-test: ## build + test the Java serving layer (mvn verify; needs JDK 21 + Docker)
-	cd serving && ./mvnw -B verify
+	cd serving && $(MVNW) -B verify
 
 serving-fmt: ## auto-format the Java serving layer (spotless)
-	cd serving && ./mvnw -B spotless:apply
+	cd serving && $(MVNW) -B spotless:apply
 
 # Runs the API in dev mode (hot reload) on :8080. Needs JDK 21 (JAVA_HOME or on
 # PATH) and Docker; the projection tables must be filled once (make export-gold).
 serving-run: ## run the serving API locally in dev mode on :8080
-	cd serving && ./mvnw -B quarkus:dev
+	cd serving && $(MVNW) -B quarkus:dev
 
 web-install: ## install the web dashboard's dependencies (one-time)
 	cd web && npm install
@@ -95,7 +111,6 @@ web-dev: ## run the web dashboard locally on :5173
 # the target database first — Flyway owns the schemas, this only fills them.
 # Local OAuth is fine (the CLI mints a token); CI would set DATABRICKS_TOKEN.
 export-gold: ## reload the serving Postgres projection from gold (needs DATABRICKS_HOST, DATABRICKS_WAREHOUSE_ID)
-	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	cd export && uv run parvum-export-gold
 
 # Incremental: filings are immutable, so anything already in data/edgar is
