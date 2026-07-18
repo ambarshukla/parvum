@@ -147,6 +147,15 @@ body {
     min-width: 220px;
 }
 
+/* The closed control sits on the dark top bar (white text), but the native
+   options popup is drawn on the system's light surface — white-on-white left
+   unselected options invisible until hovered. Give the options explicit
+   app-surface colours so the popup is readable in both themes. */
+.tenant-select option {
+    color: var(--ink);
+    background-color: var(--surface);
+}
+
 .theme-toggle:hover,
 .tenant-select:hover {
     border-color: var(--topbar-muted);
