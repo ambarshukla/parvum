@@ -72,13 +72,18 @@ workspaces is the documented scale-up path if ever needed.
 Postgres is a **durable, continuously updated projection of the gold layer**
 — not transient, and not the system of record:
 
-- Daily pipeline runs **upsert** (MERGE) new gold data into Postgres on top
-  of what's there; history the API needs (e.g. position snapshots) accumulates.
+- Each export run **truncates and reloads** the projection tables (D-029) —
+  gold itself is a full rebuild carrying complete history, so the projection
+  mirrors it exactly rather than accumulating alongside it; an upsert that
+  never deletes would silently keep rows a gold restatement removed.
 - The **Delta lakehouse is the system of record**: it keeps raw-as-received
   bronze forever and can rebuild every downstream table.
-- The gold→Postgres load is **idempotent** — rerunning it never duplicates
-  data — so Postgres can be dropped and rebuilt from gold at any time.
-  Operationally: valuable, but disposable.
+- The gold→Postgres load is therefore trivially **idempotent** — Postgres can
+  be dropped and rebuilt from gold at any time. Operationally: valuable, but
+  disposable.
+- **Schema-per-tenant** (D-028): every tenant (advisory firm) has its own
+  Postgres schema with identical layout, migrated by Flyway at startup;
+  isolation is structural, not a WHERE clause.
 
 ## Current state (end of Phase 4)
 
@@ -91,6 +96,10 @@ graded against the generator's defect manifests) → gold (client wealth,
 allocation, income, top holdings; USD headlines at each day's ECB rate).
 Failure email and a freshness gate watch the chain.
 
-Local Postgres 16 via `infra/docker-compose.yml` (volume-backed, healthcheck,
-`make up`) awaits the serving layer (Phase 5). Serving, alts-HITL,
+The serving layer (Phase 5) is under construction: the Quarkus application
+in `serving/` starts, migrates every tenant schema (Flyway, schema-per-tenant
+per D-028), and reports healthy against the local Postgres 16 from
+`infra/docker-compose.yml`; its tests run the same way against a throwaway
+container in CI. The gold→Postgres exporter, the jOOQ query layer and
+endpoints, and the AWS deployment are next. Alts-HITL and
 Terraform/observability remain planned, not built.

@@ -47,7 +47,7 @@ process. Serving infra is provisioned on **real AWS by Terraform** (decision
 | 2 | Reference data & normalisation → Silver | ✅ done |
 | 3 | Reconciliation & data-quality control | ✅ done |
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
-| 5 | Java serving layer (Quarkus + jOOQ) + live site | ⬜ |
+| 5 | Java serving layer (Quarkus + jOOQ) + live site | 🔨 in progress |
 | 6 | Alternatives HITL pipeline | ⬜ |
 | 7 | Liquidity & scenario projection view | ⬜ |
 | 8 | External analytics integration (mocked) | ⬜ |
