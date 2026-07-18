@@ -99,7 +99,7 @@ spark.sql(  # noqa: F821
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_cash_transactions
-    COMMENT 'Conformed cash movements: one row per (as_of, account, transaction_id), native currency, signed amounts. source_row_count > 1 marks collapsed feed duplicates; source_disagrees marks copies that conflicted.'
+    COMMENT 'Conformed cash movements: one row per (as_of, account, transaction_id), native currency. amount is as received (unsigned, direction in type); signed_amount applies the direction. source_row_count > 1 marks collapsed feed duplicates; source_disagrees marks copies that conflicted.'
     AS
     SELECT
         as_of,
@@ -109,6 +109,12 @@ spark.sql(  # noqa: F821
         MAX(trade_date)        AS trade_date,
         MIN(settlement_date)   AS settlement_date,
         MAX(amount)            AS amount,
+        -- The feed stores amounts unsigned with direction in the type
+        -- (camt.053 CdtDbtInd); the debit set mirrors DEBIT_TYPES in
+        -- parvum_ingest/formats/camt053.py. Conformance means doing this
+        -- once, here — not in every downstream SUM.
+        MAX(CASE WHEN type IN ('BUY', 'FEE', 'TRANSFER_OUT')
+                 THEN -amount ELSE amount END) AS signed_amount,
         MAX(currency)          AS currency,
         MAX(description)       AS description,
         COUNT(*)               AS source_row_count,
@@ -162,7 +168,7 @@ spark.sql(  # noqa: F821
         o.client_id,
         o.client_name,
         o.ownership_pct,
-        CAST(t.amount * o.ownership_pct AS DECIMAL(24,2)) AS owned_amount,
+        CAST(t.signed_amount * o.ownership_pct AS DECIMAL(24,2)) AS owned_amount,
         t.currency,
         t.rebuilt_at
     FROM {SCHEMA}.silver_cash_transactions t
@@ -196,7 +202,8 @@ COLUMN_COMMENTS = {
         "type": "Movement type as received (dividend, fee, transfer, …)",
         "trade_date": "Trade/booking date",
         "settlement_date": "Settlement/value date",
-        "amount": "Signed movement in native currency (NOT prorated)",
+        "amount": "Movement as received: unsigned, direction in type (camt.053 CdtDbtInd convention)",
+        "signed_amount": "amount with direction applied: negative for BUY/FEE/TRANSFER_OUT. The column downstream sums should use",
         "currency": "Currency of amount — no FX conversion at this layer",
         "description": "Free-text narrative from the feed",
         "source_row_count": "Bronze rows collapsed into this one: 1 normally, >1 where the feed sent a duplicate (kept visible for the quality layer)",
@@ -223,7 +230,7 @@ COLUMN_COMMENTS = {
         "client_id": "Ultimately-owning client this row attributes the movement to",
         "client_name": "Display name of the owning client",
         "ownership_pct": "This client's effective fraction of the account",
-        "owned_amount": "amount × ownership_pct — sums back to the movement across its owners",
+        "owned_amount": "signed_amount × ownership_pct — sums back to the signed movement across its owners",
         "currency": "Native currency of the movement",
         "rebuilt_at": "When this silver rebuild ran (UTC)",
     },
