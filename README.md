@@ -97,6 +97,7 @@ The full loop — generate → land → bronze → silver → reconciliation →
 | `ingest/` | feed generator + format parsers (Python) | 1 |
 | `spark/` | Databricks notebooks/jobs — bronze/silver/gold | 1–4 |
 | `reference/` | account universe, ownership graph, securities master (OpenFIGI), issuer domiciles, ECB FX rates | 2–4 |
+| `export/` | gold → serving-Postgres exporter (Python) | 5 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `alts-hitl/` | PDF extraction + review queue | 6 |
 | `infra/` | docker-compose now; Terraform later | 0, 9 |

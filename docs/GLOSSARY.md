@@ -64,6 +64,8 @@ magic — every term gets defined here on first use.
 - **Maven / pom.xml** — Java's build and dependency manager; `pom.xml` declares dependencies, versions, and build plugins (the Java-side `pyproject.toml`).
 - **Maven wrapper (`mvnw`)** — a committed script that downloads the pinned Maven version before building, so the build never depends on what happens to be installed.
 - **Spotless / google-java-format** — build-enforced Java formatting (ruff format's role on the Python side): `verify` fails on violations, `spotless:apply` fixes them.
+- **SQL Statements API** — Databricks' REST endpoint for running SQL on a warehouse and getting results back as JSON; how anything outside the workspace (the freshness gate, the exporter) reads lakehouse tables.
+- **Service container (GitHub Actions)** — a Docker container the runner starts next to a CI job (here: Postgres 16 for the exporter's loader tests), the CI stand-in for the local docker-compose database.
 - **RDS / db.t4g.micro** — AWS managed Postgres; t4g.micro is the smallest ARM instance class (~£10/mo).
 - **AWS App Runner** — AWS's closest thing to a PaaS: point it at a container image, get a scaled, TLS-terminated public HTTPS service.
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).

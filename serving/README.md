@@ -28,3 +28,9 @@ boot the app against a throwaway Postgres 16 container via Quarkus Dev
 Services. Maven itself is downloaded by the committed wrapper (`./mvnw`).
 Dev mode (`./mvnw quarkus:dev`) targets the docker-compose Postgres from
 `make up`.
+
+## Loading data
+
+`make export-gold` (the `export/` package) fills the tenant schemas from the
+lakehouse gold tables — start this app once first so Flyway has created
+them. Flyway owns the DDL; the exporter only truncates and reloads (D-029).

@@ -5,6 +5,7 @@
 # -include tolerates its absence.
 -include .env
 export DATABRICKS_HOST
+export DATABRICKS_WAREHOUSE_ID
 export SEC_USER_AGENT
 export ALERT_EMAIL
 export OPENFIGI_API_KEY
@@ -21,7 +22,7 @@ PGDB   ?= parvum
 DAYS ?= 90
 END  ?=
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -51,17 +52,22 @@ psql: ## open a psql shell in the running container
 clean: ## stop containers AND DELETE the data volume (destructive)
 	$(COMPOSE) down -v
 
-test: ## run Python tests, both workspace packages (mirrors CI)
+# export's loader tests want the compose Postgres (`make up`); without it
+# they skip loudly and only the pure-Python tests run — CI always runs both.
+test: ## run Python tests, all workspace packages (mirrors CI; export DB tests need `make up`)
 	cd ingest && uv run pytest
 	cd reference && uv run pytest
+	cd export && uv run pytest
 
-lint: ## lint + format check, both workspace packages (mirrors CI)
+lint: ## lint + format check, all workspace packages (mirrors CI)
 	cd ingest && uv run ruff format --check . && uv run ruff check .
 	cd reference && uv run ruff format --check . && uv run ruff check .
+	cd export && uv run ruff format --check . && uv run ruff check .
 
-fmt: ## auto-format and auto-fix lint findings, both workspace packages
+fmt: ## auto-format and auto-fix lint findings, all workspace packages
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 	cd reference && uv run ruff format . && uv run ruff check --fix .
+	cd export && uv run ruff format . && uv run ruff check --fix .
 
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
@@ -71,6 +77,14 @@ serving-test: ## build + test the Java serving layer (mvn verify; needs JDK 21 +
 
 serving-fmt: ## auto-format the Java serving layer (spotless)
 	cd serving && ./mvnw -B spotless:apply
+
+# Pulls the four gold tables over the SQL Statements API and truncate-reloads
+# each tenant schema (D-029). The serving app must have started once against
+# the target database first — Flyway owns the schemas, this only fills them.
+# Local OAuth is fine (the CLI mints a token); CI would set DATABRICKS_TOKEN.
+export-gold: ## reload the serving Postgres projection from gold (needs DATABRICKS_HOST, DATABRICKS_WAREHOUSE_ID)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	cd export && uv run parvum-export-gold
 
 # Incremental: filings are immutable, so anything already in data/edgar is
 # never re-fetched. SEC requires a contact in the User-Agent — see .env.example.

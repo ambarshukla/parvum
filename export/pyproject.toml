@@ -1,0 +1,39 @@
+# Python project definition for the serving exporter (PEP 621).
+# Third workspace member: pulls the lakehouse gold tables and reloads the
+# serving Postgres projection (D-029). Depends on reference (the tenant
+# mapping is validated against the canonical client universe); never the
+# reverse — same one-directional rule as ingest.
+
+[project]
+name = "parvum-export"
+version = "0.1.0"
+description = "Exports the lakehouse gold tables into the serving Postgres projection"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]>=3.2",
+    "parvum-reference",
+]
+
+[tool.uv.sources]
+parvum-reference = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+parvum-export-gold = "parvum_export.export_gold:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parvum_export"]
+
+# Ruff config is shared across the workspace: see <repo>/ruff.toml.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

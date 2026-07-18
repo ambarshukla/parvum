@@ -237,3 +237,19 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - The serving store is a *projection*: rebuildable from gold at any time, nothing originates in Postgres. ARCHITECTURE's serving-lifecycle section updated from its pre-Phase-4 "upsert" sketch to match — gold is itself a full rebuild with complete history, so mirroring beats merging.
 - New required-check candidate: the `serving` CI job exists but branch protection still requires only `ingest` and `reference`; add `serving` once this PR is merged.
+
+## 2026-07-18 — Phase 5 exporter: gold → serving Postgres (D-029)
+
+**Done:**
+- New workspace member `export/` (`parvum_export`): pulls the four gold tables over the SQL Statements API — pull, not push, because Free Edition compute has no egress to Postgres (D-006) — and truncate-reloads each tenant schema in one transaction. Third uv member; depends on `reference`, never the reverse.
+- **Tenant split lives in `tenants.py`**, validated against the canonical client universe: a family with no firm can't be exported (it would silently reach nobody), and a family claimed by two firms is refused. Tenant-id shape check mirrors the Java `SAFE_TENANT_ID` — one injection defence, stated on both sides.
+- **Wire→typed conversion pinned against a live probe** of the real tables: DATE/DECIMAL/BOOLEAN/TIMESTAMP/LONG arrive as strings with a typed manifest; converted once in `gold_source`, exactly (Decimal, not float). An unknown wire type is a loud stop, and >1 result chunk aborts rather than silently truncating — the whole gold layer is a few hundred rows by design.
+- **Loader tests run against a real Postgres migrated with the real Flyway DDL** — the serving `V*.sql` files are the single schema source of truth, applied from both sides. They prove: rows land per the tenant map, tenants can't see each other's data, a reload after a restatement leaves no ghost rows, reload is idempotent, and typed values round-trip. CI gets an `export` job with a Postgres 16 service container; locally the tests skip loudly without `make up` but **fail** (not skip) when `CI` is set.
+- `make export-gold` / `make test|lint|fmt` now cover all three packages; `.env.example` and the Makefile gain `DATABRICKS_WAREHOUSE_ID`.
+
+**Verified end-to-end against the live lakehouse** (not just tests): started the serving jar once to let Flyway create the schemas, then `make export-gold` loaded **aldergate** = client_wealth 65 / allocation 185 / income 8 / top_holdings 10 and **stonefield** = 130 / 326 / 16 / 20 — the 65-day, 3-client gold split cleanly by firm (Hartwell alone vs. Okafor+Reyes). Headline spot-check in Postgres: Hartwell $41,091,835.83 at 1.1435, `books_reconcile` true; Okafor $2,867,257.58; Reyes $1,694,300.83 — matching the gold tables.
+
+**Notes:**
+- Token resolution: `DATABRICKS_TOKEN` if set (CI), else the CLI mints one from its OAuth cache — so local runs need no PAT.
+- Stacked on `feat/serving-scaffold` (unmerged): this branch contains that commit too. Merge the scaffold PR first, or rebase this onto main after it lands.
+- New required-check candidate `export` (like `serving`): add to branch protection once merged.
