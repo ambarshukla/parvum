@@ -38,7 +38,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev
+.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -181,3 +181,22 @@ run-job: ## run the ingest job (bronze → silver) now, without waiting for a fi
 # + DATABRICKS_TOKEN + DATABRICKS_WAREHOUSE_ID (unset → skips with a warning).
 check-freshness: ## fail if the bronze job has stopped updating (needs DATABRICKS_WAREHOUSE_ID)
 	cd ingest && uv run parvum-check-freshness
+
+# One-time only: creates the S3 bucket the main config's state lives in. Its
+# own state stays local (see infra/terraform/bootstrap/main.tf for why).
+# Assumes the `parvum-tf` AWS CLI profile — see docs/DECISIONS.md D-033.
+tf-bootstrap: ## one-time: create the S3 bucket for Terraform's remote state
+	cd infra/terraform/bootstrap && terraform init -input=false && terraform apply -input=false
+
+tf-init: ## initialize the main Terraform config (S3 backend)
+	cd infra/terraform && terraform init -input=false
+
+# ALERT_EMAIL doubles as the AWS Budgets alert address (same person gets
+# paged for Databricks job failures and AWS spend — one address, not two).
+tf-plan: ## preview Terraform changes (needs ALERT_EMAIL in .env)
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (AWS Budgets alerts are sent here)"; exit 1; }
+	cd infra/terraform && TF_VAR_alert_email="$(ALERT_EMAIL)" terraform plan -input=false
+
+tf-apply: ## apply Terraform changes (needs ALERT_EMAIL in .env)
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (AWS Budgets alerts are sent here)"; exit 1; }
+	cd infra/terraform && TF_VAR_alert_email="$(ALERT_EMAIL)" terraform apply -input=false

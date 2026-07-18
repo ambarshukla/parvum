@@ -303,3 +303,16 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - `mvnw.cmd` still needs a JDK (`JAVA_HOME` or `java` on PATH) — documented, not something the Makefile can supply.
 - Bundle still ~549 kB (Recharts); unchanged, and Vite 8 builds via rolldown now.
+
+## 2026-07-19 — AWS deploy, step 1: auth + Terraform bootstrap + budget alert (D-033, D-034)
+
+**Done:**
+- **AWS CLI auth via a dedicated IAM user (`parvum-terraform`), not root or a static key.** Uses the newer `aws login` browser flow (temporary credentials, auto-rotate every 15 min, expire within the session) instead of a permanent access key. IAM Identity Center/SSO was tried first for the same expiring-credential property, but enabling it requires creating an AWS Organization, which immediately forfeits this account's free-tier credits — rejected for that reason alone, recorded as D-033.
+- **A `credential_process` shim (`parvum-tf` CLI profile) lets Terraform consume that session** — Terraform's AWS SDK doesn't understand `login_session` directly, so `aws configure export-credentials` re-emits it as plain temporary keys on demand. Two gotchas worth remembering if this is touched again: the S3 **backend** block resolves credentials independently of the `provider "aws"` block (needs its own `profile =`), and a quoted Windows path with spaces in `credential_process` fails silently — the short (8.3) path fixed it.
+- **Terraform state on S3, versioned + encrypted + public-access-blocked, with native locking** (`use_lockfile`, Terraform ≥1.10) instead of a DynamoDB table. `infra/terraform/bootstrap/` is a small separate config (its own local state) that creates just that bucket, solving the chicken-and-egg problem of state needing a bucket whose own creation would need tracking. D-034.
+- **First resource applied in the main config: an AWS Budgets alert** ($20/month threshold, 50%/80% actual-spend email notifications) — the D-005 guardrail that a budget alert must exist before any billable resource does. Reuses the existing `ALERT_EMAIL` (same address already used for Databricks job failures).
+- **`make tf-bootstrap` / `tf-init` / `tf-plan` / `tf-apply`** added, mirroring the existing `deploy-job`/`run-job` guard-clause style (fail loudly if `ALERT_EMAIL` is unset). Verified: `make tf-plan` against live state reports "No changes."
+
+**Notes:**
+- Both applied resources are live: state bucket `parvum-tfstate-656326303611`, budget `parvum-monthly`.
+- Next: an ECR repo + a Dockerfile for the Quarkus serving app (none exists yet), then RDS + App Runner — where standing monthly cost begins, to be confirmed before applying.
