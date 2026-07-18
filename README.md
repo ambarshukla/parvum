@@ -44,9 +44,9 @@ process. Serving infra is provisioned on **real AWS by Terraform** (decision
 |---|-------|--------|
 | 0 | Foundations — repo, local Postgres, docs | ✅ done |
 | 1 | Custodial feed ingestion → Bronze (semt.002, MT535, camt.053) | ✅ done |
-| 2 | Reference data & normalisation → Silver | 🔄 in progress |
-| 3 | Reconciliation & data-quality control | ⬜ |
-| 4 | Portfolio aggregation & ownership graph → Gold | ⬜ |
+| 2 | Reference data & normalisation → Silver | ✅ done |
+| 3 | Reconciliation & data-quality control | ✅ done |
+| 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ⬜ |
 | 6 | Alternatives HITL pipeline | ⬜ |
 | 7 | Liquidity & scenario projection view | ⬜ |
@@ -85,10 +85,10 @@ job, so nothing downstream has to know when the feed runs.
 
 ```sh
 make deploy-job   # apply databricks.yml (the job defined as code)
-make run-job      # run bronze now, without waiting for a file
+make run-job      # run the whole chain now, without waiting for a file
 ```
 
-The full loop — generate → land → parse to bronze — runs with no human in it.
+The full loop — generate → land → bronze → silver → reconciliation → gold reports — runs with no human in it, on a file-arrival trigger.
 
 ## Repo layout
 
@@ -96,7 +96,7 @@ The full loop — generate → land → parse to bronze — runs with no human i
 |-----|----------|-------|
 | `ingest/` | feed generator + format parsers (Python) | 1 |
 | `spark/` | Databricks notebooks/jobs — bronze/silver/gold | 1–4 |
-| `reference/` | securities master (OpenFIGI, SEC, GLEIF) | 2 |
+| `reference/` | account universe, ownership graph, securities master (OpenFIGI), issuer domiciles, ECB FX rates | 2–4 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `alts-hitl/` | PDF extraction + review queue | 6 |
 | `infra/` | docker-compose now; Terraform later | 0, 9 |
