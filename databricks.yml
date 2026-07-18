@@ -115,6 +115,19 @@ resources:
             notebook_path: spark/dq_recon
             source: GIT
 
+        # Gold reads both silver branches (positions + cash owner tables) and
+        # the DQ verdicts (books_reconcile rides the wealth table), so it
+        # waits on silver and dq_recon; dq_recon covers silver_cash
+        # transitively. The chain ends here: file → bronze → silver ∥ cash →
+        # recon → reports.
+        - task_key: gold
+          depends_on:
+            - task_key: silver
+            - task_key: dq_recon
+          notebook_task:
+            notebook_path: spark/gold_reports
+            source: GIT
+
       # Event-driven, not a timer. A cron would have to *guess* how long
       # after 06:15 UTC the feed finishes landing, and would silently
       # process nothing whenever that guess was wrong.
