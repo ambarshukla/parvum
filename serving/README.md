@@ -1,8 +1,31 @@
 # serving/
 
-Quarkus REST API over a Postgres projection of the lakehouse gold tables
-(jOOQ arrives with the first real endpoints). Will deploy via GitHub
-Actions → ECR → App Runner.
+Quarkus REST API over a Postgres projection of the lakehouse gold tables,
+querying through jOOQ. Will deploy via GitHub Actions → ECR → App Runner.
+
+## Endpoints
+
+Read-only, one advisory firm (tenant) per path prefix:
+
+```
+GET /tenants/{tenant}/wealth      # headline wealth per client (latest date)
+GET /tenants/{tenant}/allocation  # asset-class breakdown (latest date)
+GET /tenants/{tenant}/income      # monthly income series
+GET /tenants/{tenant}/holdings    # top holdings (latest date)
+```
+
+`{tenant}` is `aldergate` or `stonefield`; an unknown one is a 404. Each
+request resolves to that tenant's schema via a `SET LOCAL search_path`
+(see `TenantQuery`), so a query never names a schema and never crosses one.
+
+## jOOQ
+
+The typed query classes are generated at build time from the Flyway
+migrations by jOOQ's `DDLDatabase` — no database runs during codegen, and
+the migration is the one schema source of truth (D-030). Generated sources
+live in `target/` and are regenerated every build (never committed). The
+`DSLContext` renders tables unqualified (`renderSchema=false`) so one
+generated set of classes serves every tenant schema.
 
 ## Multi-tenancy
 

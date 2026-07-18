@@ -5,11 +5,16 @@
 -- Tables are deliberately unqualified: the same migration set runs once per
 -- tenant schema (see TenantSchemas), which is what schema-per-tenant means —
 -- identical layout, disjoint data, isolation enforced by the schema boundary.
+--
+-- String columns are `varchar` (unbounded), not `text`. In PostgreSQL the two
+-- are the same type; `varchar` is chosen because jOOQ generates its typed
+-- classes by interpreting this DDL in an in-memory H2 database, where `text`
+-- becomes a non-indexable CLOB and the primary keys below would fail to build.
 
 create table client_wealth (
     as_of            date           not null,
-    client_id        text           not null,
-    client_name      text           not null,
+    client_id        varchar        not null,
+    client_name      varchar        not null,
     positions_usd    numeric(24, 2) not null,
     cash_usd         numeric(24, 2) not null,
     total_wealth_usd numeric(24, 2) not null,
@@ -24,9 +29,9 @@ comment on table client_wealth is
 
 create table asset_allocation (
     as_of       date           not null,
-    client_id   text           not null,
-    client_name text           not null,
-    asset_class text           not null,
+    client_id   varchar        not null,
+    client_name varchar        not null,
+    asset_class varchar        not null,
     value_usd   numeric(24, 2) not null,
     weight      numeric(12, 10) not null,
     rebuilt_at  timestamptz    not null,
@@ -36,10 +41,10 @@ comment on table asset_allocation is
     'Per client per day per asset class: owner-prorated USD value and weight (weights per client-day sum to 1). ''Cash'' and ''Unknown'' are real classes, kept visible.';
 
 create table income (
-    client_id   text           not null,
-    client_name text           not null,
+    client_id   varchar        not null,
+    client_name varchar        not null,
     month       date           not null,
-    type        text           not null check (type in ('DIVIDEND', 'INTEREST')),
+    type        varchar        not null check (type in ('DIVIDEND', 'INTEREST')),
     income_usd  numeric(24, 2) not null,
     movements   integer        not null,
     rebuilt_at  timestamptz    not null,
@@ -50,13 +55,13 @@ comment on table income is
 
 create table top_holdings (
     as_of           date           not null,
-    client_id       text           not null,
-    client_name     text           not null,
+    client_id       varchar        not null,
+    client_name     varchar        not null,
     rank            integer        not null check (rank between 1 and 10),
-    security_name   text           not null,
-    security_scheme text           not null,
-    security_id     text           not null,
-    asset_class     text           not null,
+    security_name   varchar        not null,
+    security_scheme varchar        not null,
+    security_id     varchar        not null,
+    asset_class     varchar        not null,
     owned_usd       numeric(24, 2) not null,
     weight          numeric(12, 10) not null,
     rebuilt_at      timestamptz    not null,
