@@ -94,6 +94,17 @@ resources:
             notebook_path: spark/silver_positions
             source: GIT
 
+        # Cash is a separate notebook and task, not an extension of the
+        # positions one: the positions notebook is live and proven, and the
+        # two only share the ownership bridge (which each builds from code).
+        # Both depend on bronze alone, so they may run in parallel.
+        - task_key: silver_cash
+          depends_on:
+            - task_key: bronze
+          notebook_task:
+            notebook_path: spark/silver_cash
+            source: GIT
+
       # Event-driven, not a timer. A cron would have to *guess* how long
       # after 06:15 UTC the feed finishes landing, and would silently
       # process nothing whenever that guess was wrong.
