@@ -278,3 +278,17 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Not yet run on Databricks: `gold_ownership` is a new CTAS in the existing `gold_reports` notebook (not a new task), so it materialises the next time the `parvum-ingest` gold task runs from `main` after merge — no pre-merge deploy, and the real `/ownership` data appears then. Everything here is proven locally against seeded data.
 - Docs that stated "four gold tables" as current fact (gold header, ARCHITECTURE, exporter/endpoint docstrings) now say five; the historical build-log entries that described the four-table state at their time are left as the record.
+
+## 2026-07-18 — Phase 5: the web dashboard (D-032)
+
+**Done:**
+- **`web/`, a static SPA** (Vite + React + TypeScript, Recharts) — the fifth layer and the only one a non-engineer sees. It reads the serving API and shows one advisory firm at a time: a client sidebar, and per client five tabs onto the five gold projections (wealth tiles, allocation donut, monthly income, top holdings, and the ownership graph). The quality layer's `books_reconcile` verdict rides along as a badge on the client header — the number *and* whether it ties out.
+- **No CORS, no BFF.** Dev proxies `/tenants` to the local Quarkus app (browser stays same-origin); production serves the app behind the same origin, or a build-time `VITE_API_BASE` points it at a separately hosted API. Typed models mirror the Java record shapes, so a projection change that reaches the JSON is a TypeScript error, not a blank cell.
+- **Charts on the project's data-viz palette** — a validated, CVD-safe categorical set, always with a legend and direct labels (identity never rests on colour alone); animation off so the first paint is the data. The whole UI is theme-aware (light/dark, OS or explicit toggle), with a deliberately dark top bar in both.
+- **Verified against the live stack, not just built.** Ran the gold job so `gold_ownership` materialised (free-edition Databricks), `make export-gold` loaded all five projections, then drove the app end to end in a headless browser: Aldergate's Hartwell $41,091,836 with the allocation donut and income bars; Stonefield's Okafor showing account **X4478210 — 40% held, "Shared · 2 owners", co-owner Reyes Family (60%)** and FQ5521 sole-owned; Okafor's reconciliation-variance badge (its real DQ flag); light and dark both.
+- **Tooling and CI:** strict TypeScript, Prettier, Vitest (formatters + a dashboard render test that asserts the shared-account view). A `web` CI job runs format-check → typecheck → tests → build on Node 22. `package-lock.json` committed so CI's `npm ci` installs the resolved set.
+
+**Notes:**
+- Vitest 2.1 wants Vite 5, so Vite is pinned to 5.x (a Vite 6 pin pulled a second, type-incompatible Vite into vitest).
+- The production bundle is ~555 kB (mostly Recharts); fine for a dashboard, code-splitting is a later optimisation if it matters.
+- Next up per the plan: deploying the API + this app (AWS/App Runner + a static host), where CORS and `VITE_API_BASE` get settled for real.

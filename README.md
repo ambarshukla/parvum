@@ -99,6 +99,7 @@ The full loop — generate → land → bronze → silver → reconciliation →
 | `reference/` | account universe, ownership graph, securities master (OpenFIGI), issuer domiciles, ECB FX rates | 2–4 |
 | `export/` | gold → serving-Postgres exporter (Python) | 5 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
+| `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `alts-hitl/` | PDF extraction + review queue | 6 |
 | `infra/` | docker-compose now; Terraform later | 0, 9 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
