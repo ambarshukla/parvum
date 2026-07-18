@@ -73,6 +73,11 @@ magic — every term gets defined here on first use.
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).
 - **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here.
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
+- **Terraform state** — Terraform's record of what it created and its current shape; needed to compute what a future `apply` must change. Stored remotely here (S3, versioned) rather than only on one laptop.
+- **`aws login`** — AWS CLI command that authenticates using a user's console (browser) sign-in instead of a permanent access key, issuing temporary credentials that auto-rotate every 15 minutes and expire within the session.
+- **`credential_process`** — a standard AWS SDK setting that runs an external command to fetch credentials on demand, instead of reading them from a static file; used here to let Terraform consume an `aws login` session it wouldn't otherwise understand.
+- **IAM Identity Center (SSO)** — AWS's organization-wide short-lived-credential system; not used here because enabling it requires creating an AWS Organization, which forfeits this account's free-tier credits (D-033).
+- **AWS Budgets** — AWS's cost-alerting service; a `budget` resource can email a threshold notification (e.g. "50% of $20/month spent") without capping or blocking spend itself.
 - **GitHub-hosted runner** — a fresh, ephemeral VM github.com provides to execute each GitHub Actions job (free for public repos); destroyed when the job ends.
 - **Docker image / container / volume** — image = frozen template of a program + its dependencies; container = a running (disposable) instance of an image; named volume = Docker-managed storage that outlives containers — our local Postgres data lives in one.
 - **uv** — fast Python package & environment manager: reads `pyproject.toml`, creates the virtualenv, writes `uv.lock`.
