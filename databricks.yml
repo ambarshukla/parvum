@@ -105,6 +105,16 @@ resources:
             notebook_path: spark/silver_cash
             source: GIT
 
+        # Reconciliation reads bronze (both holdings copies) and silver_cash
+        # (the conformed movements — half of the dual integrity check), so it
+        # waits on silver_cash; bronze is complete by then transitively.
+        - task_key: dq_recon
+          depends_on:
+            - task_key: silver_cash
+          notebook_task:
+            notebook_path: spark/dq_recon
+            source: GIT
+
       # Event-driven, not a timer. A cron would have to *guess* how long
       # after 06:15 UTC the feed finishes landing, and would silently
       # process nothing whenever that guess was wrong.
