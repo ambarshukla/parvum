@@ -160,3 +160,5 @@ magic — every term gets defined here on first use.
 - **ECB reference rates** — daily indicative EUR-based exchange rates published free by the European Central Bank (~16:15 CET, TARGET business days). The standard no-cost source for valuation-grade FX; not tradeable quotes.
 - **TARGET calendar** — the euro-area banking calendar the ECB publishes on; no weekends or euro-area holidays. Any daily-rate consumer must bridge its gaps.
 - **Carry-forward (LOCF)** — filling a gap with the last observed value ("last observation carried forward"). Legitimate exactly when labelled: our fill returns each day's rate with its publication date, so a bridged day is visibly bridged.
+- **Asset allocation** — the composition of wealth by class (equity, cash, …) with each class's weight; the first chart every wealth report shows. Weights per (client, day) must sum to 1 — a checkable invariant.
+- **Top holdings** — the N largest positions by value, conventionally weighted against total positions value (not total wealth); shown per security, summed across the owner's accounts.
