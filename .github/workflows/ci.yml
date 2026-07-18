@@ -144,3 +144,37 @@ jobs:
 
       - name: Tests
         run: uv run pytest
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node 22 LTS to match local dev; npm cache keyed on the committed
+      # lockfile so `npm ci` installs exactly the resolved dependency set.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # tsc runs again inside `build`, but keeping the type step explicit means
+      # a type error is reported as a type error, not a build failure.
+      - name: Build
+        run: npm run build
