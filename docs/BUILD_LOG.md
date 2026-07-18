@@ -292,3 +292,14 @@ Skimmable record of what was done and why. Newest entry last.
 - Vitest 2.1 wants Vite 5, so Vite is pinned to 5.x (a Vite 6 pin pulled a second, type-incompatible Vite into vitest).
 - The production bundle is ~555 kB (mostly Recharts); fine for a dashboard, code-splitting is a later optimisation if it matters.
 - Next up per the plan: deploying the API + this app (AWS/App Runner + a static host), where CORS and `VITE_API_BASE` get settled for real.
+
+## 2026-07-18 — Local-run hardening: Makefile portability, dependency audit, docs
+
+**Done:**
+- **The `make serving-*` targets now run from PowerShell too, not just a POSIX shell.** When make is launched from PowerShell it runs recipes through `cmd.exe`, which chokes on `./mvnw` and on the bash guard the exporter target used. The Maven-wrapper call is now picked by shell (`./mvnw` under a POSIX shell / Git Bash, `mvnw.cmd` under cmd — keyed on `MSYSTEM`, which only MSYS/Git Bash sets), and `export-gold`'s bash guard is dropped (the Python CLI already errors clearly on missing env). Verified the target resolutions with `make -n`.
+- **`npm audit` is clean (0 of 5).** The findings were all dev-tooling — esbuild's dev-server request issue, Vite path-traversal/`launch-editor`, and Vitest's UI-server file-read — none in the shipped bundle. Cleared by moving to the current matched majors: **Vite 8, Vitest 4, `@vitejs/plugin-react` 6** (supersedes the earlier Vite-5/Vitest-2 pin note above; a matched pair, so no repeat of the nested-Vite type clash). Typecheck, the 6 tests, the production build, and a dev-server boot all pass on the new set.
+- **A first-timer run guide:** [docs/RUNNING.md](RUNNING.md) — the three processes and their ports, prerequisites, `JAVA_HOME`, Git Bash vs PowerShell, step-by-step with what to expect, and a troubleshooting table. The README's local-run section now links to it.
+
+**Notes:**
+- `mvnw.cmd` still needs a JDK (`JAVA_HOME` or `java` on PATH) — documented, not something the Makefile can supply.
+- Bundle still ~549 kB (Recharts); unchanged, and Vite 8 builds via rolldown now.
