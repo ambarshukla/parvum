@@ -68,6 +68,28 @@ external fetching runs in GitHub Actions and lands files for Databricks to
 process. Serving infra is provisioned on **real AWS by Terraform** (decision
 [D-005](docs/DECISIONS.md)).
 
+### The Databricks Workflow
+
+The lakehouse runs as a five-task Databricks **Workflow**, defined as code in
+[`databricks.yml`](databricks.yml) and started by a file-arrival trigger.
+Bronze fans out to positions and cash in parallel, reconciliation gates on the
+cash branch, and gold waits on both:
+
+```mermaid
+flowchart LR
+    bronze["bronze<br/>raw as received"] --> silver["silver<br/>positions"]
+    bronze --> cash["silver_cash<br/>balances + movements"]
+    cash --> dq["dq_recon<br/>reconciliation + integrity"]
+    silver --> gold["gold<br/>5 report tables"]
+    dq --> gold
+```
+
+The tasks are PySpark notebooks kept in the repo under [`spark/`](spark/), each
+a full rebuild that traces back to the raw files. Free-tier Databricks has no
+public link to share, so here is the gold notebook as it runs in the workspace:
+
+![The gold notebook in Databricks](docs/img/databricks-gold-notebook.png)
+
 ## Phases
 
 | # | Phase | Status |
