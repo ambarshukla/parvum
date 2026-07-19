@@ -1,12 +1,13 @@
 """The seed book must be deterministic, internally consistent, and real."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 
 from parvum_ingest.book import build_book, build_cash_statement
 from parvum_ingest.edgar import EdgarError
+from parvum_ingest.model import BalanceType, TransactionType
 from parvum_reference.accounts import UNIVERSE
 
 AS_OF = date(2026, 7, 15)
@@ -138,3 +139,100 @@ def test_cash_statement_follows_the_account() -> None:
     dividend = next(e for e in stmt.entries if e.type.name == "DIVIDEND")
     held = {p.security_name.title() for p in build_book(AS_OF, eur_spec).positions}
     assert any(name in dividend.description for name in held)
+
+
+# --- cash continuity: the ledger carries over ------------------------------
+# Series epoch 2026-04-20 (a Monday, the first landed business day). Every
+# later opening must equal the previous business day's closing; without that,
+# recorded flows never land in wealth and any performance measure computed on
+# top shows a systematic phantom drift (found by probing the live lakehouse:
+# 65 straight days of byte-identical openings).
+
+
+def _balance(stmt, kind: BalanceType) -> Decimal:
+    return next(b for b in stmt.balances if b.balance_type is kind).balance.amount
+
+
+def test_cash_closing_is_opening_plus_net() -> None:
+    stmt = build_cash_statement(AS_OF)
+    net = sum(
+        (
+            -e.amount.amount
+            if e.type in {TransactionType.BUY, TransactionType.FEE, TransactionType.TRANSFER_OUT}
+            else e.amount.amount
+        )
+        for e in stmt.entries
+    )
+    assert _balance(stmt, BalanceType.CLOSING) == _balance(stmt, BalanceType.OPENING) + net
+
+
+@pytest.mark.parametrize(
+    ("prev", "day"),
+    [
+        (date(2026, 7, 15), date(2026, 7, 16)),  # plain consecutive days
+        (date(2026, 7, 10), date(2026, 7, 13)),  # across a weekend
+        (date(2026, 6, 30), date(2026, 7, 1)),  # month boundary = contribution day
+        (date(2026, 6, 17), date(2026, 6, 18)),  # withdrawal day
+    ],
+)
+def test_cash_opening_continues_previous_closing(prev: date, day: date) -> None:
+    for spec in UNIVERSE:
+        closing = _balance(build_cash_statement(prev, spec), BalanceType.CLOSING)
+        opening = _balance(build_cash_statement(day, spec), BalanceType.OPENING)
+        assert opening == closing, spec.account_id
+
+
+def test_epoch_day_opens_at_the_seed() -> None:
+    # Berkshire accounts only: the trimmed fixture store has no filing public
+    # by 2026-04-20 for the other filers (the real store does). Two accounts
+    # with different cash scales still exercise the scaling.
+    for spec in (s for s in UNIVERSE if s.account_id in {"60011234", "60018852"}):
+        stmt = build_cash_statement(date(2026, 4, 20), spec)
+        expected = (Decimal("50000.00") * spec.cash_scale).quantize(Decimal("0.01"))
+        assert _balance(stmt, BalanceType.OPENING) == expected, spec.account_id
+
+
+def test_contribution_lands_on_first_business_day_of_month_only() -> None:
+    first_bd = build_cash_statement(date(2026, 7, 1)).entries
+    assert sum(e.type is TransactionType.TRANSFER_IN for e in first_bd) == 1
+    ordinary = build_cash_statement(date(2026, 7, 2)).entries
+    assert not any(e.type is TransactionType.TRANSFER_IN for e in ordinary)
+
+
+def test_withdrawal_lands_on_first_business_day_on_or_after_the_18th() -> None:
+    on_the_18th = build_cash_statement(date(2026, 6, 18)).entries  # a Thursday
+    assert sum(e.type is TransactionType.TRANSFER_OUT for e in on_the_18th) == 1
+    # 2026-07-18 is a Saturday, so July's withdrawal slides to Monday the 20th.
+    slid = build_cash_statement(date(2026, 7, 20)).entries
+    assert sum(e.type is TransactionType.TRANSFER_OUT for e in slid) == 1
+    day_before = build_cash_statement(date(2026, 7, 17)).entries
+    assert not any(e.type is TransactionType.TRANSFER_OUT for e in day_before)
+
+
+def test_epoch_day_carries_aprils_slid_withdrawal() -> None:
+    # 2026-04-18 was a Saturday: April's withdrawal slides onto the epoch
+    # day itself — pinned because it exercises both rules at once.
+    entries = build_cash_statement(date(2026, 4, 20)).entries
+    assert sum(e.type is TransactionType.TRANSFER_OUT for e in entries) == 1
+
+
+def test_opening_balance_is_dated_the_previous_business_day() -> None:
+    stmt = build_cash_statement(date(2026, 7, 13))  # a Monday
+    opening = next(b for b in stmt.balances if b.balance_type is BalanceType.OPENING)
+    assert opening.as_of == date(2026, 7, 10)  # the Friday before
+
+
+def test_cash_balance_stays_positive_for_two_years() -> None:
+    # The rebalanced template must be solvent indefinitely: contributions and
+    # income must cover the daily churn and the monthly withdrawal at every
+    # account's scale. Walked via the same accumulator the builder uses.
+    from parvum_ingest.book import _day_net, _opening_balance
+
+    for spec in UNIVERSE:
+        balance = _opening_balance(date(2026, 4, 20), spec.cash_scale)
+        day = date(2026, 4, 20)
+        for _ in range(730):
+            if day.weekday() < 5:
+                balance += _day_net(day, spec.cash_scale)
+                assert balance > 0, f"{spec.account_id} went negative on {day}"
+            day += timedelta(days=1)

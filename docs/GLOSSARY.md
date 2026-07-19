@@ -16,6 +16,8 @@ magic — every term gets defined here on first use.
 - **OFX** — Open Financial Exchange; retail-flavoured XML format used by consumer bank feeds.
 - **Custodial feed** — the periodic file a custodian (the institution holding assets) sends describing positions, transactions and cash.
 - **Cost basis** — what was originally paid for a position; needed for gains; frequently missing in feeds (a classic data-quality defect).
+- **External flow** — client money entering or leaving a portfolio (a contribution or withdrawal), as opposed to internal activity (trades, income, fees) that merely moves value between the portfolio's own pockets. The thing performance measurement exists to strip out: a deposit is not return.
+- **Day-over-day continuity** — the ledger property that a statement's opening balance equals the previous statement's closing. If it fails, recorded flows never land in wealth and any flow-adjusted return is distorted; comparing consecutive statements is the classic control for it.
 - **13F / 13F-HR** — quarterly SEC filing where large US institutional managers disclose their equity holdings; public domain.
 - **Information table** — the XML inside a 13F-HR listing the holdings. Not a position list: rows are broken out **per manager**, so one security appears many times (Berkshire's 2026-Q1 filing = 90 rows, 29 securities, Apple twelve times) and must be aggregated by CUSIP.
 - **`sshPrnamt` / `sshPrnamtType`** — a 13F row's amount and what it counts: `SH` = shares, `PRN` = principal amount of a debt instrument. Summing PRN into a share position is nonsense, so those rows are dropped.

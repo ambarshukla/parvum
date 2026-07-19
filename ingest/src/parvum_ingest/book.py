@@ -209,25 +209,97 @@ def build_book(
 
 
 # (type, base amount, days_before_as_of for booking, settle_lag_days)
-# A cash-activity *template*: amounts scale by the account's cash_scale, the
-# currency is the account's base currency, and descriptions are derived from
-# the account's actual holdings — a cash statement referencing a position the
-# account doesn't own is the kind of detail that quietly undermines the whole
-# fixture.
-_SEED_CASH: tuple[tuple[TransactionType, str, int, int], ...] = (
+# The *daily* cash activity: income, churn and fees, every business day.
+# Amounts scale by the account's cash_scale, the currency is the account's
+# base currency, and descriptions are derived from the account's actual
+# holdings — a cash statement referencing a position the account doesn't own
+# is the kind of detail that quietly undermines the whole fixture. The BUY is
+# sized so the day's internal net is a small drain the balance can sustain;
+# external flows (client money in and out) are calendar events, not template
+# rows — see _flows_for.
+_SEED_CASH_DAILY: tuple[tuple[TransactionType, str, int, int], ...] = (
     (TransactionType.DIVIDEND, "484.00", 2, 0),
     (TransactionType.INTEREST, "112.35", 2, 0),
-    (TransactionType.BUY, "30420.00", 4, 2),
+    (TransactionType.BUY, "9850.00", 4, 2),
     (TransactionType.SELL, "9103.60", 3, 2),
     (TransactionType.FEE, "45.00", 1, 0),
-    (TransactionType.TRANSFER_IN, "25000.00", 1, 0),
 )
+
+# External flows: a contribution on the month's first business day, a smaller
+# withdrawal on the first business day on or after the 18th. Sparse and
+# mid-period on purpose: performance measurement exists to separate market
+# return from client flows, and a book that receives a contribution every
+# single day (as this fixture once did) gives the methodology nothing to
+# separate.
+_CONTRIBUTION = (TransactionType.TRANSFER_IN, "25000.00", 0, 0)
+_WITHDRAWAL = (TransactionType.TRANSFER_OUT, "12500.00", 0, 0)
+
+# The first business day the custodian delivered. The cash series is anchored
+# here: this day opens at the seed balance, and every later opening is the
+# accumulated closing of the day before — the continuity a real ledger has.
+_SERIES_EPOCH = date(2026, 4, 20)
 
 _OPENING_BALANCE = Decimal("50000.00")
 
 # Money leaving the account. Mirrored in camt053.DEBIT_TYPES; kept here too so
 # the book stays format-independent.
 _DEBITS = frozenset({TransactionType.BUY, TransactionType.FEE, TransactionType.TRANSFER_OUT})
+
+
+def _is_business_day(day: date) -> bool:
+    return day.weekday() < 5
+
+
+def _previous_business_day(day: date) -> date:
+    prev = day - timedelta(days=1)
+    while not _is_business_day(prev):
+        prev -= timedelta(days=1)
+    return prev
+
+
+def _flows_for(day: date) -> tuple[tuple[TransactionType, str, int, int], ...]:
+    """The external flows this calendar day carries (possibly none)."""
+    flows = []
+    first = date(day.year, day.month, 1)
+    while not _is_business_day(first):
+        first += timedelta(days=1)
+    if day == first:
+        flows.append(_CONTRIBUTION)
+    withdrawal = date(day.year, day.month, 18)
+    while not _is_business_day(withdrawal):
+        withdrawal += timedelta(days=1)
+    if day == withdrawal:
+        flows.append(_WITHDRAWAL)
+    return tuple(flows)
+
+
+def _entry_specs(day: date) -> tuple[tuple[TransactionType, str, int, int], ...]:
+    return _SEED_CASH_DAILY + _flows_for(day)
+
+
+def _day_net(day: date, scale: Decimal) -> Decimal:
+    """One business day's net movement, in the same per-entry arithmetic the
+    statement builder uses — the two must agree to the cent, or the chain of
+    openings would drift off the closings it claims to continue."""
+    net = Decimal("0")
+    for txn_type, amount, _days_ago, _lag in _entry_specs(day):
+        amt = (Decimal(amount) * scale).quantize(Decimal("0.01"))
+        net += -amt if txn_type in _DEBITS else amt
+    return net
+
+
+def _opening_balance(as_of: date, scale: Decimal) -> Decimal:
+    """The seed at the series epoch plus every prior business day's net —
+    i.e. yesterday's closing. Days at or before the epoch open at the flat
+    seed; days before it predate the series entirely and are only ever built
+    in tests."""
+    opening = (_OPENING_BALANCE * scale).quantize(Decimal("0.01"))
+    day = _SERIES_EPOCH
+    while day < as_of:
+        if _is_business_day(day):
+            opening += _day_net(day, scale)
+        day += timedelta(days=1)
+    return opening
 
 
 def _cash_descriptions(as_of: date, spec: AccountSpec, cache_dir: Path | None) -> dict:
@@ -253,6 +325,7 @@ def _cash_descriptions(as_of: date, spec: AccountSpec, cache_dir: Path | None) -
         TransactionType.SELL: f"Sale {top}",
         TransactionType.FEE: "Custody fee",
         TransactionType.TRANSFER_IN: "Client cash contribution",
+        TransactionType.TRANSFER_OUT: "Client cash withdrawal",
     }
 
 
@@ -261,9 +334,13 @@ def build_cash_statement(
 ) -> CashStatement:
     """Build one account's clean cash statement as of a given date.
 
-    Invariant of the clean book: closing = opening + net of entries. That
-    arithmetic truth is what reconciliation will check — and what defect
-    injection will deliberately break.
+    Two invariants of the clean book:
+
+    - within a day, closing = opening + net of entries — what reconciliation
+      checks, and what defect injection deliberately breaks;
+    - across days, this day's opening = the previous business day's closing —
+      the continuity a real ledger has. The chain is computed from the clean
+      book, so a defect-corrupted delivery breaks it *detectably*.
     """
     spec = account or DEFAULT_ACCOUNT
     ccy = spec.base_currency
@@ -271,7 +348,7 @@ def build_cash_statement(
 
     entries = []
     net = Decimal("0")
-    for i, (txn_type, amount, days_ago, settle_lag) in enumerate(_SEED_CASH, start=1):
+    for i, (txn_type, amount, days_ago, settle_lag) in enumerate(_entry_specs(as_of), start=1):
         amt = (Decimal(amount) * spec.cash_scale).quantize(Decimal("0.01"))
         booked = as_of - timedelta(days=days_ago)
         entries.append(
@@ -287,8 +364,8 @@ def build_cash_statement(
         )
         net += -amt if txn_type in _DEBITS else amt
 
-    opening = (_OPENING_BALANCE * spec.cash_scale).quantize(Decimal("0.01"))
-    period_start = as_of - timedelta(days=7)
+    opening = _opening_balance(as_of, spec.cash_scale)
+    period_start = _previous_business_day(as_of)
     balances = (
         CashBalance(
             account_id=spec.account_id,
