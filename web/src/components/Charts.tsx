@@ -3,16 +3,19 @@ import {
     BarChart,
     CartesianGrid,
     Cell,
+    Line,
+    LineChart,
     Pie,
     PieChart,
+    ReferenceLine,
     ResponsiveContainer,
     Tooltip,
     XAxis,
     YAxis,
 } from "recharts";
-import type { AllocationRow, IncomeRow } from "../types";
-import { assetClassColor, incomeTypeColor } from "../palette";
-import { money, monthLabel, percent } from "../format";
+import type { AllocationRow, IncomeRow, PerformanceRow } from "../types";
+import { assetClassColor, categorical, incomeTypeColor } from "../palette";
+import { longDate, money, monthLabel, percent } from "../format";
 
 const MUTED = "#898781"; // axis/label ink — mode-invariant in the reference palette
 
@@ -155,5 +158,62 @@ export function IncomeChart({ rows, dark }: IncomeProps) {
                 </div>
             </div>
         </div>
+    );
+}
+
+interface PerformanceProps {
+    rows: PerformanceRow[];
+    dark: boolean;
+}
+
+/** Growth-of-$1 since inception: the chain-linked TWR index, market return
+ *  only — client flows are already excluded (see docs/PERFORMANCE_METHODOLOGY.md).
+ *  The reference line at 1.0 is the whole point: above it is growth, below
+ *  it is decline, and there is nothing else on the chart to compare against. */
+export function PerformanceChart({ rows, dark }: PerformanceProps) {
+    const data = [...rows].sort((a, b) => a.asOf.localeCompare(b.asOf));
+    const { grid, axis } = chrome(dark);
+    const color = categorical(dark)[0]!;
+
+    if (data.length === 0) {
+        return <p className="muted">No performance history recorded.</p>;
+    }
+
+    return (
+        <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+                <CartesianGrid stroke={grid} vertical={false} />
+                <XAxis
+                    dataKey="asOf"
+                    tickFormatter={longDate}
+                    tick={{ fill: MUTED, fontSize: 12 }}
+                    stroke={axis}
+                    tickLine={false}
+                    minTickGap={40}
+                />
+                <YAxis
+                    domain={["auto", "auto"]}
+                    tickFormatter={(v: number) => v.toFixed(2)}
+                    tick={{ fill: MUTED, fontSize: 12 }}
+                    stroke={axis}
+                    tickLine={false}
+                    width={50}
+                />
+                <ReferenceLine y={1} stroke={axis} strokeDasharray="4 4" />
+                <Tooltip
+                    formatter={(value: number) => [value.toFixed(4), "Index"]}
+                    labelFormatter={(label: string) => longDate(label)}
+                    contentStyle={{ fontSize: 13 }}
+                />
+                <Line
+                    type="monotone"
+                    dataKey="twrIndexSinceInception"
+                    stroke={color}
+                    strokeWidth={2}
+                    dot={false}
+                    isAnimationActive={false}
+                />
+            </LineChart>
+        </ResponsiveContainer>
     );
 }
