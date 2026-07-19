@@ -69,9 +69,13 @@ magic — every term gets defined here on first use.
 - **SQL Statements API** — Databricks' REST endpoint for running SQL on a warehouse and getting results back as JSON; how anything outside the workspace (the freshness gate, the exporter) reads lakehouse tables.
 - **Service container (GitHub Actions)** — a Docker container the runner starts next to a CI job (here: Postgres 16 for the exporter's loader tests), the CI stand-in for the local docker-compose database.
 - **RDS / db.t4g.micro** — AWS managed Postgres; t4g.micro is the smallest ARM instance class (~£10/mo).
-- **AWS App Runner** — AWS's closest thing to a PaaS: point it at a container image, get a scaled, TLS-terminated public HTTPS service.
+- **AWS App Runner** — AWS's original PaaS-style "point it at a container image" service; closed to new customers 2026-04-30 (maintenance mode). Named in D-005; superseded by ECS Express Mode for this project (D-035).
+- **Amazon ECS / Fargate** — ECS is AWS's container orchestrator; Fargate is its "serverless" launch type — no EC2 instances to patch or size, you specify CPU/memory per task and AWS runs it.
+- **ECS Express Mode** — AWS's direct successor to App Runner (announced Nov 2025): point it at a container image, and it provisions and owns its own load balancer, TLS certificate, and auto scaling on your behalf. Used here as `aws_ecs_express_gateway_service` (D-035).
+- **ECS execution role vs. infrastructure role** — two different IAM roles Express Mode uses: the *execution* role lets a task pull its image, write logs, and resolve secrets (standard Fargate role); the *infrastructure* role lets the Express Mode *service* manage the ALB/security groups/ACM certificate it creates on your behalf. Different trust principals (`ecs-tasks.amazonaws.com` vs `ecs.amazonaws.com`).
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).
-- **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here.
+- **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here — Express Mode's ALB is AWS-managed and not billed as a separate resource this project owns.
+- **`rds.force_ssl`** — an RDS parameter-group setting that makes Postgres reject any connection that doesn't negotiate TLS; the app-layer defense that makes a publicly reachable RDS instance (D-036) an acceptable trade rather than a shortcut.
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
 - **Terraform state** — Terraform's record of what it created and its current shape; needed to compute what a future `apply` must change. Stored remotely here (S3, versioned) rather than only on one laptop.
 - **`aws login`** — AWS CLI command that authenticates using a user's console (browser) sign-in instead of a permanent access key, issuing temporary credentials that auto-rotate every 15 minutes and expire within the session.

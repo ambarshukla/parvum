@@ -58,7 +58,7 @@ flowchart LR
         B --> S --> G
     end
     G -->|load| PG[(Postgres<br/>local Docker → RDS)]
-    PG --> API[Quarkus + jOOQ REST<br/>AWS App Runner]
+    PG --> API[Quarkus + jOOQ REST<br/>AWS ECS Express Mode]
     API --> FE[React/Svelte frontend<br/>Vercel]
     PDF[Synthetic alts PDFs<br/>capital calls etc.] --> HITL[Extraction + confidence<br/>+ human review queue] --> S
 ```

@@ -327,3 +327,16 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Image pushed manually this session only, to prove the path; the GitHub Actions step (next) is what makes this happen on every merge.
 - Next: RDS Postgres + App Runner — this is where standing monthly cost begins.
+
+## 2026-07-19 — AWS deploy, step 3: the API is live on the public internet (D-035, D-036)
+
+**Done:**
+- **App Runner turned out to be closed to new AWS customers** as of 2026-04-30 (maintenance mode) — the first `terraform apply` against it failed with `SubscriptionRequiredException`, not a config bug. Replaced it with **ECS Express Mode** (`aws_ecs_express_gateway_service`, needs AWS provider ≥6.23.0 — bumped off the `~> 5.0` constraint), AWS's own direct successor: same pitch (image in, public HTTPS endpoint out), its own managed ALB/ACM cert/autoscaling via an AWS-managed infrastructure role. D-035.
+- **RDS Postgres (`db.t4g.micro`, engine 16.14 — matches local compose exactly) is live**, plus its subnet group and a security group. Originally built VPC-private; **amended to publicly accessible**, because the exporter needs to reach both Databricks and Postgres from GitHub Actions' hosted runners, whose IPs can't be allowlisted, and a NAT gateway for a private alternative was the exact fixed cost D-005 ruled out. Defended instead by `rds.force_ssl=1` (a parameter group) and the existing Terraform-generated password; the JDBC URL carries `?sslmode=require`. D-036.
+- **The RDS password never touches a plain environment variable** — it's written to SSM Parameter Store as a SecureString and resolved by the ECS task's execution role at container start (`secret` block), not baked into the task definition as plaintext.
+- **Verified fully end-to-end on the real public internet, not just `terraform apply`:** the live endpoint (`https://pa-7710e29f44ed4286bac12f4207a0b028.ecs.us-east-1.on.aws`) booted, ran Flyway against the fresh RDS (all three schemas migrated from zero), and reported `/q/health` UP. Ran `export-gold` from this laptop against the live RDS over `sslmode=require` to load real gold data (aldergate 65/185/8/10/3, stonefield 130/326/16/20/3) — the public API then served the real reloaded numbers (Hartwell $41,091,835.83), confirming the whole path: internet → ECS → RDS, and Databricks → exporter → RDS, both real.
+
+**Notes:**
+- A cosmetic `terraform plan` quirk on the brand-new Express Mode resource (phantom diffs on environment values / computed fields even right after a clean apply) is a known rough edge, confirmed harmless by checking the container's actual boot logs each time — recorded in D-035 rather than chased further.
+- Git Bash gotcha hit again this session: `aws logs tail /aws/ecs/...` failed with an "invalid characters" error until `MSYS_NO_PATHCONV=1` was set — Git Bash was silently rewriting the leading `/` path.
+- Next: the GitHub Actions deploy path (build → push ECR → Express Mode picks up `:latest` automatically, `auto_deployments_enabled = true`), then the frontend on Vercel + real CORS.
