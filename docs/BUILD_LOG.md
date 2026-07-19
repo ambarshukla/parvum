@@ -479,3 +479,13 @@ Skimmable record of what was done and why. Newest entry last.
 - Tests: seeded three metric rows (accuracy/completeness/exceptions) including the exceptions row's `NULL` `passed`, asserted ordering and the nullable field round-trips correctly. `ServingSmokeTest`'s table list extended.
 
 **Verified:** `mvn verify` green — 11/11 tests, spotless clean.
+
+## 2026-07-19 — Export: unscoped-table loader path for dq_metrics
+
+**Done:**
+- `gold_source.py`: `UNSCOPED_TABLES = ("dq_metrics",)`, fetched the same way as `GOLD_TABLES` but never filtered by client — `dq_metrics` has no `client_id` column, since it's a fact about the whole pipeline, not any one firm's clients.
+- `loader.py`: `PROJECTION_TABLES["dq_metrics"] = "dq_metrics"`.
+- `export_gold.py`: fetches `UNSCOPED_TABLES` once, appends the same unfiltered rows to every tenant's load list (`filtered + unscoped`) instead of calling `.filtered()`/`.client_ids()` on them.
+- Test fixtures (`test_loader.py`): `dq_metrics_table`/`dq_metric_row` helpers, a dedicated test asserting the exceptions row's `passed=NULL` round-trips through Postgres correctly. Caught and fixed a self-inflicted test-structure bug while writing this: an edit had split `test_performance_series_and_summary_load_with_nulls_intact` across two tests by inserting in the wrong place — its tail assertions were misplaced into the new dq_metrics test. Fixed before running anything, confirmed by rerunning: 20/20 pass, with the performance test's own assertions restored to where they belong.
+
+**Verified:** `uv run pytest -rs` — 20/20 (was 19), `ruff format`/`ruff check` clean. Stacked on `feat/dq-metrics-serving`: the loader tests migrate throwaway schemas from serving's real Flyway DDL, which must include `V4__dq_metrics.sql`.

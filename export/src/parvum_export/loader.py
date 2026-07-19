@@ -15,7 +15,7 @@ from psycopg import Connection, sql
 
 from parvum_export.gold_source import GoldTable
 
-# gold table → its projection table in every tenant schema (the Flyway DDL).
+# source table → its projection table in every tenant schema (the Flyway DDL).
 PROJECTION_TABLES = {
     "gold_client_wealth": "client_wealth",
     "gold_asset_allocation": "asset_allocation",
@@ -24,6 +24,7 @@ PROJECTION_TABLES = {
     "gold_ownership": "ownership",
     "gold_performance": "performance",
     "gold_performance_summary": "performance_summary",
+    "dq_metrics": "dq_metrics",
 }
 
 

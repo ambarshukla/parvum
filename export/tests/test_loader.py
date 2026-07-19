@@ -142,6 +142,17 @@ def performance_summary_table(*rows: tuple) -> GoldTable:
     )
 
 
+DQ_METRICS_COLUMNS = ("as_of", "dimension", "metric", "value", "passed", "detail", "rebuilt_at")
+
+
+def dq_metric_row(day: date, dimension: str, metric: str, value: str, passed: bool | None) -> tuple:
+    return (day, dimension, metric, Decimal(value), passed, f"{metric} detail", REBUILT)
+
+
+def dq_metrics_table(*rows: tuple) -> GoldTable:
+    return GoldTable(name="dq_metrics", columns=DQ_METRICS_COLUMNS, rows=rows)
+
+
 def empty_other_tables() -> list[GoldTable]:
     income_columns = (
         "client_id",
@@ -178,6 +189,7 @@ def empty_other_tables() -> list[GoldTable]:
         GoldTable(name="gold_asset_allocation", columns=allocation_columns, rows=()),
         GoldTable(name="gold_income", columns=income_columns, rows=()),
         GoldTable(name="gold_top_holdings", columns=holdings_columns, rows=()),
+        dq_metrics_table(),
         performance_table(),
         performance_summary_table(),
         ownership_table(),
@@ -315,3 +327,34 @@ def test_performance_series_and_summary_load_with_nulls_intact(connection, tenan
         Decimal("-0.04488757"),
         Decimal("-0.17344373"),
     )
+
+
+def test_dq_metrics_loads_unfiltered_with_null_passed_intact(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # dq_metrics carries no client_id -- export_gold.py loads it into every
+    # tenant schema unfiltered (UNSCOPED_TABLES). The exceptions row's
+    # passed=NULL is the interesting case: trend data, not pass/fail.
+    metrics = dq_metrics_table(
+        dq_metric_row(date(2026, 6, 30), "completeness", "files_landed_rate", "1.000000", True),
+        dq_metric_row(date(2026, 6, 30), "exceptions", "holdings_findings_count", "3.000000", None),
+    )
+    counts = load_tenant(
+        connection,
+        schema,
+        [
+            wealth_table(),
+            *empty_other_tables()[:-4],
+            metrics,
+            performance_table(),
+            performance_summary_table(),
+            ownership_table(),
+        ],
+    )
+    assert counts["dq_metrics"] == 2
+    stored = connection.execute(
+        f'SELECT dimension, value, passed FROM "{schema}".dq_metrics ORDER BY dimension'
+    ).fetchall()
+    assert stored == [
+        ("completeness", Decimal("1.000000"), True),
+        ("exceptions", Decimal("3.000000"), None),
+    ]

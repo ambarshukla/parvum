@@ -27,6 +27,15 @@ GOLD_TABLES = (
     "gold_performance_summary",
 )
 
+# Tables that carry no client_id — a fact about the whole pipeline (D-043),
+# not about any one firm's clients. Fetched the same way as GOLD_TABLES, but
+# never filtered by tenant: export_gold.py loads the same rows into every
+# tenant schema (see V4__dq_metrics.sql for why that's the deliberate
+# tradeoff, not an oversight).
+UNSCOPED_TABLES = ("dq_metrics",)
+
+SOURCE_TABLES = GOLD_TABLES + UNSCOPED_TABLES
+
 
 class ExportError(RuntimeError):
     """The export cannot proceed safely; nothing has been written."""
@@ -87,8 +96,8 @@ def convert_rows(
 
 
 def fetch_table(host: str, token: str, warehouse_id: str, table: str) -> GoldTable:
-    if table not in GOLD_TABLES:
-        raise ExportError(f"not a gold table: {table}")
+    if table not in SOURCE_TABLES:
+        raise ExportError(f"not a known source table: {table}")
     body = {
         "warehouse_id": warehouse_id,
         "wait_timeout": "50s",
