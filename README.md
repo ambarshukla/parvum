@@ -14,6 +14,11 @@ The interesting constraint: the feeds are synthetic but the *formats* are real
 holdings, with defects injected deliberately — because the defects are what
 drive reconciliation and data-quality work in practice.
 
+**Live:** [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app),
+reading from the API on AWS. This is a personal reference project on a
+capped free-tier AWS account, not a production service — it may be paused,
+resized, or torn down to manage cost, and isn't meant to be always-on.
+
 ## Stack
 
 Built as a full vertical slice — ingestion, a Databricks lakehouse, data
@@ -29,11 +34,12 @@ own tests and CI.
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
-| CI/CD & automation | **GitHub Actions** — per-package PR checks + a daily feed cron | [`.github/workflows/`](.github/workflows/) |
-| Local infra | **Docker Compose** (Terraform planned) | [`infra/`](infra/) |
+| CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
+| Infra | **Docker Compose** (local), **Terraform** (AWS: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
+| Frontend hosting | **Vercel** (static, CDN-served) | [`web/`](web/) |
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-032); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-038); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![The web dashboard — client overview](docs/img/dashboard-overview.png)
 
@@ -99,7 +105,7 @@ public link to share, so here is the gold notebook as it runs in the workspace:
 | 2 | Reference data & normalisation → Silver | ✅ done |
 | 3 | Reconciliation & data-quality control | ✅ done |
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
-| 5 | Java serving layer (Quarkus + jOOQ) + live site | 🔨 in progress |
+| 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ⬜ |
 | 7 | Liquidity & scenario projection view | ⬜ |
 | 8 | External analytics integration (mocked) | ⬜ |
@@ -174,5 +180,5 @@ each step does, and a troubleshooting table.
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `alts-hitl/` | PDF extraction + review queue | 6 |
-| `infra/` | docker-compose now; Terraform later | 0, 9 |
+| `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
