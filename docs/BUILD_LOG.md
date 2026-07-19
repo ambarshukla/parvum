@@ -460,6 +460,17 @@ Skimmable record of what was done and why. Newest entry last.
 
 **Verified:** typecheck/tests(7/7)/format/build all green.
 
+## 2026-07-19 — DQ metrics: the declarative rollup, and the promised continuity check (D-043)
+
+**Done:**
+- **`dq_cash_continuity`** (spark/dq_recon.py): new detail table, day-over-day cash continuity per account — does today's opening equal yesterday's closing? Different question from `dq_cash_integrity`'s intra-day check. This is the exact check D-040 flagged as "planned" once the cash book had real continuity to break.
+- **`dq_metrics`**: declarative rollup, one row per (date, dimension, metric) — freshness (one row per rebuild, dated at run time), completeness (files-landed rate), accuracy (three rates: cross-format match, intra-day cash, day-over-day continuity), exceptions (the raw counts behind those rates). Adding a future check costs one more `UNION ALL` branch, never a schema change.
+- COLUMN_COMMENTS and a KPI-scorecard display cell added, matching house style.
+
+**Verified live** (full query prototyped against the warehouse before writing the notebook): 454 rows across 8 metric series; completeness is a clean 100% on all 65 days (all 11 expected files parsed every day — the defect pool never drops a whole file); the continuity check reports 0 breaks against the clean silver chain, confirming it's correctly wired before a corrupted delivery ever reaches it; accuracy rates genuinely range 40–100% day to day, the honest signature of deliberately-injected defects (D-011) rather than a dashboard chasing 100%.
+
+**Not yet done (post-merge):** `make run-job` to materialize both tables for real; a natural follow-up slice (not started) is the KPI dashboard band in web/ surfacing break trends, aging, and SLA attainment over time.
+
 ## 2026-07-19 — Serving: DQ metrics endpoint
 
 **Done:**
