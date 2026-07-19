@@ -93,6 +93,14 @@ The dashboard also surfaces the ownership graph — including an account shared
 
 ![Ownership view](docs/img/dashboard-ownership.png)
 
+Performance is time-weighted, Modified Dietz, and money-weighted IRR side by
+side, not just one number — the growth-of-$1 chart marks the 13F filing
+boundary that explains its own flat stretches, and the tenant-independent
+"Ops" view (top right) is the pipeline's own data-quality scorecard, not a
+client-facing report:
+
+![Performance tab, three methodologies side by side](docs/img/dashboard-performance.png)
+
 ## Phases
 
 | # | Phase | Status |
