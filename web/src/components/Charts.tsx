@@ -166,6 +166,17 @@ interface PerformanceProps {
     dark: boolean;
 }
 
+// 13F holdings are point-in-time (D-017): a position's price is the filing
+// quarter's value/shares, static within that filing's regime and stepping
+// only at the next filing's effective date — real quarterly disclosure
+// cadence, not a live market feed. Confirmed against the live lakehouse this
+// covers every filer in the universe (Berkshire, Gates Trust, Pershing
+// Square all filed Q1-2026 by the same date — the shared SEC 45-day
+// deadline, not a coincidence). A long flat stretch either side of this date
+// is the fixture working as designed, not a stalled chart — the marker says
+// so instead of leaving a viewer to wonder.
+const FILING_BOUNDARIES = ["2026-05-15"];
+
 /** Growth-of-$1 since inception: the chain-linked TWR index, market return
  *  only — client flows are already excluded (see docs/PERFORMANCE_METHODOLOGY.md).
  *  The reference line at 1.0 is the whole point: above it is growth, below
@@ -178,6 +189,10 @@ export function PerformanceChart({ rows, dark }: PerformanceProps) {
     if (data.length === 0) {
         return <p className="muted">No performance history recorded.</p>;
     }
+
+    const boundaries = FILING_BOUNDARIES.filter(
+        (d) => d >= data[0]!.asOf && d <= data[data.length - 1]!.asOf,
+    );
 
     return (
         <ResponsiveContainer width="100%" height={260}>
@@ -200,6 +215,20 @@ export function PerformanceChart({ rows, dark }: PerformanceProps) {
                     width={50}
                 />
                 <ReferenceLine y={1} stroke={axis} strokeDasharray="4 4" />
+                {boundaries.map((d) => (
+                    <ReferenceLine
+                        key={d}
+                        x={d}
+                        stroke={MUTED}
+                        strokeDasharray="2 3"
+                        label={{
+                            value: "13F filing",
+                            position: "insideTopLeft",
+                            fill: MUTED,
+                            fontSize: 11,
+                        }}
+                    />
+                ))}
                 <Tooltip
                     formatter={(value: number) => [value.toFixed(4), "Index"]}
                     labelFormatter={(label: string) => longDate(label)}
