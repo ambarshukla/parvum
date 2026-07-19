@@ -371,3 +371,5 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - A real-world instance of "the platform changed between decision and execution" — same shape of surprise as the App Runner closure (D-035), just smaller and in the same session. Both are now recorded as corrections rather than edited away, per this project's ADR discipline.
 - The fix is applied on the AWS side; the actual workflow run hasn't been re-verified yet — needs a manual `workflow_dispatch` (the workflow already supports it) or the next push touching `serving/**`.
+
+**Verified:** manually dispatched `deploy-serving.yml` after both fixes merged — green in 56s (build → push ECR → `aws ecs update-service --force-new-deployment`). Confirmed a genuinely new image landed (fresh digest, tagged `latest` + the merge commit SHA), the ECS rollout completed, and the live endpoint stayed healthy throughout (`/q/health` 200, CORS header still correct). The entire CI deploy path — the one piece that couldn't be exercised from this session directly — now works end to end. Phase 5 is fully built, deployed, and verified.
