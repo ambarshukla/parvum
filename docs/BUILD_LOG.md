@@ -361,3 +361,13 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Phase 5 is now fully complete and live: lakehouse → export → RDS → ECS → the public internet → Vercel, both tenants, both themes, verified end to end on real infrastructure rather than just locally.
 - The empty `apprunner.tf` stub (superseded by `ecs.tf`, D-035) is still sitting in the working tree, untracked — this session's sandbox couldn't delete it; harmless, never added to git, safe to remove by hand whenever convenient.
+
+## 2026-07-19 — First real CI deploy run failed, fixed (D-037 correction)
+
+**Done:**
+- Merging the AWS-deploy PR triggered `deploy-serving.yml` for real for the first time — and it failed immediately at the `configure-aws-credentials` step: `Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+- Diagnosed by checking AWS CloudTrail for the actual OIDC identity GitHub presented, rather than assuming the trust policy was right: GitHub's newer **immutable subject claims** feature (shipped 2026-04-23, after D-037 was written) changed the `sub` claim's format to embed permanent owner/repo IDs — `repo:ambarshukla@59102691/parvum@1302835881:ref:refs/heads/main` — instead of the classic `repo:ambarshukla/parvum:ref:refs/heads/main` the trust policy's `StringEquals` condition expected. Updated the condition to the exact observed value and reapplied; `terraform plan`/`apply` showed only that one string changing.
+
+**Notes:**
+- A real-world instance of "the platform changed between decision and execution" — same shape of surprise as the App Runner closure (D-035), just smaller and in the same session. Both are now recorded as corrections rather than edited away, per this project's ADR discipline.
+- The fix is applied on the AWS side; the actual workflow run hasn't been re-verified yet — needs a manual `workflow_dispatch` (the workflow already supports it) or the next push touching `serving/**`.
