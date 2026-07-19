@@ -3,6 +3,8 @@ import type {
     HoldingRow,
     IncomeRow,
     OwnershipRow,
+    PerformanceRow,
+    PerformanceSummaryRow,
     TenantData,
     WealthRow,
 } from "./types";
@@ -24,12 +26,15 @@ async function getJson<T>(path: string): Promise<T> {
 /** Fetch every projection for one tenant in parallel. */
 export async function fetchTenant(tenantId: string): Promise<TenantData> {
     const base = `/tenants/${tenantId}`;
-    const [wealth, allocation, income, holdings, ownership] = await Promise.all([
-        getJson<WealthRow[]>(`${base}/wealth`),
-        getJson<AllocationRow[]>(`${base}/allocation`),
-        getJson<IncomeRow[]>(`${base}/income`),
-        getJson<HoldingRow[]>(`${base}/holdings`),
-        getJson<OwnershipRow[]>(`${base}/ownership`),
-    ]);
-    return { wealth, allocation, income, holdings, ownership };
+    const [wealth, allocation, income, holdings, ownership, performance, performanceSummary] =
+        await Promise.all([
+            getJson<WealthRow[]>(`${base}/wealth`),
+            getJson<AllocationRow[]>(`${base}/allocation`),
+            getJson<IncomeRow[]>(`${base}/income`),
+            getJson<HoldingRow[]>(`${base}/holdings`),
+            getJson<OwnershipRow[]>(`${base}/ownership`),
+            getJson<PerformanceRow[]>(`${base}/performance`),
+            getJson<PerformanceSummaryRow[]>(`${base}/performance-summary`),
+        ]);
+    return { wealth, allocation, income, holdings, ownership, performance, performanceSummary };
 }

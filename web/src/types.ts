@@ -54,6 +54,29 @@ export interface OwnershipRow {
     isShared: boolean;
 }
 
+export interface PerformanceRow {
+    asOf: string;
+    clientId: string;
+    clientName: string;
+    totalWealthUsd: number;
+    externalFlowUsd: number;
+    dailyTwrReturn: number | null;
+    twrIndexSinceInception: number;
+}
+
+export interface PerformanceSummaryRow {
+    clientId: string;
+    clientName: string;
+    inceptionDate: string;
+    asOf: string;
+    wealthBeginUsd: number;
+    wealthEndUsd: number;
+    netExternalFlowUsd: number;
+    twrSinceInception: number;
+    dietzSinceInception: number | null;
+    irrSinceInceptionAnnualized: number | null;
+}
+
 // Everything the dashboard needs for one tenant, fetched together.
 export interface TenantData {
     wealth: WealthRow[];
@@ -61,4 +84,6 @@ export interface TenantData {
     income: IncomeRow[];
     holdings: HoldingRow[];
     ownership: OwnershipRow[];
+    performance: PerformanceRow[];
+    performanceSummary: PerformanceSummaryRow[];
 }

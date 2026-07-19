@@ -439,3 +439,13 @@ Skimmable record of what was done and why. Newest entry last.
 - Test fixtures (`test_loader.py`): `performance_table`/`performance_summary_table` helpers, and a dedicated test asserting the inception-day `NULL` `daily_twr_return` (and `dietz_since_inception`/`irr_since_inception_annualized`, both nullable per D-042) round-trip through Postgres as `NULL`, not a sentinel value.
 
 **Verified:** `uv run pytest -rs` — 19/19 (was 17), against a real Postgres migrated with serving's actual Flyway DDL including `V3__performance.sql` (D-042's serving PR). `ruff format`/`ruff check` clean.
+
+## 2026-07-19 — Web: Performance dashboard panel
+
+**Done:**
+- `types.ts`/`api.ts`: `PerformanceRow`/`PerformanceSummaryRow` interfaces, `TenantData` extended, `fetchTenant` pulls both new endpoints alongside the existing five.
+- `Charts.tsx`: `PerformanceChart` — a single-line growth-of-$1 chart (`twrIndexSinceInception` over `asOf`) with a dashed reference line at 1.0, following the same recharts/palette/chrome conventions as `AllocationDonut`/`IncomeChart`.
+- `ClientDashboard.tsx`: new "Performance" tab — the chart plus a since-inception comparison of all three methodologies (TWR, Modified Dietz, IRR annualized) and net external flow, in the existing `Tile` layout. Nullable Dietz/IRR render as "—".
+- Test: seeded a two-point performance series (inception + one return) and a summary row for Reyes, asserted all three methodology figures and net flow render on the new tab.
+
+**Verified:** `npm run typecheck` clean, `npm test` 7/7 (was 6), `npm run format:check` clean, `npm run build` succeeds. End-to-end with real data: started serving locally (`make serving-run`), loaded real gold data via `make export-gold` against the local Postgres (aldergate performance=65/performance_summary=1, stonefield 130/2), confirmed the exact JSON shape through both the direct API and the Vite dev proxy matches the TypeScript types and the live figures match `PERFORMANCE_METHODOLOGY.md` exactly. Browser tools were unavailable this session, so the rendered page itself was not visually inspected — the API contract, typecheck, and component tests are the verification that exists; a visual check is recommended before merge.

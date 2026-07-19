@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { TenantData, WealthRow } from "./types";
 import { money, longDate, monthLabel, percent } from "./format";
-import { AllocationDonut, IncomeChart } from "./components/Charts";
+import { AllocationDonut, IncomeChart, PerformanceChart } from "./components/Charts";
 
-const TABS = ["Overview", "Allocation", "Income", "Holdings", "Ownership"] as const;
+const TABS = ["Overview", "Allocation", "Income", "Holdings", "Ownership", "Performance"] as const;
 type Tab = (typeof TABS)[number];
 
 interface Props {
@@ -25,6 +25,10 @@ export function ClientDashboard({ data, client, dark }: Props) {
             data.ownership.filter((r) => r.clientId === client.clientId).map((r) => r.accountId),
         ),
     ].sort();
+    const performance = data.performance
+        .filter((r) => r.clientId === client.clientId)
+        .sort((a, b) => a.asOf.localeCompare(b.asOf));
+    const performanceSummary = data.performanceSummary.find((r) => r.clientId === client.clientId);
 
     return (
         <>
@@ -268,6 +272,63 @@ export function ClientDashboard({ data, client, dark }: Props) {
                         </tbody>
                     </table>
                 </div>
+            )}
+
+            {tab === "Performance" && (
+                <>
+                    <div className="card" style={{ marginBottom: 18 }}>
+                        <h2>Growth of $1 since inception</h2>
+                        <p className="muted" style={{ marginTop: -6, fontSize: 13 }}>
+                            Time-weighted: chain-linked market return, with the client's own
+                            contributions and withdrawals excluded.
+                        </p>
+                        <PerformanceChart rows={performance} dark={dark} />
+                    </div>
+                    <div className="card">
+                        <h2>Since inception, three ways</h2>
+                        <p className="muted" style={{ marginTop: -6, fontSize: 13 }}>
+                            {performanceSummary
+                                ? `${longDate(performanceSummary.inceptionDate)} – ${longDate(performanceSummary.asOf)}`
+                                : "No performance history recorded."}
+                            {" — see docs/PERFORMANCE_METHODOLOGY.md for why these differ."}
+                        </p>
+                        {performanceSummary && (
+                            <div className="grid tiles">
+                                <Tile
+                                    label="Time-weighted (TWR)"
+                                    value={percent(performanceSummary.twrSinceInception, 2)}
+                                    sub="Manager's return, flow timing excluded"
+                                />
+                                <Tile
+                                    label="Modified Dietz"
+                                    value={
+                                        performanceSummary.dietzSinceInception === null
+                                            ? "—"
+                                            : percent(performanceSummary.dietzSinceInception, 2)
+                                    }
+                                    sub="Flow-weighted approximation of TWR"
+                                />
+                                <Tile
+                                    label="Money-weighted (IRR)"
+                                    value={
+                                        performanceSummary.irrSinceInceptionAnnualized === null
+                                            ? "—"
+                                            : percent(
+                                                  performanceSummary.irrSinceInceptionAnnualized,
+                                                  2,
+                                              )
+                                    }
+                                    sub="Investor's return, annualized"
+                                />
+                                <Tile
+                                    label="Net external flow"
+                                    value={money(performanceSummary.netExternalFlowUsd)}
+                                    sub={`${money(performanceSummary.wealthBeginUsd)} → ${money(performanceSummary.wealthEndUsd)}`}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </>
             )}
         </>
     );
