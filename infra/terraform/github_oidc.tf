@@ -23,7 +23,14 @@ resource "aws_iam_role" "github_actions" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:ambarshukla/parvum:ref:refs/heads/main"
+          # GitHub's "immutable subject claims" change (2026-04-23) rewrote
+          # the sub claim to embed permanent owner/repo IDs instead of the
+          # classic repo:owner/repo:ref:... form — confirmed against the
+          # actual failing run via CloudTrail, not assumed from docs. These
+          # numeric IDs are exactly that: permanent for this repo, so this
+          # condition doesn't break on a future rename the way the old
+          # name-based form would have.
+          "token.actions.githubusercontent.com:sub" = "repo:ambarshukla@59102691/parvum@1302835881:ref:refs/heads/main"
         }
       }
     }]
