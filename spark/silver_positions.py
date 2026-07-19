@@ -100,10 +100,24 @@ spark.sql(  # noqa: F821
 # MAGIC
 # MAGIC Bronze deliberately keeps one row per position *per file*, and every
 # MAGIC position arrives in two holdings formats — so the same Apple line
-# MAGIC exists twice per day. Silver picks exactly one: semt.002 preferred
-# MAGIC over MT535 (the richer message), file path as a final deterministic
-# MAGIC tie-break. Whether the two copies *agree* is a data-quality
-# MAGIC question for a later slice — conforming the grain comes first.
+# MAGIC exists twice per day. Silver picks exactly one: **semt.002 preferred
+# MAGIC over MT535, chosen per (date, account) as a whole delivery**, file
+# MAGIC path as a final deterministic tie-break within that chosen format.
+# MAGIC Whether the two copies *agree* is a data-quality question for a later
+# MAGIC slice (`dq_holdings_recon`, which compares bronze directly) —
+# MAGIC conforming the grain comes first, and conforming it *by row* rather
+# MAGIC than *by file* was a bug, not a milder version of the same choice: a
+# MAGIC row whose identifier a defect corrupted (MISTYPED_ISIN) no longer
+# MAGIC shares a key with its sibling in the other format, so a row-level
+# MAGIC "prefer semt.002" lets *both* copies survive under two different
+# MAGIC identifiers — silently double-counting that position's value in
+# MAGIC every downstream sum. Found live: American Express duplicated across
+# MAGIC `US0258161093` (MT535, correct) and `US0258161092` (semt.002, the
+# MAGIC defect's bumped check digit), $4,585,899.28 counted twice. Choosing
+# MAGIC the winning *file* first makes this structurally impossible — a
+# MAGIC corrupted identifier still lands under the wrong ISIN (a real,
+# MAGIC findable problem, exactly what `dq_holdings_recon` exists to catch),
+# MAGIC but never as a second copy of the same dollar.
 
 # COMMAND ----------
 
@@ -111,13 +125,33 @@ spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_positions
     COMMENT 'Conformed positions: one row per (as_of, account, security), enriched from the securities master. instrument_status flags what the master could not identify.'
     AS
-    WITH deduped AS (
+    WITH file_choice AS (
+        -- One winning format per (date, account): semt.002 if it delivered
+        -- any row that day, else MT535. A whole-file choice, not a
+        -- per-security one — see the note above on why that distinction is
+        -- the whole fix.
+        SELECT as_of, account_id,
+               MIN_BY(source_format,
+                      CASE source_format WHEN 'semt.002' THEN 1 WHEN 'MT535' THEN 2 ELSE 3 END
+               ) AS source_format
+        FROM {SCHEMA}.bronze_holdings
+        GROUP BY as_of, account_id
+    ),
+    chosen AS (
+        SELECT h.*
+        FROM {SCHEMA}.bronze_holdings h
+        JOIN file_choice c USING (as_of, account_id, source_format)
+    ),
+    deduped AS (
+        -- Residual tie-break for a genuine same-format re-delivery (e.g. a
+        -- re-land): file path, deterministic. Not expected to ever see rn>1
+        -- in practice, since a chosen file's own rows are already unique by
+        -- security within themselves.
         SELECT *, ROW_NUMBER() OVER (
             PARTITION BY as_of, account_id, security_scheme, security_id
-            ORDER BY CASE source_format WHEN 'semt.002' THEN 1 WHEN 'MT535' THEN 2 ELSE 3 END,
-                     file_path
+            ORDER BY file_path
         ) AS rn
-        FROM {SCHEMA}.bronze_holdings
+        FROM chosen
     )
     SELECT
         d.as_of,
