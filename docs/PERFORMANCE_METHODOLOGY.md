@@ -37,15 +37,15 @@ than at the boundaries.
 
 ## The pipeline's actual figures
 
-Computed from the corrected wealth series (D-040's cash-continuity fix and
-D-041's holdings-dedupe fix both applied), for the ~three-month window
-2026-04-20 → 2026-07-17:
+From the live `gold_performance_summary` table (D-040's cash-continuity fix
+and D-041's holdings-dedupe fix both applied, materialized), for the
+~three-month window 2026-04-20 → 2026-07-17:
 
-| Client   | Wealth begin  | Wealth end    | Net flow  | TWR      | Dietz    | IRR (annualized) |
-|----------|--------------:|--------------:|----------:|---------:|---------:|------------------:|
-| Hartwell | $42,936,410.86 | $41,143,303.15 | +$137,500 | −4.49%  | −4.49%  | −17.34% |
-| Okafor   | $3,141,777.11  | $2,938,462.42  | +$100,000 | −11.24% | −11.23% | −38.98% |
-| Reyes    | $1,897,109.81  | $1,712,828.75  | +$25,000  | −10.77% | −10.79% | −37.71% |
+| Client   | Wealth begin   | Wealth end     | Net flow    | TWR      | Dietz    | IRR (annualized) |
+|----------|---------------:|---------------:|------------:|---------:|---------:|------------------:|
+| Hartwell | $42,936,410.86 | $41,143,303.15 | +$137,500.00 | −4.49%  | −4.49%  | −17.34% |
+| Okafor   | $3,141,777.13  | $2,938,462.41  | +$159,853.12 | −11.24% | −11.23% | −38.98% |
+| Reyes    | $1,897,109.79  | $1,712,828.76  | +$22,500.00  | −10.77% | −10.79% | −37.71% |
 
 Two things stand out, and both are the point of building three methods
 instead of one:
