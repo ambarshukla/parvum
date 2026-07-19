@@ -401,3 +401,15 @@ Skimmable record of what was done and why. Newest entry last.
 - Determinism (D-011): regenerating a single day reproduced the identical camt.053 sha256.
 
 **Not yet done (post-merge):** re-land the 65 days (`make land` — overwrites don't fire the file-arrival trigger, D-018) and `make run-job` for the full bronze-restatement → silver → dq → gold rebuild; documented lakehouse/gold counts will shift and get re-verified then. The RDS reload follows automatically (D-039).
+
+## 2026-07-19 — Performance: TWR, Modified Dietz, and IRR side by side (D-042)
+
+**Done:**
+- **`gold_performance`** (spark/gold_reports.py): daily time-weighted return chain per client — `(wealth − flow) / prev_wealth − 1`, chain-linked into a growth-of-$1 index via `EXP(SUM(LN(1+r)))` (exact in a SQL window, no UDF).
+- **`gold_performance_summary`**: since-inception TWR, Modified Dietz, and annualized money-weighted IRR in one row per client. IRR solved by hand-rolled bisection in Python (no external solver dependency), joined back via the same compute-then-`createDataFrame` pattern the FX section already uses.
+- **`docs/PERFORMANCE_METHODOLOGY.md`**: explains why the three methods diverge (manager-return vs. approximation vs. investor-experience, and the annualization-convention gap), with real figures from the corrected data.
+- **Prerequisite work that came first, same session:** validating this slice's own arithmetic against live data surfaced two upstream bugs — cash-book continuity (D-040) and a holdings-dedupe double-count (D-041) — both fixed and merged/pending-merge before this table's numbers could be trusted. `PERFORMANCE_METHODOLOGY.md`'s example figures were computed by re-running the corrected dedupe logic as an ad hoc probe against live bronze data, not the (still-to-be-rebuilt) live gold table.
+
+**Verified (pre-merge, ad hoc against live warehouse data using the corrected logic):** TWR and Modified Dietz agree to within a few basis points for all three clients (Hartwell −4.49%/−4.49%, Okafor −11.24%/−11.23%, Reyes −10.77%/−10.79%); annualized IRR reads far more negative for all three purely from the annualization convention on a ~89-day window (Hartwell −17.34%, Okafor −38.98%, Reyes −37.71%).
+
+**Not yet done (post-merge, after D-040/D-041 land and `make run-job` reruns):** materialize `gold_performance`/`gold_performance_summary` for real and confirm the live figures match this doc's pre-validated numbers. Natural follow-ups once this is live: a jOOQ serving endpoint, an exporter loader into the tenant Postgres schemas, and a dashboard panel.
