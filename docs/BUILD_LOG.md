@@ -350,3 +350,14 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - The workflow itself can't be exercised from this machine (it needs a real push to trigger, and this session never runs `git push`) — the Terraform side (OIDC provider + role + policy) is applied and live, but the first real run is unverified until the branch is pushed and merged.
 - Next: the frontend on Vercel + real `VITE_API_BASE`/CORS — the last piece of Phase 5.
+
+## 2026-07-19 — AWS deploy, step 5: the frontend goes live, Phase 5 done (D-038)
+
+**Done:**
+- **`web/` deployed to Vercel** as project `parvum-dashboard` (`vercel link`, then `vercel --prod`) — production domain `https://parvum-dashboard.vercel.app`. `VITE_API_BASE` set as a Vercel project env var (Production + Preview) pointing at the live AWS endpoint, rather than committed — a deployment fact, not a build fact.
+- **CORS finally turned on**, closing D-032's deferral: `%prod.quarkus.http.cors.enabled=true` baked into the image (a stable prod fact), allowed origins supplied at deploy time via `QUARKUS_HTTP_CORS_ORIGINS` (the production domain plus a regex for every Vercel preview subdomain) — the same dev/prod-fact split the datasource config already used.
+- **Caught a real bug via actual verification, not just a green build:** the first attempt used `quarkus.http.cors=true`, which silently did nothing — Quarkus renamed that property to `quarkus.http.cors.enabled` back in 3.4, and this app is on 3.33. Curling the live endpoint with an `Origin` header (and a proper preflight `OPTIONS` request) showed no `Access-Control-Allow-Origin` header at all — first reproduced locally against the same image before touching AWS again, to rule out an ALB/networking explanation before assuming the app config was wrong. Fixed, rebuilt, repushed, redeployed; five consecutive live requests afterward all returned the correct header.
+
+**Notes:**
+- Phase 5 is now fully complete and live: lakehouse → export → RDS → ECS → the public internet → Vercel, both tenants, both themes, verified end to end on real infrastructure rather than just locally.
+- The empty `apprunner.tf` stub (superseded by `ecs.tf`, D-035) is still sitting in the working tree, untracked — this session's sandbox couldn't delete it; harmless, never added to git, safe to remove by hand whenever convenient.

@@ -94,6 +94,14 @@ resource "aws_ecs_express_gateway_service" "serving" {
       name  = "QUARKUS_DATASOURCE_JDBC_URL"
       value = "jdbc:postgresql://${aws_db_instance.main.address}:5432/parvum?sslmode=require"
     }
+    # The production domain plus a regex covering every preview deployment
+    # (Vercel gives each one a random subdomain under the same project) —
+    # supplied here rather than hardcoded in application.properties because
+    # it's a fact about this deployment, not about the build.
+    environment {
+      name  = "QUARKUS_HTTP_CORS_ORIGINS"
+      value = "https://parvum-dashboard.vercel.app,/https://parvum-dashboard-.*\\.vercel\\.app/"
+    }
     environment {
       name  = "QUARKUS_DATASOURCE_USERNAME"
       value = "parvum"
