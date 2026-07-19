@@ -402,6 +402,15 @@ Skimmable record of what was done and why. Newest entry last.
 
 **Not yet done (post-merge):** re-land the 65 days (`make land` — overwrites don't fire the file-arrival trigger, D-018) and `make run-job` for the full bronze-restatement → silver → dq → gold rebuild; documented lakehouse/gold counts will shift and get re-verified then. The RDS reload follows automatically (D-039).
 
+## 2026-07-19 — silver_positions was double-counting positions hit by MISTYPED_ISIN (D-041)
+
+**Done:**
+- **Found while probing before building** (same discipline as D-040, same session): validating live data ahead of the TWR/Dietz slice, the daily wealth chain showed spikes that fully reverted the next day — the classic signature of a data artifact, not a market move. Traced to `silver_positions`'s dedupe keying on `(as_of, account_id, security_scheme, security_id)`: a `MISTYPED_ISIN` defect changes one row's identifier, so the corrupted copy and its untouched sibling in the other format stop sharing a key and **both** survive the "prefer semt.002" logic instead of one replacing the other. Confirmed live: American Express double-counted ($4,585,899.28 × 2) for account 60011234 on 2026-07-01.
+- **`silver_positions.py` fixed:** the winning format is now chosen per (date, account) as a whole delivery, before any per-security logic runs — file path stays as a residual tie-break inside the chosen format only. Matches the notebook's own pre-existing stated intent; the bug was granularity, not design.
+- **Verified live** (SQL prototyped against the warehouse before and after touching the notebook): AMEX now appears once. Account 60011234's total positions value is now flat across all 65 days except 2026-05-15 — the documented filing boundary — exactly matching the clean book's designed invariant for the first time.
+
+**Not yet done (post-merge):** `make run-job` to re-materialize silver_positions and every gold table built on it (same re-run as D-040 — the two fixes will be verified together in one pass).
+
 ## 2026-07-19 — Performance: TWR, Modified Dietz, and IRR side by side (D-042)
 
 **Done:**
