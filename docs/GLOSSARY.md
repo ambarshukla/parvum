@@ -76,6 +76,7 @@ magic — every term gets defined here on first use.
 - **ECR** — AWS's container image registry (where CI pushes the Quarkus image).
 - **NAT gateway / ALB** — AWS networking components with meaningful fixed monthly cost (~£26 / ~£13); deliberately avoided here — Express Mode's ALB is AWS-managed and not billed as a separate resource this project owns.
 - **`rds.force_ssl`** — an RDS parameter-group setting that makes Postgres reject any connection that doesn't negotiate TLS; the app-layer defense that makes a publicly reachable RDS instance (D-036) an acceptable trade rather than a shortcut.
+- **SSM Parameter Store** — AWS's key-value config/secret store; used here (as a `SecureString`) to hold the RDS password so it's never a plain environment variable or a value duplicated into a GitHub secret (D-039).
 - **Terraform** — declarative infrastructure-as-code: `.tf` files describe cloud resources; `plan` previews, `apply` creates.
 - **Terraform state** — Terraform's record of what it created and its current shape; needed to compute what a future `apply` must change. Stored remotely here (S3, versioned) rather than only on one laptop.
 - **`aws login`** — AWS CLI command that authenticates using a user's console (browser) sign-in instead of a permanent access key, issuing temporary credentials that auto-rotate every 15 minutes and expire within the session.
