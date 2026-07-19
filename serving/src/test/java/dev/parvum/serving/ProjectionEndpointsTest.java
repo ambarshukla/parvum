@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 
 import io.agroal.api.AgroalDataSource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -62,6 +63,11 @@ class ProjectionEndpointsTest {
         """
         insert into ownership values
           ('ACC-HART','HART','Hartwell', 1.000000, 1, false, now());
+        insert into performance values
+          ('2026-05-15','HART','Hartwell', 1000000.00, 0.00, null, 1.00000000, now()),
+          ('2026-06-30','HART','Hartwell', 41091835.83, 500000.00, 0.02500000, 1.02500000, now());
+        insert into performance_summary values
+          ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
@@ -171,6 +177,46 @@ class ProjectionEndpointsTest {
   }
 
   @Test
+  void performanceReturnsTheFullSeriesWithANullFirstReturn() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/aldergate/performance")
+        .then()
+        .statusCode(200)
+        .body("size()", is(2))
+        .body("[0].asOf", is("2026-05-15"))
+        .body("[0].dailyTwrReturn", is(nullValue()))
+        .body("[0].twrIndexSinceInception", comparesEqualTo(new BigDecimal("1.00000000")))
+        .body("[1].asOf", is("2026-06-30"))
+        .body("[1].dailyTwrReturn", comparesEqualTo(new BigDecimal("0.02500000")));
+  }
+
+  @Test
+  void performanceSummaryComparesThreeMethodologiesInOneRow() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/aldergate/performance-summary")
+        .then()
+        .statusCode(200)
+        .body("size()", is(1))
+        .body("[0].clientId", is("HART"))
+        .body("[0].inceptionDate", is("2026-05-15"))
+        .body("[0].twrSinceInception", comparesEqualTo(new BigDecimal("0.02500000")))
+        .body("[0].dietzSinceInception", comparesEqualTo(new BigDecimal("0.02480000")))
+        .body("[0].irrSinceInceptionAnnualized", comparesEqualTo(new BigDecimal("0.15000000")));
+
+    // Stonefield seeded no performance rows this test — proves an empty tenant returns [], not 404.
+    given()
+        .when()
+        .get("/tenants/stonefield/performance-summary")
+        .then()
+        .statusCode(200)
+        .body("size()", is(0));
+  }
+
+  @Test
   void unknownOrMalformedTenantsAre404() {
     given().when().get("/tenants/ghost/wealth").then().statusCode(404);
     // Uppercase cannot be a schema id (see TenantSchemas.SAFE_TENANT_ID); it is not in the tenant
@@ -179,7 +225,10 @@ class ProjectionEndpointsTest {
   }
 
   private void reset(String schema) throws Exception {
-    exec(schema, "truncate table client_wealth, asset_allocation, income, top_holdings, ownership");
+    exec(
+        schema,
+        "truncate table client_wealth, asset_allocation, income, top_holdings, ownership, "
+            + "performance, performance_summary");
   }
 
   /** Runs semicolon-separated statements inside {@code schema} via a temporary search_path. */
