@@ -424,3 +424,12 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified again post-merge (materialized `gold_performance_summary`, after `make run-job`):** wealth/TWR/Dietz/IRR all match the pre-merge probe exactly (Hartwell to the cent). One correction caught by comparing against the live table rather than trusting the pre-merge doc: the methodology doc's "Net flow" column had been hand-approximated for Okafor (+$100,000) and Reyes (+$25,000) rather than derived from the corrected query — the live figures are +$159,853.12 and +$22,500.00. Fixed in `docs/PERFORMANCE_METHODOLOGY.md`; TWR/Dietz/IRR, which *were* computed from the real series, needed no correction.
 
 **Not yet done (post-merge, after D-040/D-041 land and `make run-job` reruns):** materialize `gold_performance`/`gold_performance_summary` for real and confirm the live figures match this doc's pre-validated numbers. Natural follow-ups once this is live: a jOOQ serving endpoint, an exporter loader into the tenant Postgres schemas, and a dashboard panel.
+
+## 2026-07-19 — Serving: performance endpoints
+
+**Done:**
+- **`V3__performance.sql`**: `performance` and `performance_summary` tables, mirroring `gold_performance`/`gold_performance_summary`'s columns exactly (D-042). `daily_twr_return`, `dietz_since_inception`, and `irr_since_inception_annualized` are nullable, matching gold's own nullability (inception-day return, and IRR's no-root case).
+- **`ProjectionResource.java`**: `/tenants/{id}/performance` (full series, like `income`) and `/tenants/{id}/performance-summary` (one row per client, like `ownership`) — no new pattern, same tenant-scoped `TenantQuery.inTenant` + jOOQ `selectFrom` shape as every existing endpoint.
+- **Tests**: seeded Hartwell with two performance dates (inception + one real return) and a summary row; asserted the full series returns (not latest-only), the inception row's `dailyTwrReturn` is `null`, and an unseeded tenant (Stonefield) returns `[]` rather than erroring. `ServingSmokeTest`'s `PROJECTION_TABLES` extended to cover every projection table, not just the original four.
+
+**Verified:** `mvn verify` green — 10/10 tests (7 `ProjectionEndpointsTest` + 3 `ServingSmokeTest`), spotless clean, jOOQ codegen picked up the new migration automatically (no config change needed — it globs `V*.sql`).

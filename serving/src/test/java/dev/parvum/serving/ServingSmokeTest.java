@@ -24,7 +24,14 @@ import org.junit.jupiter.api.Test;
 class ServingSmokeTest {
 
   private static final List<String> PROJECTION_TABLES =
-      List.of("client_wealth", "asset_allocation", "income", "top_holdings");
+      List.of(
+          "client_wealth",
+          "asset_allocation",
+          "income",
+          "top_holdings",
+          "ownership",
+          "performance",
+          "performance_summary");
 
   @Inject AgroalDataSource dataSource;
   @Inject TenantSchemas tenantSchemas;

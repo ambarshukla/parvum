@@ -4,6 +4,8 @@ import static dev.parvum.serving.jooq.Tables.ASSET_ALLOCATION;
 import static dev.parvum.serving.jooq.Tables.CLIENT_WEALTH;
 import static dev.parvum.serving.jooq.Tables.INCOME;
 import static dev.parvum.serving.jooq.Tables.OWNERSHIP;
+import static dev.parvum.serving.jooq.Tables.PERFORMANCE;
+import static dev.parvum.serving.jooq.Tables.PERFORMANCE_SUMMARY;
 import static dev.parvum.serving.jooq.Tables.TOP_HOLDINGS;
 import static org.jooq.impl.DSL.max;
 
@@ -152,6 +154,54 @@ public class ProjectionResource {
                             r.getIsShared())));
   }
 
+  /** Daily time-weighted return chain per client — the full series, for a time chart. */
+  @GET
+  @Path("/performance")
+  public List<PerformanceRow> performance(@PathParam("tenantId") String tenantId) {
+    return tenantQuery.inTenant(
+        tenantId,
+        dsl ->
+            dsl.selectFrom(PERFORMANCE)
+                .orderBy(PERFORMANCE.CLIENT_NAME, PERFORMANCE.AS_OF)
+                .fetch(
+                    r ->
+                        new PerformanceRow(
+                            r.getAsOf(),
+                            r.getClientId(),
+                            r.getClientName(),
+                            r.getTotalWealthUsd(),
+                            r.getExternalFlowUsd(),
+                            r.getDailyTwrReturn(),
+                            r.getTwrIndexSinceInception())));
+  }
+
+  /**
+   * Since-inception return per client by three methodologies (time-weighted, Modified Dietz,
+   * money-weighted IRR) — see docs/PERFORMANCE_METHODOLOGY.md for why they differ.
+   */
+  @GET
+  @Path("/performance-summary")
+  public List<PerformanceSummaryRow> performanceSummary(@PathParam("tenantId") String tenantId) {
+    return tenantQuery.inTenant(
+        tenantId,
+        dsl ->
+            dsl.selectFrom(PERFORMANCE_SUMMARY)
+                .orderBy(PERFORMANCE_SUMMARY.CLIENT_NAME)
+                .fetch(
+                    r ->
+                        new PerformanceSummaryRow(
+                            r.getClientId(),
+                            r.getClientName(),
+                            r.getInceptionDate(),
+                            r.getAsOf(),
+                            r.getWealthBeginUsd(),
+                            r.getWealthEndUsd(),
+                            r.getNetExternalFlowUsd(),
+                            r.getTwrSinceInception(),
+                            r.getDietzSinceInception(),
+                            r.getIrrSinceInceptionAnnualized())));
+  }
+
   public record WealthRow(
       LocalDate asOf,
       String clientId,
@@ -198,4 +248,25 @@ public class ProjectionResource {
       BigDecimal ownershipPct,
       int ownerCount,
       boolean isShared) {}
+
+  public record PerformanceRow(
+      LocalDate asOf,
+      String clientId,
+      String clientName,
+      BigDecimal totalWealthUsd,
+      BigDecimal externalFlowUsd,
+      BigDecimal dailyTwrReturn,
+      BigDecimal twrIndexSinceInception) {}
+
+  public record PerformanceSummaryRow(
+      String clientId,
+      String clientName,
+      LocalDate inceptionDate,
+      LocalDate asOf,
+      BigDecimal wealthBeginUsd,
+      BigDecimal wealthEndUsd,
+      BigDecimal netExternalFlowUsd,
+      BigDecimal twrSinceInception,
+      BigDecimal dietzSinceInception,
+      BigDecimal irrSinceInceptionAnnualized) {}
 }
