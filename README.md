@@ -9,44 +9,12 @@ data-quality control** → a **total-portfolio view** served by Java web
 services and a React dashboard — plus a human-in-the-loop pipeline for
 alternatives documents, and an infra/observability wrapper.
 
-The interesting constraint: the feeds are synthetic but the *formats* are real
-(ISO 20022, SWIFT MT), seeded with real reference data and real SEC 13F
-holdings, with defects injected deliberately — because the defects are what
-drive reconciliation and data-quality work in practice.
+The feeds are synthetic but the *formats* are real (ISO 20022, SWIFT MT),
+seeded with real reference data and real SEC 13F holdings, with defects
+injected deliberately — because the defects are what drive reconciliation
+and data-quality work in practice.
 
-**Live:** [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app),
-reading from the API on AWS. This is a personal reference project on a
-capped free-tier AWS account, not a production service — it may be paused,
-resized, or torn down to manage cost, and isn't meant to be always-on.
-
-## Stack
-
-Built as a full vertical slice — ingestion, a Databricks lakehouse, data
-quality, a Java API, and a web front end — each layer its own package with its
-own tests and CI.
-
-| Layer | Technologies | Code |
-|-------|--------------|------|
-| Lakehouse & pipeline | **Databricks** (Delta Lake, Unity Catalog, Workflows), **PySpark** — bronze → silver → gold | [`spark/`](spark/) |
-| Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
-| Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
-| Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
-| Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
-| Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
-| Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
-| CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
-| Infra | **Docker Compose** (local), **Terraform** (AWS: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
-| Frontend hosting | **Vercel** (static, CDN-served) | [`web/`](web/) |
-
-Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-038); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
-
-![The web dashboard — client overview](docs/img/dashboard-overview.png)
-
-The dashboard also surfaces the ownership graph — including an account shared
-60/40 between two families, with its co-owner named:
-
-![Ownership view](docs/img/dashboard-ownership.png)
+**Live:** [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app)
 
 ## Architecture (target)
 
@@ -95,6 +63,35 @@ a full rebuild that traces back to the raw files. Free-tier Databricks has no
 public link to share, so here is the gold notebook as it runs in the workspace:
 
 ![The gold notebook in Databricks](docs/img/databricks-gold-notebook.png)
+
+## Stack
+
+Built as a full vertical slice — ingestion, a Databricks lakehouse, data
+quality, a Java API, and a web front end — each layer its own package with its
+own tests and CI.
+
+| Layer | Technologies | Code |
+|-------|--------------|------|
+| Lakehouse & pipeline | **Databricks** (Delta Lake, Unity Catalog, Workflows), **PySpark** — bronze → silver → gold | [`spark/`](spark/) |
+| Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
+| Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
+| Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
+| Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
+| Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
+| Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
+| CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
+| Infra | **Docker Compose** (local), **Terraform** (AWS: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
+| Frontend hosting | **Vercel** (static, CDN-served) | [`web/`](web/) |
+
+Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
+(D-001…D-045); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+
+![The web dashboard — client overview](docs/img/dashboard-overview.png)
+
+The dashboard also surfaces the ownership graph — including an account shared
+60/40 between two families, with its co-owner named:
+
+![Ownership view](docs/img/dashboard-ownership.png)
 
 ## Phases
 
