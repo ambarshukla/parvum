@@ -41,3 +41,22 @@ export function monthLabel(iso: string): string {
         timeZone: "UTC",
     });
 }
+
+// dq_metrics' `metric` names are the SQL rollup's own identifiers
+// (spark/dq_recon.py) — stable, but not written for a screen. One label per
+// known metric; anything new falls back to the raw name rather than hiding.
+const DQ_METRIC_LABELS: Record<string, string> = {
+    files_landed_rate: "Files landed",
+    holdings_cross_format_match_rate: "Cross-format match",
+    cash_conformed_consistency_rate: "Cash consistency",
+    cash_day_over_day_continuity_rate: "Day-over-day continuity",
+    holdings_findings_count: "Cross-format findings",
+    cash_integrity_breaks_count: "Cash integrity breaks",
+    cash_continuity_breaks_count: "Continuity breaks",
+    bronze_days_behind: "Bronze days behind",
+};
+
+/** A dq_metrics `metric` identifier → its display label. */
+export function dqMetricLabel(metric: string): string {
+    return DQ_METRIC_LABELS[metric] ?? metric;
+}

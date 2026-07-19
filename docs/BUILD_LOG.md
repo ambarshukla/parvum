@@ -478,3 +478,14 @@ Skimmable record of what was done and why. Newest entry last.
 - Test fixtures (`test_loader.py`): `dq_metrics_table`/`dq_metric_row` helpers, a dedicated test asserting the exceptions row's `passed=NULL` round-trips through Postgres correctly. Caught and fixed a self-inflicted test-structure bug while writing this: an edit had split `test_performance_series_and_summary_load_with_nulls_intact` across two tests by inserting in the wrong place — its tail assertions were misplaced into the new dq_metrics test. Fixed before running anything, confirmed by rerunning: 20/20 pass, with the performance test's own assertions restored to where they belong.
 
 **Verified:** `uv run pytest -rs` — 20/20 (was 19), `ruff format`/`ruff check` clean. Stacked on `feat/dq-metrics-serving`: the loader tests migrate throwaway schemas from serving's real Flyway DDL, which must include `V4__dq_metrics.sql`.
+
+## 2026-07-19 — Web: standalone Ops page
+
+**Done:**
+- `types.ts`/`api.ts`: `DqMetricRow` interface, `TenantData.dqMetrics`, fetched alongside everything else in `fetchTenant`.
+- **New top-level view, not a client tab**: `App.tsx` gains a `view` state ("clients" | "ops") toggled from the topbar, no router needed — same Vercel deployment, same API, same `TenantData` fetch (`dqMetrics` just rides along, identical regardless of which tenant is selected, per D-044's serving-layer design). Chose this over a fully separate app + Vercel project after weighing the effort tradeoff with the user: a separate app would need a new non-tenant Postgres schema, a new exporter code path, and a new deployment — real infra work not justified for a solo demo project.
+- `OpsPage.tsx`: freshness + completeness tiles, one SLA-attainment tile per accuracy metric (% of days passed), and two trend charts (`AccuracyTrendChart`, `ExceptionsChart` in `Charts.tsx`) — directly answers the brief's "break trends/aging and SLA attainment" ask.
+- `dqMetricLabel()` in `format.ts`: the rollup's raw metric identifiers (`holdings_cross_format_match_rate`) get one display label each; unknown metrics fall back to the raw name rather than hiding.
+- Caught and fixed a test-authoring bug of my own before running anything: `getByText("Cross-format match")` matched twice (tile label + chart legend) — switched to `getAllByText` with an explicit note on why two matches are expected by design.
+
+**Verified:** typecheck clean, 9/9 tests (was 7 — new `OpsPage.test.tsx`), `format:check` clean, `npm run build` succeeds. Real end-to-end verification with live data isn't possible yet — `dq_metrics` doesn't exist in Databricks until the gold-layer PR (`feat/dq-metrics`) merges — so this waits for the same post-merge verification pass as the other three PRs in this slice.
