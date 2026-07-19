@@ -386,3 +386,18 @@ Skimmable record of what was done and why. Newest entry last.
 - Not yet verified end-to-end — same limitation as the deploy workflow initially: needs a real dispatched run, which this session can't trigger itself (no `git push`, no `gh` CLI). Ask for `workflow_dispatch` once merged.
 
 **Verified:** manually dispatched after merge — completed successfully in ~1 minute, first attempt, no OIDC surprise (this workflow inherits the trust-policy fix from D-037's correction). The live API still served correct figures afterward. This closes the AWS-deploy work arc started this session: the whole chain — lakehouse → export (now unattended) → RDS → ECS → Vercel — runs live and confirmed.
+
+## 2026-07-19 — Cash-book continuity: the fixture learns to carry a ledger (D-040)
+
+**Done:**
+- **Probed before building:** the planned performance slice (TWR/IRR over gold) assumes flows reconcile with valuations. Predictions recorded first, then checked against the live warehouse: (1) no `TRANSFER_OUT` anywhere, (2) every account's opening/closing balance constant across all 65 days, (3) therefore day-over-day wealth deltas never equal recorded flows. All three confirmed — the fixture recorded a daily 25,000×scale contribution that never landed in any balance.
+- **`book.py` rebuilt around a series epoch (2026-04-20):** openings now chain — each business day opens at the previous business day's accumulated closing; the epoch day opens at the old flat seed. Contributions became monthly (first business day), withdrawals monthly (first business day on/after the 18th, mid-month on purpose for the coming methodology comparison), and the daily BUY was resized so the book is solvent indefinitely (two-year positivity walked in a test, at every account's cash scale). Opening balances are now dated the previous business day instead of `as_of − 7`.
+- **Defect injection untouched:** the chain accumulates from the *clean* book, so a dropped/duplicated entry in a delivered file now breaks statement-to-statement continuity detectably — the planned continuity DQ check gets a real target.
+- **Tests: 118 ingest (11 new)** — chain continuity across plain days/weekends/month boundaries/withdrawal days for all five accounts, epoch anchoring, flow cadence (including July's withdrawal sliding Sat 18th → Mon 20th, and April's sliding onto the epoch day itself), the re-pinned deliberate closing value (75,211.85, verified against an independent walk of the flow calendar), two-year solvency.
+
+**Verified locally (full regeneration, 65 business days):**
+- Byte-level blast radius exactly as predicted: same 715-file set; only the 65 `CUSTGB2L.camt053.xml` files changed; all 650 semt.002/MT535 files byte-identical (sha256 inventory before/after).
+- Parsed all 325 delivered statements with the repo's own parser: **zero continuity breaks, zero non-positive balances**; flow calendar exactly as designed. Account 60011234: opens 50,000.00 on 2026-04-20, closes 74,821.75 on 2026-07-17.
+- Determinism (D-011): regenerating a single day reproduced the identical camt.053 sha256.
+
+**Not yet done (post-merge):** re-land the 65 days (`make land` — overwrites don't fire the file-arrival trigger, D-018) and `make run-job` for the full bronze-restatement → silver → dq → gold rebuild; documented lakehouse/gold counts will shift and get re-verified then. The RDS reload follows automatically (D-039).

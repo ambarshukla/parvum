@@ -27,7 +27,9 @@ def test_clean_cash_book_balances_explain_the_movement() -> None:
     assert closing.balance.amount == opening.balance.amount + net
     # Pinned deliberately: the invariant above is self-consistent by
     # construction, so it would still hold if the seed changed by accident.
-    assert closing.balance.amount == Decimal("54234.95")
+    # The value is the epoch seed plus every business day's net through
+    # 2026-07-15 (verified against an independent walk of the flow calendar).
+    assert closing.balance.amount == Decimal("75211.85")
 
 
 def test_rendered_statement_looks_like_camt053() -> None:
@@ -35,7 +37,8 @@ def test_rendered_statement_looks_like_camt053() -> None:
     assert "urn:iso:std:iso:20022:tech:xsd:camt.053.001.08" in xml
     assert "<BkToCstmrStmt>" in xml
     assert "<Cd>OPBD</Cd>" in xml and "<Cd>CLBD</Cd>" in xml
-    assert xml.count("<Ntry>") == 6
+    # 2026-07-15 is an ordinary day: the five daily template entries, no flow.
+    assert xml.count("<Ntry>") == 5
     # Direction comes from the transaction type: a BUY is cash out.
     assert "<CdtDbtInd>DBIT</CdtDbtInd>" in xml
 
