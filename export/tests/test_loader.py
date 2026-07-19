@@ -74,6 +74,74 @@ def ownership_table(*rows: tuple) -> GoldTable:
     return GoldTable(name="gold_ownership", columns=OWNERSHIP_COLUMNS, rows=rows)
 
 
+PERFORMANCE_COLUMNS = (
+    "as_of",
+    "client_id",
+    "client_name",
+    "total_wealth_usd",
+    "external_flow_usd",
+    "daily_twr_return",
+    "twr_index_since_inception",
+    "rebuilt_at",
+)
+
+
+def performance_row(client_id: str, day: date, twr_return: str | None, index: str) -> tuple:
+    return (
+        day,
+        client_id,
+        f"{client_id} name",
+        Decimal("1000000.00"),
+        Decimal("0.00"),
+        Decimal(twr_return) if twr_return is not None else None,
+        Decimal(index),
+        REBUILT,
+    )
+
+
+def performance_table(*rows: tuple) -> GoldTable:
+    return GoldTable(name="gold_performance", columns=PERFORMANCE_COLUMNS, rows=rows)
+
+
+PERFORMANCE_SUMMARY_COLUMNS = (
+    "client_id",
+    "client_name",
+    "inception_date",
+    "as_of",
+    "wealth_begin_usd",
+    "wealth_end_usd",
+    "net_external_flow_usd",
+    "twr_since_inception",
+    "dietz_since_inception",
+    "irr_since_inception_annualized",
+    "rebuilt_at",
+)
+
+
+def performance_summary_row(
+    client_id: str, inception: date, as_of: date, twr: str, dietz: str | None, irr: str | None
+) -> tuple:
+    return (
+        client_id,
+        f"{client_id} name",
+        inception,
+        as_of,
+        Decimal("1000000.00"),
+        Decimal("1050000.00"),
+        Decimal("25000.00"),
+        Decimal(twr),
+        Decimal(dietz) if dietz is not None else None,
+        Decimal(irr) if irr is not None else None,
+        REBUILT,
+    )
+
+
+def performance_summary_table(*rows: tuple) -> GoldTable:
+    return GoldTable(
+        name="gold_performance_summary", columns=PERFORMANCE_SUMMARY_COLUMNS, rows=rows
+    )
+
+
 def empty_other_tables() -> list[GoldTable]:
     income_columns = (
         "client_id",
@@ -110,6 +178,8 @@ def empty_other_tables() -> list[GoldTable]:
         GoldTable(name="gold_asset_allocation", columns=allocation_columns, rows=()),
         GoldTable(name="gold_income", columns=income_columns, rows=()),
         GoldTable(name="gold_top_holdings", columns=holdings_columns, rows=()),
+        performance_table(),
+        performance_summary_table(),
         ownership_table(),
     ]
 
@@ -202,3 +272,46 @@ def test_ownership_graph_loads_the_shared_account(connection, tenant_schemas):
         ("CLI-REYES", Decimal("0.600000"), 2, True),
         ("CLI-OKAFOR", Decimal("0.400000"), 2, True),
     ]
+
+
+def test_performance_series_and_summary_load_with_nulls_intact(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # Inception day carries no return (NULL) — the same boundary rule
+    # PERFORMANCE_METHODOLOGY.md documents; the loader must not choke on it,
+    # and it must round-trip through Postgres as NULL, not a sentinel.
+    series = performance_table(
+        performance_row("CLI-HARTWELL", date(2026, 4, 20), None, "1.00000000"),
+        performance_row("CLI-HARTWELL", date(2026, 7, 17), "-0.01305400", "0.92463372"),
+    )
+    summary = performance_summary_table(
+        performance_summary_row(
+            "CLI-HARTWELL",
+            date(2026, 4, 20),
+            date(2026, 7, 17),
+            "-0.04489876",
+            "-0.04488757",
+            "-0.17344373",
+        )
+    )
+    counts = load_tenant(
+        connection,
+        schema,
+        [wealth_table(), *empty_other_tables()[:-3], series, summary, ownership_table()],
+    )
+    assert counts["performance"] == 2
+    assert counts["performance_summary"] == 1
+
+    first_return = connection.execute(
+        f'SELECT daily_twr_return FROM "{schema}".performance ORDER BY as_of LIMIT 1'
+    ).fetchone()
+    assert first_return == (None,)
+
+    summary_row = connection.execute(
+        f"SELECT twr_since_inception, dietz_since_inception, irr_since_inception_annualized "
+        f'FROM "{schema}".performance_summary'
+    ).fetchone()
+    assert summary_row == (
+        Decimal("-0.04489876"),
+        Decimal("-0.04488757"),
+        Decimal("-0.17344373"),
+    )

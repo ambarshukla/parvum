@@ -433,3 +433,11 @@ Skimmable record of what was done and why. Newest entry last.
 - **Tests**: seeded Hartwell with two performance dates (inception + one real return) and a summary row; asserted the full series returns (not latest-only), the inception row's `dailyTwrReturn` is `null`, and an unseeded tenant (Stonefield) returns `[]` rather than erroring. `ServingSmokeTest`'s `PROJECTION_TABLES` extended to cover every projection table, not just the original four.
 
 **Verified:** `mvn verify` green — 10/10 tests (7 `ProjectionEndpointsTest` + 3 `ServingSmokeTest`), spotless clean, jOOQ codegen picked up the new migration automatically (no config change needed — it globs `V*.sql`).
+
+## 2026-07-19 — Export: loader support for performance tables
+
+**Done:**
+- `GOLD_TABLES` and `PROJECTION_TABLES` extended with `gold_performance`→`performance` and `gold_performance_summary`→`performance_summary`. No other change needed: `fetch_table`, `load_tenant`, and the orchestrator all iterate `GOLD_TABLES` generically, and both new tables carry `client_id` so `.filtered()`/`.client_ids()` work unmodified.
+- Test fixtures (`test_loader.py`): `performance_table`/`performance_summary_table` helpers, and a dedicated test asserting the inception-day `NULL` `daily_twr_return` (and `dietz_since_inception`/`irr_since_inception_annualized`, both nullable per D-042) round-trip through Postgres as `NULL`, not a sentinel value.
+
+**Verified:** `uv run pytest -rs` — 19/19 (was 17), against a real Postgres migrated with serving's actual Flyway DDL including `V3__performance.sql` (D-042's serving PR). `ruff format`/`ruff check` clean.

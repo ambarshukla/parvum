@@ -23,6 +23,8 @@ GOLD_TABLES = (
     "gold_income",
     "gold_top_holdings",
     "gold_ownership",
+    "gold_performance",
+    "gold_performance_summary",
 )
 
 
