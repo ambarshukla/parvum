@@ -451,3 +451,11 @@ Skimmable record of what was done and why. Newest entry last.
 - Test: seeded a two-point performance series (inception + one return) and a summary row for Reyes, asserted all three methodology figures and net flow render on the new tab.
 
 **Verified:** `npm run typecheck` clean, `npm test` 7/7 (was 6), `npm run format:check` clean, `npm run build` succeeds. End-to-end with real data: started serving locally (`make serving-run`), loaded real gold data via `make export-gold` against the local Postgres (aldergate performance=65/performance_summary=1, stonefield 130/2), confirmed the exact JSON shape through both the direct API and the Vite dev proxy matches the TypeScript types and the live figures match `PERFORMANCE_METHODOLOGY.md` exactly. Browser tools were unavailable this session, so the rendered page itself was not visually inspected — the API contract, typecheck, and component tests are the verification that exists; a visual check is recommended before merge.
+
+## 2026-07-19 — Performance chart: mark the 13F filing boundary
+
+**Done:**
+- User feedback after the first visual check of the Performance tab: a long flat stretch between mid-May and July looked like a stalled chart. Confirmed against the live lakehouse it's real — after the 2026-05-15 filing boundary, positions are (correctly, per D-041) perfectly static, and the only daily movement is the structural cash drain (~$487/day against $41M for Hartwell), invisible at the chart's percent scale. Verified this boundary is shared by every filer in the universe (Berkshire, Gates Trust, Pershing Square all filed Q1-2026 by 2026-05-15 — the shared SEC 45-day deadline).
+- `PerformanceChart` now marks known 13F filing boundaries with a labeled vertical reference line ("13F filing"), alongside the existing horizontal 1.0 reference line — so the flat stretch reads as "quarterly filing, price frozen between filings" rather than "is this broken?" Only boundaries inside the rendered date range are drawn.
+
+**Verified:** typecheck/tests(7/7)/format/build all green.
