@@ -19,7 +19,7 @@ import sys
 
 import psycopg
 
-from parvum_export.gold_source import GOLD_TABLES, ExportError, fetch_table
+from parvum_export.gold_source import GOLD_TABLES, UNSCOPED_TABLES, ExportError, fetch_table
 from parvum_export.loader import load_tenant
 from parvum_export.tenants import TENANT_CLIENTS, client_tenants, schema_for
 
@@ -64,6 +64,9 @@ def main() -> None:
     try:
         token = _resolve_token(host)
         tables = [fetch_table(host, token, warehouse_id, table) for table in GOLD_TABLES]
+        # No client_id to filter by — a fact about the pipeline, not about any
+        # one firm's clients, so the same rows load into every tenant as-is.
+        unscoped = [fetch_table(host, token, warehouse_id, table) for table in UNSCOPED_TABLES]
 
         owners = client_tenants()
         seen = set().union(*(table.client_ids() for table in tables))
@@ -76,7 +79,7 @@ def main() -> None:
         with psycopg.connect(args.dsn) as connection:
             for tenant_id, client_ids in TENANT_CLIENTS.items():
                 filtered = [table.filtered(set(client_ids)) for table in tables]
-                counts = load_tenant(connection, schema_for(tenant_id), filtered)
+                counts = load_tenant(connection, schema_for(tenant_id), filtered + unscoped)
                 summary = ", ".join(f"{table}={count}" for table, count in counts.items())
                 print(f"{tenant_id}: {summary}")
     except (ExportError, psycopg.Error) as exc:
