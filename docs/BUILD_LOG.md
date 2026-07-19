@@ -384,3 +384,5 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Terraform applied cleanly (1 add, 1 change — the latter the same recurring `aws_ecs_express_gateway_service` cosmetic-diff quirk noted since D-035).
 - Not yet verified end-to-end — same limitation as the deploy workflow initially: needs a real dispatched run, which this session can't trigger itself (no `git push`, no `gh` CLI). Ask for `workflow_dispatch` once merged.
+
+**Verified:** manually dispatched after merge — completed successfully in ~1 minute, first attempt, no OIDC surprise (this workflow inherits the trust-policy fix from D-037's correction). The live API still served correct figures afterward. This closes the AWS-deploy work arc started this session: the whole chain — lakehouse → export (now unattended) → RDS → ECS → Vercel — runs live and confirmed.
