@@ -140,6 +140,13 @@ magic — every term gets defined here on first use.
 - **"Unknown" bucket** — the securities master's explicit home for identifiers it couldn't map: kept as flagged rows, never dropped, so an unidentifiable security still shows in a client's account and can be routed to reference-data curation. A miss is data.
 - **Market sector / security type (FIGI)** — OpenFIGI's coarse instrument classification (sector `Equity`/`Corp`…, type `Common Stock`/`ADR`…); what gold groups and reports allocations by.
 
+## Performance measurement
+
+- **Time-weighted return (TWR)** — a return methodology that strips out the effect of client cash flows entirely: chop the period at every flow, compute each sub-period's pure market return, chain-link the sub-periods. Judges the manager, not the client's deposit timing.
+- **Chain-linking / growth-of-$1 index** — combining a series of sub-period returns into one cumulative figure by compounding: `index_t = index_{t-1} × (1 + r_t)`, starting at 1.0. Computable exactly via `EXP(SUM(LN(1+r)))` in a SQL window, avoiding the numerical drift of repeated multiplication over a long series.
+- **Modified Dietz return** — the pre-computer approximation of time-weighted return: one formula over the whole period, `(end − begin − net flow) / (begin + Σ flow × weight)`, where each flow's weight is the fraction of the period it was invested. Tracks true TWR closely when flows are small relative to the portfolio; the gap between them is the approximation error.
+- **Money-weighted return / IRR / XIRR** — the discount rate that makes the net present value of a client's actual cash flows (contributions, withdrawals, beginning and ending value) equal zero. Unlike TWR, flow *timing* matters — a badly-timed deposit genuinely lowers this number, because it measures the investor's actual experience rather than the manager's skill.
+- **Annualization convention** — whether a return is scaled to a one-year-equivalent rate (IRR always is, by definition) or reported as the raw, un-annualized change over the actual period (the GIPS-standard practice for TWR/Dietz on periods under a year). Two return figures computed correctly on the same data can look very different purely from this choice — not from disagreement about what happened.
 ## Observability & alerting
 
 - **Dead man's switch / heartbeat monitoring** — an *external* monitor that expects a regular signal and alerts when it's *absent*. The only way to detect a scheduled job that never ran, since a job that doesn't start can't report failure (e.g. Healthchecks.io's free tier: the workflow pings a URL on success; a missing ping alerts).
