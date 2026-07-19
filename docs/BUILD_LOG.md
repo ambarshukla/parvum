@@ -470,3 +470,12 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified live** (full query prototyped against the warehouse before writing the notebook): 454 rows across 8 metric series; completeness is a clean 100% on all 65 days (all 11 expected files parsed every day — the defect pool never drops a whole file); the continuity check reports 0 breaks against the clean silver chain, confirming it's correctly wired before a corrupted delivery ever reaches it; accuracy rates genuinely range 40–100% day to day, the honest signature of deliberately-injected defects (D-011) rather than a dashboard chasing 100%.
 
 **Not yet done (post-merge):** `make run-job` to materialize both tables for real; a natural follow-up slice (not started) is the KPI dashboard band in web/ surfacing break trends, aging, and SLA attainment over time.
+
+## 2026-07-19 — Serving: DQ metrics endpoint
+
+**Done:**
+- `V4__dq_metrics.sql`: `dq_metrics` table, mirroring the gold rollup (D-043). Deliberately duplicated into every tenant schema via the same Flyway/exporter machinery every other table uses, rather than building a second non-tenant schema-management path — the data isn't tenant-scoped (it's a fact about the whole pipeline), and this is the smaller, more honest cost for a table this size.
+- `/tenants/{id}/dq-metrics`: full series, same `TenantQuery` pattern as every other endpoint. Returns identical rows regardless of which tenant is selected — documented in the migration and the endpoint's javadoc.
+- Tests: seeded three metric rows (accuracy/completeness/exceptions) including the exceptions row's `NULL` `passed`, asserted ordering and the nullable field round-trips correctly. `ServingSmokeTest`'s table list extended.
+
+**Verified:** `mvn verify` green — 11/11 tests, spotless clean.
