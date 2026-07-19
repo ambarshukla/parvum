@@ -340,3 +340,13 @@ Skimmable record of what was done and why. Newest entry last.
 - A cosmetic `terraform plan` quirk on the brand-new Express Mode resource (phantom diffs on environment values / computed fields even right after a clean apply) is a known rough edge, confirmed harmless by checking the container's actual boot logs each time — recorded in D-035 rather than chased further.
 - Git Bash gotcha hit again this session: `aws logs tail /aws/ecs/...` failed with an "invalid characters" error until `MSYS_NO_PATHCONV=1` was set — Git Bash was silently rewriting the leading `/` path.
 - Next: the GitHub Actions deploy path (build → push ECR → Express Mode picks up `:latest` automatically, `auto_deployments_enabled = true`), then the frontend on Vercel + real CORS.
+
+## 2026-07-19 — AWS deploy, step 4: the CI deploy path (D-037)
+
+**Done:**
+- **`.github/workflows/deploy-serving.yml`** — on push to `main` touching `serving/**` (or manual dispatch): build the Dockerfile from step 2, push `:latest` and `:$GITHUB_SHA` to ECR, then `aws ecs update-service --force-new-deployment`. That last step corrects last entry's assumption: **Express Mode has no `auto_deployments_enabled`** (verified against the actual provider schema, not by analogy with App Runner, which did have it) — it does not watch ECR for new pushes on its own, so the redeploy has to be asked for explicitly.
+- **Auth is OIDC, not a repo-secret access key**: an `aws_iam_openid_connect_provider` for `token.actions.githubusercontent.com` plus a role (`parvum-github-actions`) whose trust policy's `sub` condition is pinned to `repo:ambarshukla/parvum:ref:refs/heads/main` — only a workflow run on this repo's main branch can assume it, and the permissions attached are exactly "push to the one ECR repo, redeploy the one ECS service," nothing broader. D-037.
+
+**Notes:**
+- The workflow itself can't be exercised from this machine (it needs a real push to trigger, and this session never runs `git push`) — the Terraform side (OIDC provider + role + policy) is applied and live, but the first real run is unverified until the branch is pushed and merged.
+- Next: the frontend on Vercel + real `VITE_API_BASE`/CORS — the last piece of Phase 5.

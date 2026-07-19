@@ -1,0 +1,52 @@
+# Deploy path (D-005/D-035): build the serving image, push it to ECR, then
+# force ECS Express Mode to redeploy — unlike App Runner, Express Mode does
+# not watch the registry for new pushes on its own, so the redeploy step is
+# an explicit CLI call, not automatic.
+#
+# Auth is OIDC (aws-actions/configure-aws-credentials assumes
+# parvum-github-actions via a short-lived token), not a static access key in
+# a repo secret — see infra/terraform/github_oidc.tf.
+name: deploy-serving
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "serving/**"
+      - ".github/workflows/deploy-serving.yml"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::656326303611:role/parvum-github-actions
+          aws-region: us-east-1
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: parvum-serving
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:latest" serving
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPOSITORY:latest"
+
+      - name: Force ECS redeploy
+        run: aws ecs update-service --cluster default --service parvum-serving --force-new-deployment
