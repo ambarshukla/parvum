@@ -373,3 +373,14 @@ Skimmable record of what was done and why. Newest entry last.
 - The fix is applied on the AWS side; the actual workflow run hasn't been re-verified yet — needs a manual `workflow_dispatch` (the workflow already supports it) or the next push touching `serving/**`.
 
 **Verified:** manually dispatched `deploy-serving.yml` after both fixes merged — green in 56s (build → push ECR → `aws ecs update-service --force-new-deployment`). Confirmed a genuinely new image landed (fresh digest, tagged `latest` + the merge commit SHA), the ECS rollout completed, and the live endpoint stayed healthy throughout (`/q/health` 200, CORS header still correct). The entire CI deploy path — the one piece that couldn't be exercised from this session directly — now works end to end. Phase 5 is fully built, deployed, and verified.
+
+## 2026-07-19 — Automate the RDS reload: `export-gold.yml` (D-039)
+
+**Done:**
+- **`.github/workflows/export-gold.yml`** — weekdays 08:00 UTC (buffer after the 06:15 daily feed for the Databricks chain to finish) plus manual `workflow_dispatch`, reloading the serving Postgres from gold unattended. Closes the "automate export-gold" gap flagged as important since it was first parked, now revivable because a live consumer (the AWS deploy) exists.
+- **Reuses the existing OIDC role** (`parvum-github-actions`) rather than a second one, extended with one new scoped permission: `ssm:GetParameter`/`kms:Decrypt` on `/parvum/rds/password` only. The workflow fetches the password fresh from SSM at runtime and masks it (`::add-mask::`) before composing the connection string — no duplicate copy of the secret in GitHub, one source of truth stays one source of truth.
+- **Also corrected D-038's write-up** while in the area: it still described the pre-fix `quarkus.http.cors=true` property name from before the rename bug was found. Fixed the doc to match the actually-shipped `quarkus.http.cors.enabled`, and added the correction as its own bullet (matching the pattern D-037 already set) rather than silently editing history.
+
+**Notes:**
+- Terraform applied cleanly (1 add, 1 change — the latter the same recurring `aws_ecs_express_gateway_service` cosmetic-diff quirk noted since D-035).
+- Not yet verified end-to-end — same limitation as the deploy workflow initially: needs a real dispatched run, which this session can't trigger itself (no `git push`, no `gh` CLI). Ask for `workflow_dispatch` once merged.

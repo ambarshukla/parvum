@@ -75,6 +75,36 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   })
 }
 
+# Lets export-gold.yml read the RDS password at runtime instead of
+# duplicating it into a GitHub secret — one source of truth for the
+# secret (SSM), not two copies to keep in sync if it's ever rotated.
+# Reuses the same role as the deploy workflow rather than minting a
+# second one: both run only from this repo's main branch, so there's no
+# meaningfully different trust boundary between them on a single-owner
+# project.
+resource "aws_iam_role_policy" "github_actions_read_rds_password" {
+  name = "read-rds-password"
+  role = aws_iam_role.github_actions.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadRdsPassword"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = aws_ssm_parameter.rds_password.arn
+      },
+      {
+        Sid       = "DecryptRdsPassword"
+        Effect    = "Allow"
+        Action    = "kms:Decrypt"
+        Resource  = "*"
+        Condition = { StringEquals = { "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com" } }
+      },
+    ]
+  })
+}
+
 output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
 }

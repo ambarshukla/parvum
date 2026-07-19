@@ -1,0 +1,67 @@
+# Keeps the serving Postgres (RDS) in sync with gold, unattended — the
+# parked "automate export-gold" idea (private TODO), revived now that a
+# live consumer (the AWS deploy) exists. Runs from GitHub Actions because
+# that's the one place with open egress to both Databricks and RDS (D-036);
+# `export/`'s own reload logic already anticipated this (see its docstring).
+#
+# Auth mirrors deploy-serving.yml: OIDC to AWS (no static key), same role.
+# The RDS password is read fresh from SSM at runtime rather than duplicated
+# into a GitHub secret — one source of truth, not two copies to keep in
+# sync if it's ever rotated.
+name: export-gold
+
+on:
+  schedule:
+    # Weekdays, 08:00 UTC — ~1h45m after the daily feed lands (06:15), enough
+    # buffer for bronze -> silver -> dq_recon -> gold to finish on Databricks
+    # Free Edition serverless compute before this runs.
+    - cron: "0 8 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: export-gold
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: export
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::656326303611:role/parvum-github-actions
+          aws-region: us-east-1
+
+      # add-mask before the password ever appears in a composed value (the
+      # DSN below), so GitHub redacts it from logs wherever that substring
+      # would otherwise show up.
+      - name: Fetch the RDS password from SSM
+        id: rds
+        run: |
+          PASSWORD=$(aws ssm get-parameter --name /parvum/rds/password --with-decryption --query Parameter.Value --output text)
+          echo "::add-mask::$PASSWORD"
+          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Reload the serving database from gold
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+          PARVUM_PG_DSN: postgresql://parvum:${{ steps.rds.outputs.password }}@parvum.ckzg8c4g8vzy.us-east-1.rds.amazonaws.com:5432/parvum?sslmode=require
+        run: uv run parvum-export-gold
