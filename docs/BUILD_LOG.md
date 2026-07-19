@@ -316,3 +316,48 @@ Skimmable record of what was done and why. Newest entry last.
 **Notes:**
 - Both applied resources are live: state bucket `parvum-tfstate-656326303611`, budget `parvum-monthly`.
 - Next: an ECR repo + a Dockerfile for the Quarkus serving app (none exists yet), then RDS + App Runner — where standing monthly cost begins, to be confirmed before applying.
+
+## 2026-07-19 — AWS deploy, step 2: containerize serving, ECR repo
+
+**Done:**
+- **`serving/Dockerfile`** — first container image the project has built. Multi-stage: a JDK-only build stage runs the committed `./mvnw package -DskipTests` (same "only a JDK is assumed" contract as running it on a laptop; tests are skipped here because they boot Dev Services containers that would mean Docker-in-Docker, and `mvn verify` already gates every PR before an image is ever built from a merged commit), then a JRE-only runtime stage copies Quarkus's fast-jar layout (`lib/`, the runner jar, `app/`, `quarkus/`) and runs it directly — no build tooling in the shipped image.
+- **`aws_ecr_repository.serving`** + a lifecycle policy expiring untagged images after 7 days (repeated local pushes during iteration shouldn't accumulate storage cost indefinitely).
+- **Verified end-to-end, not just `docker build`:** ran the built image against the local compose Postgres (`host.docker.internal`, prod profile, real `QUARKUS_DATASOURCE_*` env vars — the same "no defaults, fail loudly" contract `application.properties` already documents) — Flyway migrated all three schemas on boot, `/tenants/aldergate/wealth` returned real data (Hartwell $41,091,835.83), `/q/health` reported UP. Then authenticated to the new ECR repo (`aws ecr get-login-password` via the `parvum-tf` profile) and pushed the same image — confirms the IAM user's permissions and the whole local-build-to-registry path work before any CI automation depends on it.
+
+**Notes:**
+- Image pushed manually this session only, to prove the path; the GitHub Actions step (next) is what makes this happen on every merge.
+- Next: RDS Postgres + App Runner — this is where standing monthly cost begins.
+
+## 2026-07-19 — AWS deploy, step 3: the API is live on the public internet (D-035, D-036)
+
+**Done:**
+- **App Runner turned out to be closed to new AWS customers** as of 2026-04-30 (maintenance mode) — the first `terraform apply` against it failed with `SubscriptionRequiredException`, not a config bug. Replaced it with **ECS Express Mode** (`aws_ecs_express_gateway_service`, needs AWS provider ≥6.23.0 — bumped off the `~> 5.0` constraint), AWS's own direct successor: same pitch (image in, public HTTPS endpoint out), its own managed ALB/ACM cert/autoscaling via an AWS-managed infrastructure role. D-035.
+- **RDS Postgres (`db.t4g.micro`, engine 16.14 — matches local compose exactly) is live**, plus its subnet group and a security group. Originally built VPC-private; **amended to publicly accessible**, because the exporter needs to reach both Databricks and Postgres from GitHub Actions' hosted runners, whose IPs can't be allowlisted, and a NAT gateway for a private alternative was the exact fixed cost D-005 ruled out. Defended instead by `rds.force_ssl=1` (a parameter group) and the existing Terraform-generated password; the JDBC URL carries `?sslmode=require`. D-036.
+- **The RDS password never touches a plain environment variable** — it's written to SSM Parameter Store as a SecureString and resolved by the ECS task's execution role at container start (`secret` block), not baked into the task definition as plaintext.
+- **Verified fully end-to-end on the real public internet, not just `terraform apply`:** the live endpoint (`https://pa-7710e29f44ed4286bac12f4207a0b028.ecs.us-east-1.on.aws`) booted, ran Flyway against the fresh RDS (all three schemas migrated from zero), and reported `/q/health` UP. Ran `export-gold` from this laptop against the live RDS over `sslmode=require` to load real gold data (aldergate 65/185/8/10/3, stonefield 130/326/16/20/3) — the public API then served the real reloaded numbers (Hartwell $41,091,835.83), confirming the whole path: internet → ECS → RDS, and Databricks → exporter → RDS, both real.
+
+**Notes:**
+- A cosmetic `terraform plan` quirk on the brand-new Express Mode resource (phantom diffs on environment values / computed fields even right after a clean apply) is a known rough edge, confirmed harmless by checking the container's actual boot logs each time — recorded in D-035 rather than chased further.
+- Git Bash gotcha hit again this session: `aws logs tail /aws/ecs/...` failed with an "invalid characters" error until `MSYS_NO_PATHCONV=1` was set — Git Bash was silently rewriting the leading `/` path.
+- Next: the GitHub Actions deploy path (build → push ECR → Express Mode picks up `:latest` automatically, `auto_deployments_enabled = true`), then the frontend on Vercel + real CORS.
+
+## 2026-07-19 — AWS deploy, step 4: the CI deploy path (D-037)
+
+**Done:**
+- **`.github/workflows/deploy-serving.yml`** — on push to `main` touching `serving/**` (or manual dispatch): build the Dockerfile from step 2, push `:latest` and `:$GITHUB_SHA` to ECR, then `aws ecs update-service --force-new-deployment`. That last step corrects last entry's assumption: **Express Mode has no `auto_deployments_enabled`** (verified against the actual provider schema, not by analogy with App Runner, which did have it) — it does not watch ECR for new pushes on its own, so the redeploy has to be asked for explicitly.
+- **Auth is OIDC, not a repo-secret access key**: an `aws_iam_openid_connect_provider` for `token.actions.githubusercontent.com` plus a role (`parvum-github-actions`) whose trust policy's `sub` condition is pinned to `repo:ambarshukla/parvum:ref:refs/heads/main` — only a workflow run on this repo's main branch can assume it, and the permissions attached are exactly "push to the one ECR repo, redeploy the one ECS service," nothing broader. D-037.
+
+**Notes:**
+- The workflow itself can't be exercised from this machine (it needs a real push to trigger, and this session never runs `git push`) — the Terraform side (OIDC provider + role + policy) is applied and live, but the first real run is unverified until the branch is pushed and merged.
+- Next: the frontend on Vercel + real `VITE_API_BASE`/CORS — the last piece of Phase 5.
+
+## 2026-07-19 — AWS deploy, step 5: the frontend goes live, Phase 5 done (D-038)
+
+**Done:**
+- **`web/` deployed to Vercel** as project `parvum-dashboard` (`vercel link`, then `vercel --prod`) — production domain `https://parvum-dashboard.vercel.app`. `VITE_API_BASE` set as a Vercel project env var (Production + Preview) pointing at the live AWS endpoint, rather than committed — a deployment fact, not a build fact.
+- **CORS finally turned on**, closing D-032's deferral: `%prod.quarkus.http.cors.enabled=true` baked into the image (a stable prod fact), allowed origins supplied at deploy time via `QUARKUS_HTTP_CORS_ORIGINS` (the production domain plus a regex for every Vercel preview subdomain) — the same dev/prod-fact split the datasource config already used.
+- **Caught a real bug via actual verification, not just a green build:** the first attempt used `quarkus.http.cors=true`, which silently did nothing — Quarkus renamed that property to `quarkus.http.cors.enabled` back in 3.4, and this app is on 3.33. Curling the live endpoint with an `Origin` header (and a proper preflight `OPTIONS` request) showed no `Access-Control-Allow-Origin` header at all — first reproduced locally against the same image before touching AWS again, to rule out an ALB/networking explanation before assuming the app config was wrong. Fixed, rebuilt, repushed, redeployed; five consecutive live requests afterward all returned the correct header.
+
+**Notes:**
+- Phase 5 is now fully complete and live: lakehouse → export → RDS → ECS → the public internet → Vercel, both tenants, both themes, verified end to end on real infrastructure rather than just locally.
+- The empty `apprunner.tf` stub (superseded by `ecs.tf`, D-035) is still sitting in the working tree, untracked — this session's sandbox couldn't delete it; harmless, never added to git, safe to remove by hand whenever convenient.

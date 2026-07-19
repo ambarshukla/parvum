@@ -17,7 +17,7 @@ Five layers, mirroring a real wealth-data platform:
    built from OpenFIGI + SEC ticker/CIK + a few GLEIF LEIs.
 4. **Serving** — gold tables loaded to Postgres; Quarkus + jOOQ REST API;
    small React/Svelte frontend. Local dev on Docker; production on AWS
-   (RDS + App Runner) provisioned by Terraform.
+   (RDS + ECS Express Mode) provisioned by Terraform.
 5. **Control & ops** — reconciliation + data-quality framework (Phase 3),
    the alts HITL review queue (Phase 6), Grafana/Prometheus + PagerDuty (Phase 9).
 
@@ -29,8 +29,10 @@ Five layers, mirroring a real wealth-data platform:
   separate services by design — the fetch log (what ran, what changed, what
   failed) is a first-class artefact.
 - **AWS account is on the Free plan** ($200 credits, 6-month window, hard
-  spend cap — cannot be charged). Some services may be restricted; verify App
-  Runner availability before writing Terraform, fall back to ECS Fargate.
+  spend cap — cannot be charged). Some services may be restricted or, as
+  App Runner turned out to be (closed to new customers 2026-04-30), simply
+  unavailable regardless of plan — verify before writing Terraform. App
+  Runner's replacement here is ECS Express Mode (D-035).
 - **Databricks Free Edition is serverless-only, Python/SQL-only**, with daily
   compute quotas. Jobs must be small and idempotent.
 - **Budget guardrails:** no NAT gateway (~£26/mo), no ALB (~£13/mo), no
