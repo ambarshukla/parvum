@@ -81,6 +81,7 @@ const data: TenantData = {
             irrSinceInceptionAnnualized: -0.37707435,
         },
     ],
+    dqMetrics: [],
 };
 
 describe("ClientDashboard", () => {
