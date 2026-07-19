@@ -459,3 +459,12 @@ Skimmable record of what was done and why. Newest entry last.
 - `PerformanceChart` now marks known 13F filing boundaries with a labeled vertical reference line ("13F filing"), alongside the existing horizontal 1.0 reference line — so the flat stretch reads as "quarterly filing, price frozen between filings" rather than "is this broken?" Only boundaries inside the rendered date range are drawn.
 
 **Verified:** typecheck/tests(7/7)/format/build all green.
+
+## 2026-07-19 — Serving: DQ metrics endpoint
+
+**Done:**
+- `V4__dq_metrics.sql`: `dq_metrics` table, mirroring the gold rollup (D-043). Deliberately duplicated into every tenant schema via the same Flyway/exporter machinery every other table uses, rather than building a second non-tenant schema-management path — the data isn't tenant-scoped (it's a fact about the whole pipeline), and this is the smaller, more honest cost for a table this size.
+- `/tenants/{id}/dq-metrics`: full series, same `TenantQuery` pattern as every other endpoint. Returns identical rows regardless of which tenant is selected — documented in the migration and the endpoint's javadoc.
+- Tests: seeded three metric rows (accuracy/completeness/exceptions) including the exceptions row's `NULL` `passed`, asserted ordering and the nullable field round-trips correctly. `ServingSmokeTest`'s table list extended.
+
+**Verified:** `mvn verify` green — 11/11 tests, spotless clean.

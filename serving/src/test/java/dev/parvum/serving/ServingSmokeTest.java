@@ -31,7 +31,8 @@ class ServingSmokeTest {
           "top_holdings",
           "ownership",
           "performance",
-          "performance_summary");
+          "performance_summary",
+          "dq_metrics");
 
   @Inject AgroalDataSource dataSource;
   @Inject TenantSchemas tenantSchemas;

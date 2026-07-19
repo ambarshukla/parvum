@@ -68,6 +68,10 @@ class ProjectionEndpointsTest {
           ('2026-06-30','HART','Hartwell', 41091835.83, 500000.00, 0.02500000, 1.02500000, now());
         insert into performance_summary values
           ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
+        insert into dq_metrics values
+          ('2026-06-30','completeness','files_landed_rate', 1.000000, true, '11 of 11 expected files parsed', now()),
+          ('2026-06-30','accuracy','holdings_cross_format_match_rate', 0.950000, false, '3 cross-format findings across 60 positions', now()),
+          ('2026-06-30','exceptions','holdings_findings_count', 3.000000, null, '3 cross-format findings', now());
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
@@ -217,6 +221,27 @@ class ProjectionEndpointsTest {
   }
 
   @Test
+  void dqMetricsExposesTheRollupIncludingNullPassedForExceptions() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/aldergate/dq-metrics")
+        .then()
+        .statusCode(200)
+        .body("size()", is(3))
+        // Ordered by dimension, metric, as_of: accuracy < completeness < exceptions.
+        .body("[0].dimension", is("accuracy"))
+        .body("[0].metric", is("holdings_cross_format_match_rate"))
+        .body("[0].value", comparesEqualTo(new BigDecimal("0.950000")))
+        .body("[0].passed", is(false))
+        .body("[1].dimension", is("completeness"))
+        .body("[1].passed", is(true))
+        .body("[2].dimension", is("exceptions"))
+        .body("[2].passed", is(nullValue()))
+        .body("[2].detail", is("3 cross-format findings"));
+  }
+
+  @Test
   void unknownOrMalformedTenantsAre404() {
     given().when().get("/tenants/ghost/wealth").then().statusCode(404);
     // Uppercase cannot be a schema id (see TenantSchemas.SAFE_TENANT_ID); it is not in the tenant
@@ -228,7 +253,7 @@ class ProjectionEndpointsTest {
     exec(
         schema,
         "truncate table client_wealth, asset_allocation, income, top_holdings, ownership, "
-            + "performance, performance_summary");
+            + "performance, performance_summary, dq_metrics");
   }
 
   /** Runs semicolon-separated statements inside {@code schema} via a temporary search_path. */
