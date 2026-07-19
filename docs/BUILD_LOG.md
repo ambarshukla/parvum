@@ -500,3 +500,13 @@ Skimmable record of what was done and why. Newest entry last.
 - Caught and fixed a test-authoring bug of my own before running anything: `getByText("Cross-format match")` matched twice (tile label + chart legend) — switched to `getAllByText` with an explicit note on why two matches are expected by design.
 
 **Verified:** typecheck clean, 9/9 tests (was 7 — new `OpsPage.test.tsx`), `format:check` clean, `npm run build` succeeds. Real end-to-end verification with live data isn't possible yet — `dq_metrics` doesn't exist in Databricks until the gold-layer PR (`feat/dq-metrics`) merges — so this waits for the same post-merge verification pass as the other three PRs in this slice.
+
+## 2026-07-19 — The web dashboard now deploys on push (D-045)
+
+**Done:**
+- Diagnosed a real gap: the Performance tab and Ops page had been live on `main` for hours, but `parvum-dashboard.vercel.app` was still serving a stale pre-Performance-tab build — confirmed by comparing the deployed bundle hash against a fresh local build, not guessed.
+- Ran one manual `vercel --prod` to get the current code live immediately.
+- Connected the Vercel project to GitHub (`vercel git connect`) and set **Root Directory = `web`** (Vercel had it at `.`, the repo root, which would have failed to build once Git-triggered deploys started). One step needed the user directly — authorizing a GitHub "Login Connection" on their Vercel account, browser-only, no CLI path around it.
+- Verified the new pipeline for real: triggered a Vercel Deploy Hook (rather than waiting for the next PR merge), confirmed the resulting build completed in 12s and matched the manual deploy's bundle byte-for-byte.
+
+**Not yet done:** production RDS still has zero rows in `performance`/`performance_summary`/`dq_metrics` — confirmed live (`/tenants/aldergate/performance` returns `200 []`). ECS *has* redeployed with the new Flyway migrations (the endpoint exists), but `export-gold.yml` hasn't run against production since these tables were created. Needs a manual `workflow_dispatch` of `export-gold.yml` (or the next scheduled 08:00 UTC run) — this laptop can't do it directly, the RDS password is deliberately scoped to the CI role only (D-039).
