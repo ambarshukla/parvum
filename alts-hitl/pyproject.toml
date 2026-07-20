@@ -12,19 +12,24 @@ dependencies = [
     # PDF rendering — the "real format" for this slice, same spirit as
     # ingest's ISO 20022/SWIFT renderers.
     "reportlab>=4.2",
+    # Reads a rendered PDF back to text — used by extract.py at runtime
+    # (not just tests, hence a main dependency rather than a dev one).
+    "pypdf>=4.3",
+    # LLM extraction (extract.py). Runs outside Databricks, in GitHub
+    # Actions — see docs/ARCHITECTURE.md's fetch/process split.
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "ruff>=0.5",
-    # Reads rendered PDFs back to text in tests, so assertions check the
-    # actual document a human/LLM would see, not just the pydantic model.
-    "pypdf>=4.3",
 ]
 
 [project.scripts]
 parvum-generate-alts-docs = "parvum_alts_hitl.generate:main"
+parvum-extract-alts-docs = "parvum_alts_hitl.extract:main"
+parvum-eval-alts-extraction = "parvum_alts_hitl.evaluate:main"
 
 [build-system]
 requires = ["hatchling"]

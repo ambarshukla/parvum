@@ -78,7 +78,7 @@ own tests and CI.
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-048); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-049); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![The web dashboard — client overview](docs/img/dashboard-overview.png)
 

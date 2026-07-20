@@ -556,3 +556,18 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified live:** the real 32-document set generated in the previous slice was uploaded to `dbfs:/Volumes/workspace/parvum/landing/alts/raw/` for real (`databricks fs cp`, confirmed via `databricks fs ls`) — a pure data operation, no job or trigger involved, safe regardless of merge state. `databricks bundle validate` confirmed the new job resource is syntactically sound.
 
 **Not yet done, deliberately:** `databricks bundle deploy` and the first run of `alts_bronze_ingest` are deferred until *after* this merges to `main` — the bundle's `git_source` always runs `main`'s code, so deploying now would arm a live trigger against a notebook that doesn't exist there yet (the standing rule this project has hit before: a pre-merge deploy of a new-notebook task risks a failed run and an alert email). Once merged: `make deploy-job` then `make run-alts-job`, then confirm `bronze_alts_documents` shows 32 rows correctly split by `fund_id`/`doc_type`.
+
+**Post-merge follow-up, done this session:** all four PRs above merged; deployed the bundle for real (`make deploy-job`) and ran `make run-alts-job` against the live workspace. Verified via the SQL Statements API: `bronze_alts_documents` has exactly the predicted 32 rows — `capital_call`=4, `distribution`=2, `capital_account_statement`=10 per fund, both funds — confirming the registration notebook, the separate job/trigger, and the whole landing→registry path all work end to end against the real lakehouse.
+
+## 2026-07-20 — LLM extraction pipeline (D-049)
+
+**Done:**
+- `alts-hitl/src/parvum_alts_hitl/`: `naming.py` (shared doc-type-from-filename mapping — also refactored into `bronze_alts_ingest.py`, replacing its own inline copy), `extract.py` (`parvum-extract-alts-docs` — forced tool-use extraction via Claude, hybrid confidence), `evaluate.py` (`parvum-eval-alts-extraction` — scores extraction against the generator's ground truth: document exact-match rate, field accuracy).
+- `generate.py`: each manifest document entry now carries the full as-rendered `fields` (not just the injected-defect diff) — extraction eval's ground truth, decoupled from re-deriving it via the defect-injection functions.
+- `.github/workflows/alts-extract.yml`: manual-dispatch only (every run is a real, billed API call) — generates a fresh document set, extracts, evaluates, uploads the eval report as an artifact.
+- `Makefile`: `make alts-extract`, `make alts-eval`; `ANTHROPIC_API_KEY` added to the exported `.env` vars.
+- `.env.example` documents the new `ANTHROPIC_API_KEY` var.
+
+**Verified:** 37/37 tests green (14 new), all against a mocked Anthropic client — the test suite makes zero real API calls by design, matching how `alts-extract`/`alts-eval` are kept out of per-PR CI. Lint clean.
+
+**Not verified — a real, honestly-reported blocker:** a single live extraction call was attempted before considering this slice done. It failed: `Your credit balance is too low to access the Anthropic API` — the Console account has no credit loaded (separate from a Claude Pro subscription, which doesn't include API credit). The extraction/eval code is believed correct from the mocked tests, but no real document has yet been successfully extracted end to end. `bronze_alts_ingest.py`'s naming-refactor is similarly unverified live until it merges and the job runs post-merge (git_source always runs `main`). Follow-up once credits are added: a single-document smoke call, then a full `make alts-extract` + `make alts-eval` run, with the real numbers recorded here — not assumed.

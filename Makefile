@@ -9,6 +9,7 @@ export DATABRICKS_WAREHOUSE_ID
 export SEC_USER_AGENT
 export ALERT_EMAIL
 export OPENFIGI_API_KEY
+export ANTHROPIC_API_KEY
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
 # missing file); without it the compose file's ${VAR:-default} values apply.
@@ -38,7 +39,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs land land-alts-docs land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -134,6 +135,16 @@ generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replay
 
 generate-alts-docs: ## generate synthetic capital-call/distribution/statement PDFs into data/alts/raw
 	cd alts-hitl && uv run parvum-generate-alts-docs --out ../data/alts/raw
+
+# Real, billed API calls — never wired into CI's default job. Needs
+# ANTHROPIC_API_KEY (an active credit balance, not just the Claude Pro
+# subscription — the two are separate).
+alts-extract: ## extract structured fields from data/alts/raw via Claude (needs ANTHROPIC_API_KEY)
+	@test -n "$(ANTHROPIC_API_KEY)" || { echo "ANTHROPIC_API_KEY not set — add it to .env"; exit 1; }
+	cd alts-hitl && uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted
+
+alts-eval: ## score data/alts/extracted against the generator's own ground truth
+	cd alts-hitl && uv run parvum-eval-alts-extraction --manifests ../data/alts/manifests --extracted ../data/alts/extracted --out ../data/alts/eval_report.json
 
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }

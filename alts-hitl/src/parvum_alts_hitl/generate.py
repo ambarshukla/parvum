@@ -92,7 +92,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
         pdf = render_capital_call(corrupted)
         name = f"capital_call_{call.call_number:02d}.pdf"
         (fund_dir / name).write_bytes(pdf)
-        documents.append(_doc_entry(name, "capital_call", pdf, injections))
+        documents.append(_doc_entry(name, "capital_call", pdf, corrupted, injections))
 
     for distribution in book.distributions:
         seed = _doc_seed(fund_index, 2, distribution.distribution_number)
@@ -103,7 +103,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
         pdf = render_distribution(corrupted)
         name = f"distribution_{distribution.distribution_number:02d}.pdf"
         (fund_dir / name).write_bytes(pdf)
-        documents.append(_doc_entry(name, "distribution", pdf, injections))
+        documents.append(_doc_entry(name, "distribution", pdf, corrupted, injections))
 
     for i, statement in enumerate(book.statements, start=1):
         seed = _doc_seed(fund_index, 3, i)
@@ -114,7 +114,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
         pdf = render_capital_account_statement(corrupted)
         name = f"capital_account_{statement.period_end.isoformat()}.pdf"
         (fund_dir / name).write_bytes(pdf)
-        documents.append(_doc_entry(name, "capital_account_statement", pdf, injections))
+        documents.append(_doc_entry(name, "capital_account_statement", pdf, corrupted, injections))
 
     return {
         "fund_id": commitment.fund_id,
@@ -124,11 +124,17 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
     }
 
 
-def _doc_entry(name: str, doc_type: str, pdf: bytes, injections: list) -> dict:
+def _doc_entry(name: str, doc_type: str, pdf: bytes, corrupted, injections: list) -> dict:
     return {
         "name": name,
         "type": doc_type,
         "bytes": len(pdf),
+        # The full as-rendered field values (post-corruption) — extraction's
+        # ground truth for a later eval harness. Extraction's job is to read
+        # what is actually printed, defects and all; correcting a defect is
+        # deterministic validation's job, not extraction's, so eval compares
+        # against these values, not the clean book.
+        "fields": corrupted.model_dump(mode="json"),
         "injections": [r.model_dump(mode="json") for r in injections],
     }
 
