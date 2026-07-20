@@ -15,6 +15,32 @@ resource "aws_ssm_parameter" "rds_password" {
   value = random_password.rds.result
 }
 
+# The internal app's single shared login (D-046) and its session-signing
+# key — same SSM-SecureString trust model as the RDS password above, not a
+# hashed-password store, because there's one live secret to compare against
+# rather than a table of per-user hashes.
+resource "random_password" "internal_auth" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "internal_session_secret" {
+  length  = 48
+  special = false
+}
+
+resource "aws_ssm_parameter" "internal_password" {
+  name  = "/parvum/internal/password"
+  type  = "SecureString"
+  value = random_password.internal_auth.result
+}
+
+resource "aws_ssm_parameter" "internal_session_secret" {
+  name  = "/parvum/internal/session-secret"
+  type  = "SecureString"
+  value = random_password.internal_session_secret.result
+}
+
 # Lets ECS pull the (private) ECR image, write CloudWatch logs, and resolve
 # the RDS password secret at container start — the standard Fargate
 # "execution role", not to be confused with the infrastructure role below.
@@ -42,9 +68,13 @@ resource "aws_iam_role_policy" "ecs_execution_ssm" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["ssm:GetParameters", "ssm:GetParameter"]
-        Resource = aws_ssm_parameter.rds_password.arn
+        Effect = "Allow"
+        Action = ["ssm:GetParameters", "ssm:GetParameter"]
+        Resource = [
+          aws_ssm_parameter.rds_password.arn,
+          aws_ssm_parameter.internal_password.arn,
+          aws_ssm_parameter.internal_session_secret.arn,
+        ]
       },
       {
         Effect    = "Allow"
@@ -97,10 +127,18 @@ resource "aws_ecs_express_gateway_service" "serving" {
     # The production domain plus a regex covering every preview deployment
     # (Vercel gives each one a random subdomain under the same project) —
     # supplied here rather than hardcoded in application.properties because
-    # it's a fact about this deployment, not about the build.
+    # it's a fact about this deployment, not about the build. The internal
+    # app's project name is assumed as "parvum-internal" ahead of the actual
+    # `vercel git connect` (D-046) — a one-line fixup here if the real
+    # project ends up named differently.
     environment {
-      name  = "QUARKUS_HTTP_CORS_ORIGINS"
-      value = "https://parvum-dashboard.vercel.app,/https://parvum-dashboard-.*\\.vercel\\.app/"
+      name = "QUARKUS_HTTP_CORS_ORIGINS"
+      value = join(",", [
+        "https://parvum-dashboard.vercel.app",
+        "/https://parvum-dashboard-.*\\.vercel\\.app/",
+        "https://parvum-internal.vercel.app",
+        "/https://parvum-internal-.*\\.vercel\\.app/",
+      ])
     }
     environment {
       name  = "QUARKUS_DATASOURCE_USERNAME"
@@ -109,6 +147,14 @@ resource "aws_ecs_express_gateway_service" "serving" {
     secret {
       name       = "QUARKUS_DATASOURCE_PASSWORD"
       value_from = aws_ssm_parameter.rds_password.arn
+    }
+    secret {
+      name       = "PARVUM_INTERNAL_PASSWORD"
+      value_from = aws_ssm_parameter.internal_password.arn
+    }
+    secret {
+      name       = "PARVUM_INTERNAL_SESSION_SECRET"
+      value_from = aws_ssm_parameter.internal_session_secret.arn
     }
   }
 

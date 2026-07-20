@@ -178,3 +178,33 @@ jobs:
       # a type error is reported as a type error, not a build failure.
       - name: Build
         run: npm run build
+
+  internal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: internal
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: internal/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
