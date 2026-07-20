@@ -534,3 +534,14 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** `mvn verify` 17/17 (was 16 — `InternalProjectionResourceTest` replaces the moved assertions, `ProjectionEndpointsTest` down to 7 from 8). `web/`: typecheck/7-tests(was 9)/format/build all green. `internal/`: typecheck/6-tests(was 4)/format/build all green (needed `recharts` added as a dependency, and the `ResizeObserver` jsdom stub copied into `test-setup.ts` — both were previously only in `web/`). End-to-end against a real running stack: seeded a real `dq_metrics` row directly into `tenant_aldergate` via psql, confirmed the old public route now 404s and the new authenticated route returns exactly that row through a real login → cookie → fetch flow.
 
 **Not yet done:** `docs/img/dashboard-performance.png` still shows the old in-dashboard Ops toggle — stale until the next screenshot pass (not blocking, cosmetic).
+
+## 2026-07-20 — Alts document generator (D-047)
+
+**Done:**
+- New workspace member `alts-hitl/` (`parvum_alts_hitl`), filling in the Phase-0 placeholder directory: `model.py` (`FundCommitment`, `CapitalCallNotice`, `DistributionNotice`, `CapitalAccountStatement`), `book.py` (`build_fund_book` — a deterministic, self-reconciling fund waterfall), `defects.py` (four `DefectType`s + injectors), `render.py` (reportlab PDF rendering), `generate.py` (the `parvum-generate-alts-docs` CLI + `FUND_UNIVERSE`).
+- Wired into the shared tooling: `pyproject.toml` workspace members, `ruff.toml` src paths, `Makefile` (`test`/`lint`/`fmt` extended, new `make generate-alts-docs`), CI `alts-hitl` job mirroring `ingest`'s.
+- Caught two real bugs before they shipped, both via a real `uv run pytest` run rather than by inspection: (1) `unfunded_commitment` test wrongly assumed no call lands in the first statement's quarter — it does (calls and statements share the quarter-1 slot) — fixed the test, not the code, once traced; (2) `AMOUNT_TRANSPOSITION` swapping the *trailing* two digits was silently a no-op on this fixture's round dollar amounts (...000.00 stays ...000.00) — switched to swapping the *leading* two digits, which is also the more realistic OCR/data-entry error shape.
+
+**Verified:** 23/23 tests green, lint clean, `make test`/`make lint` green across all four Python packages. Real end-to-end run (not just tests): `make generate-alts-docs` produced 32 real PDFs (16 per fund) + 2 manifests; read a real corrupted PDF back with `pypdf` and confirmed both an injected `COMMITMENT_MISMATCH` and `AMOUNT_TRANSPOSITION` are legible in the extracted document text, matching the manifest exactly.
+
+**Not yet done:** landing these documents into the Databricks volume + a bronze registry table (next slice); LLM extraction, deterministic validation, and the review queue itself are all still ahead.

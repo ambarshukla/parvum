@@ -38,7 +38,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -74,16 +74,19 @@ test: ## run Python tests, all workspace packages (mirrors CI; export DB tests n
 	cd ingest && uv run pytest
 	cd reference && uv run pytest
 	cd export && uv run pytest
+	cd alts-hitl && uv run pytest
 
 lint: ## lint + format check, all workspace packages (mirrors CI)
 	cd ingest && uv run ruff format --check . && uv run ruff check .
 	cd reference && uv run ruff format --check . && uv run ruff check .
 	cd export && uv run ruff format --check . && uv run ruff check .
+	cd alts-hitl && uv run ruff format --check . && uv run ruff check .
 
 fmt: ## auto-format and auto-fix lint findings, all workspace packages
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 	cd reference && uv run ruff format . && uv run ruff check --fix .
 	cd export && uv run ruff format . && uv run ruff check --fix .
+	cd alts-hitl && uv run ruff format . && uv run ruff check --fix .
 
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
@@ -128,6 +131,9 @@ build-master: ## build the securities master from OpenFIGI (needs data/edgar; OP
 
 generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replays one day)
 	cd ingest && uv run parvum-generate --days $(DAYS) $(if $(END),--end $(END)) --out ../data/raw
+
+generate-alts-docs: ## generate synthetic capital-call/distribution/statement PDFs into data/alts/raw
+	cd alts-hitl && uv run parvum-generate-alts-docs --out ../data/alts/raw
 
 land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST in .env)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }

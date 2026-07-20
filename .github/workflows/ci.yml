@@ -145,6 +145,31 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  alts-hitl:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: alts-hitl
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest
+
   web:
     runs-on: ubuntu-latest
     defaults:
