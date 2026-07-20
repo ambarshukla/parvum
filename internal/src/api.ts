@@ -1,3 +1,5 @@
+import type { DqMetricRow } from "./types";
+
 // Same-origin by default (empty base), split-deployment override via
 // VITE_API_BASE — same story as web/api.ts. Unlike the public dashboard,
 // every call here carries credentials (the session cookie) and a custom
@@ -51,4 +53,14 @@ export async function login(password: string): Promise<void> {
 
 export async function logout(): Promise<void> {
     await request("/internal/auth/logout", { method: "POST" });
+}
+
+// dq_metrics rows are identical regardless of tenant (see
+// V4__dq_metrics.sql / D-044) — any configured tenant id works. There is no
+// tenant selector in this app; Ops is a pipeline-wide view, not per-firm.
+const OPS_TENANT = "aldergate";
+
+export async function fetchDqMetrics(): Promise<DqMetricRow[]> {
+    const response = await request(`/internal/tenants/${OPS_TENANT}/dq-metrics`);
+    return (await response.json()) as DqMetricRow[];
 }

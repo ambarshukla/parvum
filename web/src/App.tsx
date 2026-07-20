@@ -4,10 +4,8 @@ import type { TenantData } from "./types";
 import { TENANTS } from "./tenants";
 import { money } from "./format";
 import { ClientDashboard } from "./ClientDashboard";
-import { OpsPage } from "./OpsPage";
 
 type Theme = "light" | "dark";
-type View = "clients" | "ops";
 
 function initialTheme(): Theme {
     const stored = localStorage.getItem("parvum-theme");
@@ -18,7 +16,6 @@ function initialTheme(): Theme {
 export function App() {
     const [tenantId, setTenantId] = useState(TENANTS[0]!.id);
     const [theme, setTheme] = useState<Theme>(initialTheme);
-    const [view, setView] = useState<View>("clients");
     const [data, setData] = useState<TenantData | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [selectedClient, setSelectedClient] = useState<string | null>(null);
@@ -59,29 +56,18 @@ export function App() {
                     <span className="section">Wealth Reporting</span>
                 </div>
                 <div className="spacer" />
-                <button
-                    className="theme-toggle"
-                    onClick={() => setView(view === "clients" ? "ops" : "clients")}
-                    aria-label={
-                        view === "clients" ? "Switch to Ops view" : "Switch to Clients view"
-                    }
+                <select
+                    className="tenant-select"
+                    value={tenantId}
+                    onChange={(e) => setTenantId(e.target.value)}
+                    aria-label="Advisory firm"
                 >
-                    {view === "clients" ? "⚙ Ops" : "◆ Clients"}
-                </button>
-                {view === "clients" && (
-                    <select
-                        className="tenant-select"
-                        value={tenantId}
-                        onChange={(e) => setTenantId(e.target.value)}
-                        aria-label="Advisory firm"
-                    >
-                        {TENANTS.map((t) => (
-                            <option key={t.id} value={t.id}>
-                                {t.name}
-                            </option>
-                        ))}
-                    </select>
-                )}
+                    {TENANTS.map((t) => (
+                        <option key={t.id} value={t.id}>
+                            {t.name}
+                        </option>
+                    ))}
+                </select>
                 <button
                     className="theme-toggle"
                     onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -91,65 +77,42 @@ export function App() {
                 </button>
             </header>
 
-            {view === "ops" && (
-                <div className="body">
-                    <main className="main">
-                        {error && (
-                            <div className="center-state">
-                                <strong>Could not reach the serving API.</strong>
-                                <code>{error}</code>
-                            </div>
-                        )}
-                        {!error && !data && <div className="center-state">Loading…</div>}
-                        {!error && data && (
-                            <OpsPage rows={data.dqMetrics} dark={theme === "dark"} />
-                        )}
-                    </main>
-                </div>
-            )}
+            <div className="body">
+                <aside className="sidebar">
+                    <div className="firm-line">
+                        <div className="firm-name">{tenant.name}</div>
+                        <div className="firm-tag">{tenant.tagline}</div>
+                    </div>
+                    <div className="group-label">Clients</div>
+                    {clients.map((c) => (
+                        <button
+                            key={c.clientId}
+                            className={`client-item ${c.clientId === client?.clientId ? "active" : ""}`}
+                            onClick={() => setSelectedClient(c.clientId)}
+                        >
+                            <span className="name">{c.clientName}</span>
+                            <span className="sub">{money(c.totalWealthUsd)}</span>
+                        </button>
+                    ))}
+                </aside>
 
-            {view === "clients" && (
-                <div className="body">
-                    <aside className="sidebar">
-                        <div className="firm-line">
-                            <div className="firm-name">{tenant.name}</div>
-                            <div className="firm-tag">{tenant.tagline}</div>
+                <main className="main">
+                    {error && (
+                        <div className="center-state">
+                            <strong>Could not reach the serving API.</strong>
+                            <code>{error}</code>
+                            <span>Is the Quarkus app running and loaded (make export-gold)?</span>
                         </div>
-                        <div className="group-label">Clients</div>
-                        {clients.map((c) => (
-                            <button
-                                key={c.clientId}
-                                className={`client-item ${c.clientId === client?.clientId ? "active" : ""}`}
-                                onClick={() => setSelectedClient(c.clientId)}
-                            >
-                                <span className="name">{c.clientName}</span>
-                                <span className="sub">{money(c.totalWealthUsd)}</span>
-                            </button>
-                        ))}
-                    </aside>
-
-                    <main className="main">
-                        {error && (
-                            <div className="center-state">
-                                <strong>Could not reach the serving API.</strong>
-                                <code>{error}</code>
-                                <span>
-                                    Is the Quarkus app running and loaded (make export-gold)?
-                                </span>
-                            </div>
-                        )}
-                        {!error && !data && (
-                            <div className="center-state">Loading {tenant.name}…</div>
-                        )}
-                        {!error && data && !client && (
-                            <div className="center-state">No clients for this firm yet.</div>
-                        )}
-                        {!error && data && client && (
-                            <ClientDashboard data={data} client={client} dark={theme === "dark"} />
-                        )}
-                    </main>
-                </div>
-            )}
+                    )}
+                    {!error && !data && <div className="center-state">Loading {tenant.name}…</div>}
+                    {!error && data && !client && (
+                        <div className="center-state">No clients for this firm yet.</div>
+                    )}
+                    {!error && data && client && (
+                        <ClientDashboard data={data} client={client} dark={theme === "dark"} />
+                    )}
+                </main>
+            </div>
         </div>
     );
 }

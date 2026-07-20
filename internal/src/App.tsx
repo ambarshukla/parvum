@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { checkSession, logout } from "./api";
+import { checkSession, fetchDqMetrics, logout } from "./api";
 import { LoginPage } from "./LoginPage";
+import { OpsPage } from "./OpsPage";
+import type { DqMetricRow } from "./types";
 
 type Theme = "light" | "dark";
 type AuthState = "checking" | "out" | "in";
@@ -14,6 +16,8 @@ function initialTheme(): Theme {
 export function App() {
     const [theme, setTheme] = useState<Theme>(initialTheme);
     const [auth, setAuth] = useState<AuthState>("checking");
+    const [dqMetrics, setDqMetrics] = useState<DqMetricRow[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         document.documentElement.setAttribute("data-theme", theme);
@@ -23,6 +27,13 @@ export function App() {
     useEffect(() => {
         checkSession().then((ok) => setAuth(ok ? "in" : "out"));
     }, []);
+
+    useEffect(() => {
+        if (auth !== "in") return;
+        fetchDqMetrics()
+            .then(setDqMetrics)
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    }, [auth]);
 
     return (
         <div className="app">
@@ -52,8 +63,19 @@ export function App() {
             {auth === "checking" && <div className="center-state">Loading…</div>}
             {auth === "out" && <LoginPage onLoggedIn={() => setAuth("in")} />}
             {auth === "in" && (
-                <div className="center-state">
-                    Signed in. Ops and the alts review queue land here next.
+                <div className="body">
+                    <main className="main">
+                        {error && (
+                            <div className="center-state">
+                                <strong>Could not reach the serving API.</strong>
+                                <code>{error}</code>
+                            </div>
+                        )}
+                        {!error && !dqMetrics && <div className="center-state">Loading…</div>}
+                        {!error && dqMetrics && (
+                            <OpsPage rows={dqMetrics} dark={theme === "dark"} />
+                        )}
+                    </main>
                 </div>
             )}
         </div>

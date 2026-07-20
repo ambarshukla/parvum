@@ -77,21 +77,7 @@ export interface PerformanceSummaryRow {
     irrSinceInceptionAnnualized: number | null;
 }
 
-export type DqDimension = "freshness" | "completeness" | "accuracy" | "exceptions";
-
-export interface DqMetricRow {
-    asOf: string;
-    dimension: DqDimension;
-    metric: string;
-    value: number;
-    passed: boolean | null;
-    detail: string;
-}
-
-// Everything the dashboard needs for one tenant, fetched together. dqMetrics
-// is not really tenant data (see V4__dq_metrics.sql) — it rides along here
-// because it's identical regardless of which tenant is selected, and the
-// Ops page needs somewhere to read it from.
+// Everything the dashboard needs for one tenant, fetched together.
 export interface TenantData {
     wealth: WealthRow[];
     allocation: AllocationRow[];
@@ -100,5 +86,4 @@ export interface TenantData {
     ownership: OwnershipRow[];
     performance: PerformanceRow[];
     performanceSummary: PerformanceSummaryRow[];
-    dqMetrics: DqMetricRow[];
 }

@@ -24,8 +24,8 @@ Five layers, mirroring a real wealth-data platform:
    boundary (write actions + an audit trail), so it lives in its own
    authenticated app, `internal/` (D-046) — a separate Vercel deployment
    calling the same serving API under `/internal/**`, gated by a session
-   cookie the Ops page (moving here from `web/`) and the review queue will
-   both sit behind.
+   cookie. The Ops scorecard already lives here; the alts review queue
+   (Phase 6) is next.
 
 ## Load-bearing constraints (why it's shaped this way)
 
