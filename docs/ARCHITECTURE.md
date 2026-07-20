@@ -92,6 +92,15 @@ Postgres is a **durable, continuously updated projection of the gold layer**
 - **Schema-per-tenant** (D-028): every tenant (advisory firm) has its own
   Postgres schema with identical layout, migrated by Flyway at startup;
   isolation is structural, not a WHERE clause.
+- **One exception to "disposable projection": the alts review queue**
+  (D-051). It lives in a separate, non-tenant `internal` schema (its own
+  Flyway migration location, `InternalSchema`) because it isn't client
+  data at all — and unlike every tenant table, it takes real write
+  traffic (a human's approve/correct decisions), so it can't simply be
+  truncated and reloaded from gold. Corrections flow back to the
+  lakehouse via a land-file reverse-sync (mirroring the existing fetch/
+  land contract, reversed), not a direct write from the live service —
+  Delta stays the system of record even for this one write-bearing table.
 
 ## Current state (end of Phase 4)
 
