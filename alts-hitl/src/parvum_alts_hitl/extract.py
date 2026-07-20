@@ -1,7 +1,16 @@
-"""LLM extraction of alts documents via Claude — runs outside Databricks
-(Free Edition can't reach the open internet), the same fetch/process split
-that governs every external call in this platform (see
-``docs/ARCHITECTURE.md``).
+"""LLM extraction of alts documents — runs outside Databricks (Free Edition
+can't reach the open internet), the same fetch/process split that governs
+every external call in this platform (see ``docs/ARCHITECTURE.md``).
+
+Two providers, one interface (D-052). Anthropic direct gives access to the
+full Claude lineup — useful for escalating a genuinely hard document to a
+bigger model. OpenRouter is a single account/API key in front of many
+providers' models (including Claude, routed the same way), a different
+billing processor from Anthropic's own Console, and a practical way to keep
+extraction running if one vendor's billing has a problem, without changing
+anything past this module. Everything downstream of ``provider.extract()``
+— the schema, the self-consistency check, the confidence logic — is
+provider-agnostic.
 
 Each document type gets a forced tool-use call, so the response is
 guaranteed to match a JSON schema rather than being free-text prose to
@@ -9,12 +18,13 @@ parse. Confidence is hybrid: the model's own self-reported read confidence,
 folded together with a deterministic single-document self-consistency check
 (does what was extracted even add up) — a later slice adds the
 cross-document checks (commitment continuity, call sequencing) that need a
-whole fund's documents together, not just one PDF, and naturally belong in
-the Databricks silver job, not here.
+whole fund's documents together, not just one PDF (see ``validate.py``).
 """
 
 import argparse
 import json
+import os
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
@@ -22,12 +32,22 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+import openai
 from pypdf import PdfReader
 
 from parvum_alts_hitl.naming import doc_type_for
 
-MODEL = "claude-haiku-4-5-20251001"
 PROMPT_VERSION = "alts-extract-v1"
+
+# Per-provider defaults. Both point at a Claude Haiku-class model today —
+# structured extraction from a one-page document with a forced schema
+# doesn't need a bigger model's reasoning depth — but OpenRouter's model
+# string can be swapped independently (a different provider entirely, not
+# just a different Claude size) without touching either provider class.
+DEFAULT_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openrouter": "anthropic/claude-haiku-4.5",
+}
 
 _SYSTEM_PROMPT = (
     "You extract structured data from private-fund (alts) documents for a wealth "
@@ -156,6 +176,95 @@ _TOOLS_BY_DOC_TYPE = {
 }
 
 
+class LLMProvider(ABC):
+    """One forced-tool-call extraction, hiding the provider's own request/
+    response shape behind a single method — the two providers differ in
+    exactly this: how a tool is declared, how the call is forced, and how
+    the arguments come back. ``model`` is a plain attribute (not part of
+    the method signature) so callers/logging can report which model
+    actually produced a given extraction."""
+
+    model: str
+
+    @abstractmethod
+    def extract(self, tool: dict, document_text: str) -> dict:
+        """Returns the raw extracted-fields dict (still containing the
+        ``confidence`` key) from a forced tool call."""
+
+
+class AnthropicProvider(LLMProvider):
+    """Calls Claude directly via Anthropic's native Messages/tool-use API."""
+
+    def __init__(self, model: str, api_key: str | None = None):
+        self._client = anthropic.Anthropic(api_key=api_key)
+        self.model = model
+
+    def extract(self, tool: dict, document_text: str) -> dict:
+        response = self._client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=_SYSTEM_PROMPT,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
+            messages=[{"role": "user", "content": f"Document text:\n\n{document_text}"}],
+        )
+        tool_use = next(block for block in response.content if block.type == "tool_use")
+        return dict(tool_use.input)
+
+
+class OpenRouterProvider(LLMProvider):
+    """Calls a model (Claude or otherwise) through OpenRouter's OpenAI-
+    compatible chat-completions API. The tool schema and the response shape
+    both need translating from Anthropic's native shape (OpenAI's
+    tool-calling uses a different envelope, and returns the arguments as a
+    JSON *string* to parse rather than an already-parsed object) —
+    everything about the schema's *content*, and everything downstream of
+    ``extract()``, stays identical regardless of which provider read the
+    document."""
+
+    def __init__(self, model: str, api_key: str | None = None):
+        # A placeholder when unset, not None: the openai SDK now validates
+        # credential presence at construction time, before any call is
+        # attempted — but a missing/wrong key should fail loudly at the
+        # real API call (a real auth error), not block building the
+        # provider object itself (e.g. for tests that only check wiring).
+        resolved_key = api_key or os.environ.get("OPENROUTER_API_KEY") or "unset"
+        self._client = openai.OpenAI(base_url="https://openrouter.ai/api/v1", api_key=resolved_key)
+        self.model = model
+
+    def extract(self, tool: dict, document_text: str) -> dict:
+        function_tool = {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["input_schema"],
+            },
+        }
+        response = self._client.chat.completions.create(
+            model=self.model,
+            tools=[function_tool],
+            tool_choice={"type": "function", "function": {"name": tool["name"]}},
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": f"Document text:\n\n{document_text}"},
+            ],
+        )
+        call = response.choices[0].message.tool_calls[0]
+        return json.loads(call.function.arguments)
+
+
+def build_provider(name: str, model: str | None = None) -> LLMProvider:
+    if name not in DEFAULT_MODELS:
+        raise ValueError(
+            f"unknown LLM provider: {name!r} (expected one of {sorted(DEFAULT_MODELS)})"
+        )
+    resolved_model = model or DEFAULT_MODELS[name]
+    if name == "anthropic":
+        return AnthropicProvider(resolved_model)
+    return OpenRouterProvider(resolved_model)
+
+
 def pdf_text(pdf_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(pdf_bytes))
     return "\n".join(page.extract_text() for page in reader.pages)
@@ -222,23 +331,11 @@ class ExtractionResult:
     confidence: float
 
 
-def extract_document(
-    client: anthropic.Anthropic, pdf_bytes: bytes, doc_type: str
-) -> ExtractionResult:
+def extract_document(provider: LLMProvider, pdf_bytes: bytes, doc_type: str) -> ExtractionResult:
     tool = _TOOLS_BY_DOC_TYPE[doc_type]
     text = pdf_text(pdf_bytes)
 
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=_SYSTEM_PROMPT,
-        tools=[tool],
-        tool_choice={"type": "tool", "name": tool["name"]},
-        messages=[{"role": "user", "content": f"Document text:\n\n{text}"}],
-    )
-
-    tool_use = next(block for block in response.content if block.type == "tool_use")
-    raw_fields = dict(tool_use.input)
+    raw_fields = provider.extract(tool, text)
     self_reported = float(raw_fields.pop("confidence"))
     consistent = self_consistency_ok(doc_type, raw_fields)
     # Hybrid: the model's own confidence, capped if its own numbers don't
@@ -247,7 +344,7 @@ def extract_document(
     hybrid = self_reported if consistent else min(self_reported, 0.5)
 
     return ExtractionResult(
-        model=MODEL,
+        model=provider.model,
         prompt_version=PROMPT_VERSION,
         fields=raw_fields,
         self_reported_confidence=self_reported,
@@ -256,8 +353,7 @@ def extract_document(
     )
 
 
-def process_directory(raw_dir: Path, out_dir: Path) -> list[dict]:
-    client = anthropic.Anthropic()
+def process_directory(raw_dir: Path, out_dir: Path, provider: LLMProvider) -> list[dict]:
     records = []
     for fund_dir in sorted(p for p in raw_dir.iterdir() if p.is_dir()):
         fund_out = out_dir / fund_dir.name
@@ -266,7 +362,7 @@ def process_directory(raw_dir: Path, out_dir: Path) -> list[dict]:
             doc_type = doc_type_for(pdf_path.name)
             if doc_type is None:
                 continue
-            result = extract_document(client, pdf_path.read_bytes(), doc_type)
+            result = extract_document(provider, pdf_path.read_bytes(), doc_type)
             record = {
                 "document": pdf_path.name,
                 "fund_id": fund_dir.name,
@@ -291,14 +387,27 @@ def process_directory(raw_dir: Path, out_dir: Path) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Extract structured fields from alts documents via Claude."
+        description="Extract structured fields from alts documents via an LLM."
     )
     parser.add_argument("--raw", type=Path, default=Path("../data/alts/raw"))
     parser.add_argument("--out", type=Path, default=Path("../data/alts/extracted"))
+    parser.add_argument(
+        "--provider",
+        choices=sorted(DEFAULT_MODELS),
+        default=os.environ.get("PARVUM_LLM_PROVIDER", "openrouter"),
+        help="LLM provider (default: $PARVUM_LLM_PROVIDER or openrouter)",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("PARVUM_LLM_MODEL"),
+        help="override the provider's default model (default: $PARVUM_LLM_MODEL, "
+        "else a per-provider default — see DEFAULT_MODELS)",
+    )
     args = parser.parse_args()
 
-    records = process_directory(args.raw, args.out)
-    print(f"extracted {len(records)} documents -> {args.out}")
+    provider = build_provider(args.provider, args.model)
+    records = process_directory(args.raw, args.out, provider)
+    print(f"extracted {len(records)} documents via {args.provider}/{provider.model} -> {args.out}")
 
 
 if __name__ == "__main__":
