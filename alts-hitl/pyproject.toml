@@ -1,0 +1,39 @@
+# Python project definition for the alts (private-fund) document pipeline
+# (PEP 621) — see ingest/pyproject.toml for the pattern this mirrors.
+
+[project]
+name = "parvum-alts-hitl"
+version = "0.1.0"
+description = "Synthetic private-fund document generator and (later) extraction/review pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    # Validation at the model boundary, same reasoning as parvum-ingest.
+    "pydantic>=2.7",
+    # PDF rendering — the "real format" for this slice, same spirit as
+    # ingest's ISO 20022/SWIFT renderers.
+    "reportlab>=4.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+    # Reads rendered PDFs back to text in tests, so assertions check the
+    # actual document a human/LLM would see, not just the pydantic model.
+    "pypdf>=4.3",
+]
+
+[project.scripts]
+parvum-generate-alts-docs = "parvum_alts_hitl.generate:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parvum_alts_hitl"]
+
+# Ruff config is shared across the workspace: see <repo>/ruff.toml.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

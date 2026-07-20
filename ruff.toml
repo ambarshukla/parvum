@@ -5,7 +5,16 @@
 # sorts it with our code rather than with third-party imports.
 
 line-length = 100
-src = ["ingest/src", "ingest/tests", "reference/src", "reference/tests", "export/src", "export/tests"]
+src = [
+    "ingest/src",
+    "ingest/tests",
+    "reference/src",
+    "reference/tests",
+    "export/src",
+    "export/tests",
+    "alts-hitl/src",
+    "alts-hitl/tests",
+]
 
 [lint]
 # Beyond the defaults: import order (I), modernisation (UP), likely bugs (B),

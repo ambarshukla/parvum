@@ -68,6 +68,7 @@ own tests and CI.
 | Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
 | Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
+| Alts documents | **Python**, **reportlab** — synthetic capital-call/distribution/capital-account PDFs, defect injection | [`alts-hitl/`](alts-hitl/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
@@ -77,7 +78,7 @@ own tests and CI.
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-046); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-047); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![The web dashboard — client overview](docs/img/dashboard-overview.png)
 
@@ -179,6 +180,6 @@ each step does, and a troubleshooting table.
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `internal/` | Auth-gated internal app — data ops scorecard, alts review queue (Vite + TypeScript) | 6 |
-| `alts-hitl/` | PDF extraction + review queue | 6 |
+| `alts-hitl/` | Synthetic private-fund document generator (built); extraction + validation to come | 6 |
 | `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
