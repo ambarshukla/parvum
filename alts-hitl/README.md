@@ -51,6 +51,14 @@ ground truth" discipline `ingest/` already established.
   i.e. what's actually printed — including defects; extraction's job is to
   read the document faithfully, not correct it). Reports document exact-
   match rate and field-level accuracy.
+- `validate.py` — cross-document checks `extract.py` deliberately can't do
+  on a single document: commitment continuity across a fund's whole call
+  history, call/distribution sequencing, capital-account statement
+  chaining. Imported by `spark/silver_alts_documents.py` (orchestration
+  only there — this is what's actually tested) to produce a routing
+  decision (`auto_accept` / `needs_review`) per document. Never corrects a
+  value; fixing a flagged document is the review queue's job (a later
+  slice), not this module's.
 
 ## Running it
 

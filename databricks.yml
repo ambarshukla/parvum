@@ -157,14 +157,18 @@ resources:
     # resource means this job's own deploy/trigger history never touches
     # the critical daily job's.
     alts_bronze_ingest:
-      name: parvum-alts-bronze-ingest
+      # Display name kept in sync with what the job now does (bronze +
+      # silver), same "key is forever, name isn't" rule as bronze_ingest
+      # above — the resource key stays alts_bronze_ingest so a rename never
+      # destroys/recreates the job.
+      name: parvum-alts-ingest
       description: >-
-        Registers newly landed private-fund documents (capital calls,
-        distributions, capital account statements) into
-        bronze_alts_documents. Registration only — there is no
-        deterministic parser for a PDF; content extraction is a later,
-        separate step (an LLM call, run outside Databricks). Triggered by
-        file arrival in the alts landing volume.
+        Registers newly landed private-fund documents and LLM extraction
+        results (bronze_alts_documents, bronze_alts_extractions), then
+        validates each extraction against the rest of its fund's documents
+        — commitment continuity, call sequencing, statement chaining — and
+        routes it to auto_accept or needs_review (silver_alts_documents,
+        D-049). Triggered by file arrival in the alts landing volume.
 
       email_notifications:
         on_failure:
@@ -179,6 +183,13 @@ resources:
         - task_key: bronze_alts
           notebook_task:
             notebook_path: spark/bronze_alts_ingest
+            source: GIT
+
+        - task_key: silver_alts
+          depends_on:
+            - task_key: bronze_alts
+          notebook_task:
+            notebook_path: spark/silver_alts_documents
             source: GIT
 
       trigger:
