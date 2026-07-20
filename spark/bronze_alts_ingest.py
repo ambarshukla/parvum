@@ -19,28 +19,25 @@
 # COMMAND ----------
 
 import hashlib
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# This notebook lives at <repo>/spark/; the alts-hitl package at
+# <repo>/alts-hitl/src — same Git-folder-relative-path trick bronze_ingest.py
+# uses for parvum_ingest, so the document-type-from-filename mapping is
+# taught once (generate.py's own naming convention) and shared, not copied.
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "alts-hitl", "src")))
+
+from parvum_alts_hitl.naming import doc_type_for as _doc_type_for
 
 SCHEMA = "workspace.parvum"
 ALTS_ROOT = Path("/Volumes/workspace/parvum/landing/alts/raw")
 
-# The generator's own filename convention
-# (alts-hitl/src/parvum_alts_hitl/generate.py) — inferred from the prefix
-# rather than duplicating a doc-type list here, so a new document type only
-# has to be taught to the generator, not to this notebook too.
-_DOC_TYPE_PREFIXES = {
-    "capital_call_": "capital_call",
-    "distribution_": "distribution",
-    "capital_account_": "capital_account_statement",
-}
-
 
 def doc_type_for(file_name: str) -> str:
-    return next(
-        (dtype for prefix, dtype in _DOC_TYPE_PREFIXES.items() if file_name.startswith(prefix)),
-        "UNKNOWN",
-    )
+    return _doc_type_for(file_name) or "UNKNOWN"
 
 
 # COMMAND ----------

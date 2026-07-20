@@ -1,0 +1,48 @@
+# Manual-dispatch only — every run is a real, billed Claude API call
+# (D-047/D-048). Generates a fresh document set, extracts every document,
+# scores extraction accuracy against the generator's own ground truth, and
+# uploads the eval report as a workflow artifact (there is nowhere else to
+# put it yet — landing extracted fields into the lakehouse is a later
+# slice's job).
+name: alts-extract
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: alts-hitl
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Generate the synthetic document set
+        run: uv run parvum-generate-alts-docs --out ../data/alts/raw
+
+      - name: Extract
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted
+
+      - name: Evaluate against ground truth
+        run: |
+          uv run parvum-eval-alts-extraction \
+            --manifests ../data/alts/manifests \
+            --extracted ../data/alts/extracted \
+            --out ../data/alts/eval_report.json
+          cat ../data/alts/eval_report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alts-eval-report
+          path: data/alts/eval_report.json
