@@ -155,19 +155,17 @@
            Quarkus treats its own generated sources. Tables generate
            unqualified; at runtime renderSchema=false keeps them that way, so
            the per-request search_path picks the tenant schema. -->
+      <!-- Two executions: the per-tenant schema (unchanged) and, since
+           D-050's review queue, the single non-tenant `internal` schema
+           (V*.sql under db/migration_internal) — a genuinely separate
+           schema, not one more tenant, so it gets its own DDLDatabase
+           scripts glob and its own target package rather than sharing the
+           tenant codegen's. Each execution needs its own <configuration>;
+           jOOQ's plugin supports this per-execution, not just plugin-wide. -->
       <plugin>
         <groupId>org.jooq</groupId>
         <artifactId>jooq-codegen-maven</artifactId>
         <version>${jooq.version}</version>
-        <executions>
-          <execution>
-            <id>jooq-codegen</id>
-            <phase>generate-sources</phase>
-            <goals>
-              <goal>generate</goal>
-            </goals>
-          </execution>
-        </executions>
         <dependencies>
           <dependency>
             <groupId>org.jooq</groupId>
@@ -175,43 +173,91 @@
             <version>${jooq.version}</version>
           </dependency>
         </dependencies>
-        <configuration>
-          <generator>
-            <database>
-              <name>org.jooq.meta.extensions.ddl.DDLDatabase</name>
-              <properties>
-                <property>
-                  <key>scripts</key>
-                  <value>src/main/resources/db/migration/V*.sql</value>
-                </property>
-                <!-- Apply scripts in Flyway version order, as Flyway itself
-                     will at startup. -->
-                <property>
-                  <key>sort</key>
-                  <value>flyway</value>
-                </property>
-                <!-- Parse and interpret the scripts as PostgreSQL. Without
-                     this the interpreter falls back to H2, where `text`
-                     becomes CLOB and cannot sit in a primary-key index. -->
-                <property>
-                  <key>parseDialect</key>
-                  <value>POSTGRES</value>
-                </property>
-                <property>
-                  <key>defaultNameCase</key>
-                  <value>lower</value>
-                </property>
-              </properties>
-            </database>
-            <generate>
-              <javaTimeTypes>true</javaTimeTypes>
-            </generate>
-            <target>
-              <packageName>dev.parvum.serving.jooq</packageName>
-              <directory>target/generated-sources/jooq</directory>
-            </target>
-          </generator>
-        </configuration>
+        <executions>
+          <execution>
+            <id>jooq-codegen</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <configuration>
+              <generator>
+                <database>
+                  <name>org.jooq.meta.extensions.ddl.DDLDatabase</name>
+                  <properties>
+                    <property>
+                      <key>scripts</key>
+                      <value>src/main/resources/db/migration/V*.sql</value>
+                    </property>
+                    <!-- Apply scripts in Flyway version order, as Flyway itself
+                         will at startup. -->
+                    <property>
+                      <key>sort</key>
+                      <value>flyway</value>
+                    </property>
+                    <!-- Parse and interpret the scripts as PostgreSQL. Without
+                         this the interpreter falls back to H2, where `text`
+                         becomes CLOB and cannot sit in a primary-key index. -->
+                    <property>
+                      <key>parseDialect</key>
+                      <value>POSTGRES</value>
+                    </property>
+                    <property>
+                      <key>defaultNameCase</key>
+                      <value>lower</value>
+                    </property>
+                  </properties>
+                </database>
+                <generate>
+                  <javaTimeTypes>true</javaTimeTypes>
+                </generate>
+                <target>
+                  <packageName>dev.parvum.serving.jooq</packageName>
+                  <directory>target/generated-sources/jooq</directory>
+                </target>
+              </generator>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jooq-codegen-internal</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+            <configuration>
+              <generator>
+                <database>
+                  <name>org.jooq.meta.extensions.ddl.DDLDatabase</name>
+                  <properties>
+                    <property>
+                      <key>scripts</key>
+                      <value>src/main/resources/db/migration_internal/V*.sql</value>
+                    </property>
+                    <property>
+                      <key>sort</key>
+                      <value>flyway</value>
+                    </property>
+                    <property>
+                      <key>parseDialect</key>
+                      <value>POSTGRES</value>
+                    </property>
+                    <property>
+                      <key>defaultNameCase</key>
+                      <value>lower</value>
+                    </property>
+                  </properties>
+                </database>
+                <generate>
+                  <javaTimeTypes>true</javaTimeTypes>
+                </generate>
+                <target>
+                  <packageName>dev.parvum.serving.jooq.internal</packageName>
+                  <directory>target/generated-sources/jooq</directory>
+                </target>
+              </generator>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

@@ -586,3 +586,15 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** 53/53 tests green (16 new). `databricks bundle validate` confirms the new `silver_alts` task and updated job config are syntactically sound.
 
 **Not yet verified live, for two compounding reasons — see D-050:** the deploy-after-merge rule (this branch's notebooks don't exist on `main` yet), and no real `bronze_alts_extractions` data exists regardless, since D-049's live extraction is still blocked on the Anthropic credit balance. The 53 passing tests, including the integration test against real generator output, are strong evidence the logic is correct; they are not the same claim as "ran against real Claude output," and this entry doesn't pretend otherwise.
+
+## 2026-07-20 — Alts review queue: Postgres schema + Quarkus backend (D-051)
+
+**Done:**
+- New non-tenant `internal` Postgres schema: `InternalSchema` (Flyway, migrates one schema from `db/migration_internal`, mirrors `TenantSchemas`) + `InternalQuery` (`SET LOCAL search_path`, mirrors `TenantQuery`). `V1__alts_review_queue.sql`: `alts_review_queue` (JSONB extracted/decided fields, `status` pending→approved|corrected, `synced_at` reserved for the reverse-sync follow-up) + `alts_review_audit` (append-only).
+- `pom.xml`: jOOQ codegen gained a second execution targeting `db/migration_internal` into `dev.parvum.serving.jooq.internal` — the Maven plugin supports per-execution `<configuration>`, confirmed by using it rather than assumed.
+- `AltsReviewResource`: `GET /internal/alts/queue` (optional `status` filter), `GET .../queue/{id}`, `POST .../queue/{id}/approve`, `POST .../queue/{id}/correct` — each write records an audit row in the same transaction. A non-`pending` item can't be decided again (409).
+- Design choice recorded in D-051, confirmed with the user before building: the reverse-sync back to Databricks is a land-file job (mirrors the existing fetch/land contract, reversed), not a direct Quarkus→Databricks write and not a break from "Postgres is always a disposable projection." This slice ships the queue mechanics only; the sync job is a follow-up commit.
+
+**Verified:** `mvn verify` 26/26 green (9 new), Testcontainers Postgres. Real run against the local docker-compose database, not just automated tests: logged in, listed the seeded queue, corrected an item, confirmed `decidedFields`/`decidedAt` set correctly in the response, confirmed a second decide attempt on the same item is correctly rejected with 409.
+
+**Not yet done:** the export-side queue loader (Databricks `silver_alts_documents` needs_review rows → `alts_review_queue`) and the reverse-sync job itself — both deliberately deferred to a follow-up slice, per D-051's small-reviewable-steps reasoning. The internal app's frontend for this queue is also still ahead.
