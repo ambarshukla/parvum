@@ -71,12 +71,13 @@ own tests and CI.
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
+| Internal tools (auth-gated) | **React**, **TypeScript**, **Vite** — data ops + alts review queue | [`internal/`](internal/) |
 | CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
 | Infra | **Docker Compose** (local), **Terraform** (AWS: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
-| Frontend hosting | **Vercel** (static, CDN-served) | [`web/`](web/) |
+| Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-045); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-046); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![The web dashboard — client overview](docs/img/dashboard-overview.png)
 
@@ -87,9 +88,10 @@ The dashboard also surfaces the ownership graph — including an account shared
 
 Performance is time-weighted, Modified Dietz, and money-weighted IRR side by
 side, not just one number — the growth-of-$1 chart marks the 13F filing
-boundary that explains its own flat stretches, and the tenant-independent
-"Ops" view (top right) is the pipeline's own data-quality scorecard, not a
-client-facing report:
+boundary that explains its own flat stretches. (The pipeline's own
+data-quality scorecard, "Ops," used to live as a tab here; it now lives in
+the auth-gated [`internal/`](internal/) app instead, alongside the alts
+review queue — see D-046.)
 
 ![Performance tab, three methodologies side by side](docs/img/dashboard-performance.png)
 
@@ -176,6 +178,7 @@ each step does, and a troubleshooting table.
 | `export/` | gold → serving-Postgres exporter (Python) | 5 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
+| `internal/` | Auth-gated internal app — data ops scorecard, alts review queue (Vite + TypeScript) | 6 |
 | `alts-hitl/` | PDF extraction + review queue | 6 |
 | `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
