@@ -10,6 +10,14 @@ export SEC_USER_AGENT
 export ALERT_EMAIL
 export OPENFIGI_API_KEY
 export ANTHROPIC_API_KEY
+export OPENROUTER_API_KEY
+export PARVUM_LLM_PROVIDER
+export PARVUM_LLM_MODEL
+
+# Default provider for make alts-extract, matching extract.py's own default —
+# defined once here so the Makefile's key check and the CLI's own default
+# can never quietly disagree.
+LLM_PROVIDER ?= $(if $(PARVUM_LLM_PROVIDER),$(PARVUM_LLM_PROVIDER),openrouter)
 
 # `--env-file .env` is passed only if .env exists (compose would error on a
 # missing file); without it the compose file's ${VAR:-default} values apply.
@@ -136,12 +144,18 @@ generate: ## generate raw feed files into data/raw (DAYS=1 END=2026-07-10 replay
 generate-alts-docs: ## generate synthetic capital-call/distribution/statement PDFs into data/alts/raw
 	cd alts-hitl && uv run parvum-generate-alts-docs --out ../data/alts/raw
 
-# Real, billed API calls — never wired into CI's default job. Needs
-# ANTHROPIC_API_KEY (an active credit balance, not just the Claude Pro
-# subscription — the two are separate).
-alts-extract: ## extract structured fields from data/alts/raw via Claude (needs ANTHROPIC_API_KEY)
-	@test -n "$(ANTHROPIC_API_KEY)" || { echo "ANTHROPIC_API_KEY not set — add it to .env"; exit 1; }
-	cd alts-hitl && uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted
+# Real, billed API calls — never wired into CI's default job. Provider
+# defaults to openrouter (PARVUM_LLM_PROVIDER=anthropic to use Claude
+# direct instead — e.g. for a harder document that wants a bigger model).
+# Either needs its own active credit balance (Claude Pro does not cover
+# API access).
+alts-extract: ## extract via $(LLM_PROVIDER) (PARVUM_LLM_PROVIDER=anthropic|openrouter); needs that provider's API key
+	@if [ "$(LLM_PROVIDER)" = "anthropic" ]; then \
+		test -n "$(ANTHROPIC_API_KEY)" || { echo "ANTHROPIC_API_KEY not set — add it to .env"; exit 1; }; \
+	else \
+		test -n "$(OPENROUTER_API_KEY)" || { echo "OPENROUTER_API_KEY not set — add it to .env"; exit 1; }; \
+	fi
+	cd alts-hitl && uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted --provider $(LLM_PROVIDER)
 
 alts-eval: ## score data/alts/extracted against the generator's own ground truth
 	cd alts-hitl && uv run parvum-eval-alts-extraction --manifests ../data/alts/manifests --extracted ../data/alts/extracted --out ../data/alts/eval_report.json

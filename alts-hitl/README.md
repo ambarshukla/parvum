@@ -40,8 +40,13 @@ ground truth" discipline `ingest/` already established.
   (`fields`), not just the injected-defect diff — a later extraction eval
   harness's ground truth.
 - `extract.py` — the `parvum-extract-alts-docs` CLI: reads each PDF back to
-  text and calls Claude (forced tool-use, so the response is a JSON schema
-  match, not prose to parse) to extract structured fields. Confidence is
+  text and calls an LLM (forced tool-use, so the response is a JSON schema
+  match, not prose to parse) to extract structured fields. Two providers
+  behind one `LLMProvider` interface (D-052): `AnthropicProvider` (Claude
+  direct — the full model lineup, for escalating a hard document) and
+  `OpenRouterProvider` (an OpenAI-compatible gateway in front of many
+  providers' models including Claude, on a different billing account —
+  `--provider openrouter|anthropic`, default openrouter). Confidence is
   hybrid: the model's own self-reported read confidence, capped if a
   single-document arithmetic/presence self-check fails. Runs outside
   Databricks (Free Edition can't reach the open internet) — see
@@ -78,9 +83,11 @@ uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extrac
 uv run parvum-eval-alts-extraction --manifests ../data/alts/manifests --extracted ../data/alts/extracted --out ../data/alts/eval_report.json
 ```
 
-Needs `ANTHROPIC_API_KEY` (`.env`, or a GitHub Actions secret for
+Needs `OPENROUTER_API_KEY` (default provider) or `ANTHROPIC_API_KEY`
+(`--provider anthropic`), in `.env` locally or as GitHub Actions secrets for
 `.github/workflows/alts-extract.yml`, which is manual-dispatch only — every
-run is a real, billed API call, never wired into per-PR CI).
+run is a real, billed API call, never wired into per-PR CI. The workflow
+lets you pick the provider/model per dispatch without editing code.
 
 ## Tests
 

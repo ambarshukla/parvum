@@ -16,8 +16,12 @@ dependencies = [
     # (not just tests, hence a main dependency rather than a dev one).
     "pypdf>=4.3",
     # LLM extraction (extract.py). Runs outside Databricks, in GitHub
-    # Actions — see docs/ARCHITECTURE.md's fetch/process split.
+    # Actions — see docs/ARCHITECTURE.md's fetch/process split. Two
+    # providers (D-052): Anthropic direct, and OpenRouter (an
+    # OpenAI-compatible gateway — hence the openai SDK, pointed at
+    # OpenRouter's base URL rather than OpenAI's).
     "anthropic>=0.40",
+    "openai>=1.50",
 ]
 
 [dependency-groups]

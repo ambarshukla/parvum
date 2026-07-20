@@ -598,3 +598,13 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** `mvn verify` 26/26 green (9 new), Testcontainers Postgres. Real run against the local docker-compose database, not just automated tests: logged in, listed the seeded queue, corrected an item, confirmed `decidedFields`/`decidedAt` set correctly in the response, confirmed a second decide attempt on the same item is correctly rejected with 409.
 
 **Not yet done:** the export-side queue loader (Databricks `silver_alts_documents` needs_review rows → `alts_review_queue`) and the reverse-sync job itself — both deliberately deferred to a follow-up slice, per D-051's small-reviewable-steps reasoning. The internal app's frontend for this queue is also still ahead.
+
+## 2026-07-20 — Two LLM providers behind one interface (D-052)
+
+**Done:**
+- `extract.py`: new `LLMProvider` abstract base + `AnthropicProvider` (unchanged native Anthropic API) + `OpenRouterProvider` (OpenAI-compatible gateway, tool-schema translation, JSON-string argument parsing) + `build_provider(name, model)`. Default provider is now `openrouter` (`PARVUM_LLM_PROVIDER`/`--provider`), with `anthropic` available as an explicit override for a harder document — a real default change from D-049, made at the user's direction after the Anthropic Console billing wall.
+- `.env.example`, `Makefile` (`make alts-extract` now provider-aware — checks whichever provider's key is actually needed), `.github/workflows/alts-extract.yml` (`workflow_dispatch` inputs for provider/model) all updated to carry the new plumbing through.
+
+**Verified:** 59/59 tests green (17 new/changed), all against mocked SDK clients or a fake `LLMProvider` — zero real API cost, same discipline as D-049. Caught and fixed one real snag before it shipped: the installed `openai` SDK validates credential presence at *construction*, not call time, which broke a test that only wanted to check the default model string — fixed by resolving to a placeholder key when unconfigured rather than requiring a real one just to build the object.
+
+**Not yet verified live for either provider:** the Anthropic blocker (D-049) is unresolved; OpenRouter is new this slice and has no live smoke test yet either — needs a working key for one of the two before extraction can be verified end to end.

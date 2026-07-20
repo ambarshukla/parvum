@@ -1,13 +1,24 @@
-# Manual-dispatch only — every run is a real, billed Claude API call
-# (D-047/D-048). Generates a fresh document set, extracts every document,
-# scores extraction accuracy against the generator's own ground truth, and
-# uploads the eval report as a workflow artifact (there is nowhere else to
-# put it yet — landing extracted fields into the lakehouse is a later
-# slice's job).
+# Manual-dispatch only — every run is a real, billed LLM API call (D-049,
+# provider choice per D-052). Generates a fresh document set, extracts
+# every document, scores extraction accuracy against the generator's own
+# ground truth, and uploads the eval report as a workflow artifact (there
+# is nowhere else to put it yet — landing extracted fields into the
+# lakehouse is a later slice's job).
 name: alts-extract
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "LLM provider (D-052)"
+        required: false
+        default: openrouter
+        type: choice
+        options: [openrouter, anthropic]
+      model:
+        description: "Override the provider's default model (leave blank for the default)"
+        required: false
+        type: string
 
 jobs:
   extract:
@@ -32,7 +43,11 @@ jobs:
       - name: Extract
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          uv run parvum-extract-alts-docs --raw ../data/alts/raw --out ../data/alts/extracted \
+            --provider "${{ inputs.provider || 'openrouter' }}" \
+            $(if [ -n "${{ inputs.model }}" ]; then echo --model "${{ inputs.model }}"; fi)
 
       - name: Evaluate against ground truth
         run: |
