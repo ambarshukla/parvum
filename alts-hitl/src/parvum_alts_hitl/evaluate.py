@@ -12,8 +12,9 @@ periodic target (``make alts-eval``), the same shape as ``export-gold``.
 
 import argparse
 import json
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from parvum_alts_hitl.parsing import parse_decimal
 
 _DECIMAL_FIELDS = frozenset(
     {
@@ -43,10 +44,8 @@ def _normalize(field: str, value: object) -> object:
     if value is None:
         return None
     if field in _DECIMAL_FIELDS:
-        try:
-            return Decimal(str(value))
-        except InvalidOperation:
-            return str(value)
+        parsed = parse_decimal(value)
+        return parsed if parsed is not None else str(value)
     return str(value).strip()
 
 

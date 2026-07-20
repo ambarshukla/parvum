@@ -608,3 +608,17 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** 59/59 tests green (17 new/changed), all against mocked SDK clients or a fake `LLMProvider` — zero real API cost, same discipline as D-049. Caught and fixed one real snag before it shipped: the installed `openai` SDK validates credential presence at *construction*, not call time, which broke a test that only wanted to check the default model string — fixed by resolving to a placeholder key when unconfigured rather than requiring a real one just to build the object.
 
 **Not yet verified live for either provider:** the Anthropic blocker (D-049) is unresolved; OpenRouter is new this slice and has no live smoke test yet either — needs a working key for one of the two before extraction can be verified end to end.
+
+## 2026-07-20 — Full Phase 6 pipeline verified live, and a real schema bug fixed (D-053)
+
+**Done:**
+- Fixed the tool schemas: `_AMOUNT_DESC` ("no currency symbol or thousands separators") now applied to every monetary field across all three tools, not just `call_amount` — a real batch run had shown every single capital-account statement failing self-consistency, traced to unformatted amounts (`"$750,000.00"`) that `Decimal()` couldn't parse.
+- New `parvum_alts_hitl/parsing.py`: `parse_decimal()`, tolerating a stray `$`/comma as defense in depth — replaces three independent copies of `Decimal(str(value))` in `extract.py`, `validate.py`, `evaluate.py`.
+
+**Verified live, closing out every "not yet verified" note from D-046 through D-052:**
+- `make alts-extract`: 32/32 real documents extracted via OpenRouter (`anthropic/claude-haiku-4.5`).
+- `make alts-eval`: **100% document exact-match rate, 100% field accuracy** against the generator's ground truth.
+- Landed into the real Databricks volume; `alts_bronze_ingest`/`silver_alts` ran for real. `silver_alts_documents` routing, live: `capital_account_statement` 11 auto_accept / 9 needs_review, `capital_call` 1 / 7, `distribution` 2 / 2 — **14/32 (43.75%) auto_accept overall**, the pipeline's first real straight-through-processing number.
+- The lopsided `capital_call` split (mostly needs_review) confirmed the cascading behavior D-050's integration test predicted: one early defect breaks the running-sum check for every later call in that fund too, even individually-clean ones — live evidence the checker behaves exactly as designed, not a red flag.
+
+**Verified:** 59/59 tests still green after centralizing the parsing logic.
