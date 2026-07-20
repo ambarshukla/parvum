@@ -20,6 +20,12 @@ Five layers, mirroring a real wealth-data platform:
    (RDS + ECS Express Mode) provisioned by Terraform.
 5. **Control & ops** — reconciliation + data-quality framework (Phase 3),
    the alts HITL review queue (Phase 6), Grafana/Prometheus + PagerDuty (Phase 9).
+   Unlike the client dashboard, this layer needs a real access-control
+   boundary (write actions + an audit trail), so it lives in its own
+   authenticated app, `internal/` (D-046) — a separate Vercel deployment
+   calling the same serving API under `/internal/**`, gated by a session
+   cookie the Ops page (moving here from `web/`) and the review queue will
+   both sit behind.
 
 ## Load-bearing constraints (why it's shaped this way)
 
