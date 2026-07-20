@@ -545,3 +545,14 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** 23/23 tests green, lint clean, `make test`/`make lint` green across all four Python packages. Real end-to-end run (not just tests): `make generate-alts-docs` produced 32 real PDFs (16 per fund) + 2 manifests; read a real corrupted PDF back with `pypdf` and confirmed both an injected `COMMITMENT_MISMATCH` and `AMOUNT_TRANSPOSITION` are legible in the extracted document text, matching the manifest exactly.
 
 **Not yet done:** landing these documents into the Databricks volume + a bronze registry table (next slice); LLM extraction, deterministic validation, and the review queue itself are all still ahead.
+
+## 2026-07-20 — Alts bronze: landing, and a registration-only notebook (D-048)
+
+**Done:**
+- `spark/bronze_alts_ingest.py`: new notebook, `bronze_alts_documents` table (file_path, fund_id, doc_type, size_bytes, sha256, status, ingested_at), same restatement discipline (path + sha256, not path alone) as `bronze_ingest.py`. Registration only — no parser, since there is none for a PDF; content extraction is a later, separate LLM step.
+- `databricks.yml`: new job resource `alts_bronze_ingest`, deliberately a *separate* job/trigger from the existing `bronze_ingest` (the one job in this project that must never break) — own landing path (`landing/alts/raw/`), own file-arrival trigger, own failure email.
+- `Makefile`: `make land-alts-docs` (upload `data/alts/raw` to the volume), `make run-alts-job` (manual kick, documented as usable only once deployed post-merge).
+
+**Verified live:** the real 32-document set generated in the previous slice was uploaded to `dbfs:/Volumes/workspace/parvum/landing/alts/raw/` for real (`databricks fs cp`, confirmed via `databricks fs ls`) — a pure data operation, no job or trigger involved, safe regardless of merge state. `databricks bundle validate` confirmed the new job resource is syntactically sound.
+
+**Not yet done, deliberately:** `databricks bundle deploy` and the first run of `alts_bronze_ingest` are deferred until *after* this merges to `main` — the bundle's `git_source` always runs `main`'s code, so deploying now would arm a live trigger against a notebook that doesn't exist there yet (the standing rule this project has hit before: a pre-merge deploy of a new-notebook task risks a failed run and an alert email). Once merged: `make deploy-job` then `make run-alts-job`, then confirm `bronze_alts_documents` shows 32 rows correctly split by `fund_id`/`doc_type`.

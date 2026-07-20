@@ -150,6 +150,47 @@ resources:
       # A hung run burns the daily serverless quota until it's noticed.
       timeout_seconds: 3600
 
+    # A separate job, not a task bolted onto bronze_ingest above: alts
+    # documents are episodic (landed on demand via `make land-alts-docs`),
+    # not a daily feed, and registration-only bronze (no parser to run) is
+    # a much smaller chain than the custodial one. Keeping it a separate
+    # resource means this job's own deploy/trigger history never touches
+    # the critical daily job's.
+    alts_bronze_ingest:
+      name: parvum-alts-bronze-ingest
+      description: >-
+        Registers newly landed private-fund documents (capital calls,
+        distributions, capital account statements) into
+        bronze_alts_documents. Registration only — there is no
+        deterministic parser for a PDF; content extraction is a later,
+        separate step (an LLM call, run outside Databricks). Triggered by
+        file arrival in the alts landing volume.
+
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+
+      git_source:
+        git_url: https://github.com/ambarshukla/parvum
+        git_provider: gitHub
+        git_branch: main
+
+      tasks:
+        - task_key: bronze_alts
+          notebook_task:
+            notebook_path: spark/bronze_alts_ingest
+            source: GIT
+
+      trigger:
+        pause_status: UNPAUSED
+        file_arrival:
+          url: /Volumes/workspace/parvum/landing/alts/raw/
+          wait_after_last_change_seconds: 60
+          min_time_between_triggers_seconds: 300
+
+      max_concurrent_runs: 1
+      timeout_seconds: 900
+
 # One target, because there is one live environment (D-007). `mode: production`
 # means no auto-paused triggers and no `[dev ...]` name prefixes — the things
 # development mode does to keep experiments from acting like the real thing.

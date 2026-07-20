@@ -38,7 +38,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs land land-master fetch-fx land-fx deploy-job run-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs land land-alts-docs land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -139,6 +139,14 @@ land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_H
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
 
+# Episodic, unlike `land`: run after `make generate-alts-docs`, not on a
+# schedule. No bronze job watches this path yet (D-047 follow-up) — land,
+# then `databricks bundle run alts_bronze_ingest` once that job is deployed.
+land-alts-docs: ## upload data/alts/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	@test -d data/alts/raw || { echo "no local alts docs — run 'make generate-alts-docs' first"; exit 1; }
+	databricks fs cp -r data/alts/raw dbfs:/Volumes/workspace/parvum/landing/alts/raw --overwrite
+
 # ECB reference rates for gold's EUR->USD conversion (D-026). No key needed;
 # the store is exactly what the ECB published (gap-filling happens at
 # consumption, in fill_forward, where it is visible and tested).
@@ -181,6 +189,15 @@ run-job: ## run the ingest job (bronze → silver) now, without waiting for a fi
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (job failure notifications are sent here)"; exit 1; }
 	BUNDLE_VAR_alert_email="$(ALERT_EMAIL)" databricks bundle run bronze_ingest
+
+# alts_bronze_ingest is a new job resource: only deploy/run this AFTER
+# databricks.yml's addition has merged to main (the job's git_source always
+# runs main's code — deploying pre-merge would point a live trigger at a
+# notebook that doesn't exist there yet).
+run-alts-job: ## run the alts bronze registration job now (needs deploy-job to have run post-merge)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	@test -n "$(ALERT_EMAIL)" || { echo "ALERT_EMAIL not set — add it to .env (job failure notifications are sent here)"; exit 1; }
+	BUNDLE_VAR_alert_email="$(ALERT_EMAIL)" databricks bundle run alts_bronze_ingest
 
 # Alarms (exit 1) only if bronze is confidently stale; warns and passes if it
 # can't tell. The daily workflow runs this after landing; needs DATABRICKS_HOST
