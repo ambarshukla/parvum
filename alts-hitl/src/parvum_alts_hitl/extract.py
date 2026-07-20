@@ -26,16 +26,15 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
-from typing import Any
 
 import anthropic
 import openai
 from pypdf import PdfReader
 
 from parvum_alts_hitl.naming import doc_type_for
+from parvum_alts_hitl.parsing import parse_decimal
 
 PROMPT_VERSION = "alts-extract-v1"
 
@@ -58,6 +57,16 @@ _SYSTEM_PROMPT = (
     "unusual."
 )
 
+# Applied to every monetary field across all three tools — a real bug
+# found live, not by inspection: only call_amount originally carried this
+# instruction, so the model formatted every *other* amount field the
+# "natural" way ("$750,000.00"), which Decimal() can't parse, which made
+# self_consistency_ok see every field as missing and fail every single
+# capital-account statement's arithmetic check. The schema, not the model,
+# was at fault — fixed by making the instruction shared and universal
+# rather than one field's local description (see D-053).
+_AMOUNT_DESC = "Decimal, no currency symbol or thousands separators, e.g. 150000.00"
+
 _CALL_TOOL = {
     "name": "extract_capital_call",
     "description": "Extract structured fields from a capital call notice.",
@@ -69,14 +78,9 @@ _CALL_TOOL = {
             "call_number": {"type": "integer"},
             "call_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
             "due_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
-            "call_amount": {
-                "type": "string",
-                "description": (
-                    "Decimal, no currency symbol or thousands separators, e.g. 150000.00"
-                ),
-            },
-            "cumulative_called": {"type": "string"},
-            "remaining_commitment": {"type": "string"},
+            "call_amount": {"type": "string", "description": _AMOUNT_DESC},
+            "cumulative_called": {"type": "string", "description": _AMOUNT_DESC},
+            "remaining_commitment": {"type": "string", "description": _AMOUNT_DESC},
             "purpose": {"type": ["string", "null"]},
             "confidence": {
                 "type": "number",
@@ -108,8 +112,8 @@ _DISTRIBUTION_TOOL = {
             "account_id": {"type": "string"},
             "distribution_number": {"type": "integer"},
             "distribution_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
-            "distribution_amount": {"type": "string"},
-            "cumulative_distributed": {"type": "string"},
+            "distribution_amount": {"type": "string", "description": _AMOUNT_DESC},
+            "cumulative_distributed": {"type": "string", "description": _AMOUNT_DESC},
             "source": {
                 "type": ["string", "null"],
                 "description": "RETURN_OF_CAPITAL | CAPITAL_GAIN | INCOME | null",
@@ -140,15 +144,15 @@ _STATEMENT_TOOL = {
             "fund_name": {"type": "string"},
             "account_id": {"type": "string"},
             "period_end": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
-            "beginning_balance": {"type": "string"},
-            "contributions": {"type": "string"},
-            "distributions": {"type": "string"},
-            "management_fees": {"type": "string"},
-            "realized_gain_loss": {"type": "string"},
-            "unrealized_gain_loss": {"type": "string"},
-            "ending_balance": {"type": "string"},
-            "total_commitment": {"type": "string"},
-            "unfunded_commitment": {"type": "string"},
+            "beginning_balance": {"type": "string", "description": _AMOUNT_DESC},
+            "contributions": {"type": "string", "description": _AMOUNT_DESC},
+            "distributions": {"type": "string", "description": _AMOUNT_DESC},
+            "management_fees": {"type": "string", "description": _AMOUNT_DESC},
+            "realized_gain_loss": {"type": "string", "description": _AMOUNT_DESC},
+            "unrealized_gain_loss": {"type": "string", "description": _AMOUNT_DESC},
+            "ending_balance": {"type": "string", "description": _AMOUNT_DESC},
+            "total_commitment": {"type": "string", "description": _AMOUNT_DESC},
+            "unfunded_commitment": {"type": "string", "description": _AMOUNT_DESC},
             "confidence": {"type": "number"},
         },
         "required": [
@@ -243,6 +247,7 @@ class OpenRouterProvider(LLMProvider):
         }
         response = self._client.chat.completions.create(
             model=self.model,
+            max_tokens=1024,
             tools=[function_tool],
             tool_choice={"type": "function", "function": {"name": tool["name"]}},
             messages=[
@@ -270,15 +275,6 @@ def pdf_text(pdf_bytes: bytes) -> str:
     return "\n".join(page.extract_text() for page in reader.pages)
 
 
-def _decimal_or_none(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except InvalidOperation:
-        return None
-
-
 def self_consistency_ok(doc_type: str, fields: dict) -> bool:
     """A single-document arithmetic/presence check on the EXTRACTED values —
     independent of ground truth, so it works in production too, not just
@@ -293,7 +289,7 @@ def self_consistency_ok(doc_type: str, fields: dict) -> bool:
             "unrealized_gain_loss",
             "ending_balance",
         )
-        values = {p: _decimal_or_none(fields.get(p)) for p in parts}
+        values = {p: parse_decimal(fields.get(p)) for p in parts}
         if any(v is None for v in values.values()):
             return False
         expected = (

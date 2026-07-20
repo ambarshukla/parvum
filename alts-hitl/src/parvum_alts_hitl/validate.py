@@ -13,22 +13,15 @@ Fixing a flagged document is the human reviewer's job (a later slice), not
 this one's.
 """
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
+
+from parvum_alts_hitl.parsing import parse_decimal
 
 # Below this hybrid confidence, a document is routed to review regardless
 # of whether it happens to reconcile — a document the model itself wasn't
 # sure about deserves a human look even if the numbers add up by
 # coincidence.
 CONFIDENCE_THRESHOLD = 0.85
-
-
-def _decimal(value: object) -> Decimal | None:
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value))
-    except InvalidOperation:
-        return None
 
 
 def _sequence_notes(actual: list, expected: list, label: str) -> list[str]:
@@ -49,8 +42,8 @@ def validate_calls(docs: list[dict]) -> list[dict]:
     results = []
     running = Decimal(0)
     for i, doc in enumerate(ordered):
-        amount = _decimal(doc["fields"].get("call_amount"))
-        cumulative = _decimal(doc["fields"].get("cumulative_called"))
+        amount = parse_decimal(doc["fields"].get("call_amount"))
+        cumulative = parse_decimal(doc["fields"].get("cumulative_called"))
         notes = _sequence_notes(actual_numbers, expected_numbers, "call")
         if amount is None or cumulative is None:
             notes.append("call_amount or cumulative_called missing/unparseable")
@@ -78,8 +71,8 @@ def validate_distributions(docs: list[dict]) -> list[dict]:
     results = []
     running = Decimal(0)
     for i, doc in enumerate(ordered):
-        amount = _decimal(doc["fields"].get("distribution_amount"))
-        cumulative = _decimal(doc["fields"].get("cumulative_distributed"))
+        amount = parse_decimal(doc["fields"].get("distribution_amount"))
+        cumulative = parse_decimal(doc["fields"].get("cumulative_distributed"))
         notes = _sequence_notes(actual_numbers, expected_numbers, "distribution")
         if amount is None or cumulative is None:
             notes.append("distribution_amount or cumulative_distributed missing/unparseable")
@@ -109,8 +102,8 @@ def validate_statements(docs: list[dict]) -> list[dict]:
     results = []
     prior_ending: Decimal | None = None
     for doc in ordered:
-        beginning = _decimal(doc["fields"].get("beginning_balance"))
-        ending = _decimal(doc["fields"].get("ending_balance"))
+        beginning = parse_decimal(doc["fields"].get("beginning_balance"))
+        ending = parse_decimal(doc["fields"].get("ending_balance"))
         notes = []
         if beginning is None or ending is None:
             notes.append("beginning_balance or ending_balance missing/unparseable")
