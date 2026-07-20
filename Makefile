@@ -39,7 +39,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -151,12 +151,19 @@ land: ## upload data/raw to the Unity Catalog landing volume (needs DATABRICKS_H
 	databricks fs cp -r data/raw dbfs:/Volumes/workspace/parvum/landing/raw --overwrite
 
 # Episodic, unlike `land`: run after `make generate-alts-docs`, not on a
-# schedule. No bronze job watches this path yet (D-047 follow-up) — land,
-# then `databricks bundle run alts_bronze_ingest` once that job is deployed.
+# schedule. `make run-alts-job` (or the file-arrival trigger, once armed by
+# a deploy after this merges) reprocesses new arrivals — same as `land`.
 land-alts-docs: ## upload data/alts/raw to the Unity Catalog landing volume (needs DATABRICKS_HOST)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	@test -d data/alts/raw || { echo "no local alts docs — run 'make generate-alts-docs' first"; exit 1; }
 	databricks fs cp -r data/alts/raw dbfs:/Volumes/workspace/parvum/landing/alts/raw --overwrite
+
+# Run after `make alts-extract`. Silver validation (spark/silver_alts_documents.py)
+# reads bronze_alts_extractions, which this lands and bronze_alts_ingest.py registers.
+land-alts-extracted: ## upload data/alts/extracted to the Unity Catalog landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	@test -d data/alts/extracted || { echo "no local extractions — run 'make alts-extract' first"; exit 1; }
+	databricks fs cp -r data/alts/extracted dbfs:/Volumes/workspace/parvum/landing/alts/extracted --overwrite
 
 # ECB reference rates for gold's EUR->USD conversion (D-026). No key needed;
 # the store is exactly what the ECB published (gap-filling happens at
