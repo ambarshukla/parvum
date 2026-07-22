@@ -8,10 +8,20 @@ designed for; see `docs/DECISIONS.md` D-046.
 
 ## What's here
 
-Today: a single shared login (password + signed session cookie, no per-user
+A single shared login (password + signed session cookie, no per-user
 accounts — see D-046 for why that's the right amount of auth for one
-internal team, not a shortcut). The Ops page and the alts review queue land
-on top of this in later slices.
+internal team, not a shortcut), gating two pages:
+
+- **Review Queue** (the default) — the alts HITL queue: documents
+  `silver_alts_documents` routed to `needs_review`, filterable by status,
+  each one's extracted fields editable inline so a reviewer can approve them
+  as-read or save a correction (D-056). A decision here is landed back into
+  the lakehouse by the reverse-sync (D-055), so Delta stays the system of
+  record and Postgres stays a disposable projection.
+- **Ops** — the pipeline-wide data-quality scorecard: freshness,
+  completeness, accuracy, and exceptions over time (D-043/D-044). Not scoped
+  to any one advisory firm, which is exactly why it doesn't belong in the
+  client-facing `web/` dashboard.
 
 ## Running it
 
