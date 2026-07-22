@@ -370,5 +370,16 @@ function DocumentViewer({ fundId, document: documentName }: { fundId: string; do
             </div>
         );
     }
-    return <iframe className="pdf-frame" src={url} title={`${documentName} — source document`} />;
+    // #view=FitH asks the browser's PDF viewer to fit the page to the frame's
+    // width. Without it a half-width pane renders the page at a default zoom
+    // and clips the right-hand column behind a horizontal scrollbar — which
+    // hides exactly the numbers a reviewer is here to check. A viewer that
+    // ignores the fragment simply falls back to its own default.
+    return (
+        <iframe
+            className="pdf-frame"
+            src={`${url}#view=FitH`}
+            title={`${documentName} — source document`}
+        />
+    );
 }
