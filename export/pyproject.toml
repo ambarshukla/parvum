@@ -26,6 +26,7 @@ dev = [
 [project.scripts]
 parvum-export-gold = "parvum_export.export_gold:main"
 parvum-load-review-queue = "parvum_export.load_review_queue:main"
+parvum-sync-review-decisions = "parvum_export.sync_review_decisions:main"
 
 [build-system]
 requires = ["hatchling"]

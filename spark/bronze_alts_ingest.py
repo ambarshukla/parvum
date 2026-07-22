@@ -1,15 +1,17 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Bronze alts ingest — document and extraction registries
+# MAGIC # Bronze alts ingest — document, extraction, and review-decision registries
 # MAGIC
-# MAGIC Walks the alts landing volume and registers two things: every
-# MAGIC private-fund PDF (`bronze_alts_documents`) and every landed
-# MAGIC extraction result (`bronze_alts_extractions`, D-049's structured-
-# MAGIC field JSON from Claude, produced in GitHub Actions and landed here
-# MAGIC the same way the PDFs are). Both are registration only — no
-# MAGIC deterministic parser exists for a PDF, and an extraction's fields are
-# MAGIC already structured JSON by the time they land, nothing left to parse.
-# MAGIC This notebook's whole job is: what do we have, and where.
+# MAGIC Walks the alts landing volume and registers three things: every
+# MAGIC private-fund PDF (`bronze_alts_documents`), every landed extraction
+# MAGIC result (`bronze_alts_extractions`, D-049's structured-field JSON from
+# MAGIC Claude), and every landed human review decision (`bronze_alts_review_decisions`,
+# MAGIC D-054's reverse-sync — a queue item a reviewer approved or corrected in
+# MAGIC the internal app, landed the same way the PDFs are, just going the other
+# MAGIC direction). All three are registration only — no deterministic parser
+# MAGIC exists for a PDF, and both JSON payloads are already structured by the
+# MAGIC time they land, nothing left to parse. This notebook's whole job is:
+# MAGIC what do we have, and where.
 # MAGIC
 # MAGIC Same restatement discipline as `bronze_ingest.py` for both: path
 # MAGIC *and* sha256, not path alone, so a re-landed file is detected as
@@ -73,6 +75,20 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_extractions (
     ingested_at               TIMESTAMP
 ) COMMENT 'One row per landed LLM extraction result (D-049) — fields_json is the raw extracted-field object; schema varies by doc_type, so it is kept as JSON text rather than forced into a fixed wide table.'""")  # noqa: F821
 
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_review_decisions (
+    file_path         STRING,
+    fund_id           STRING,
+    document          STRING,
+    doc_type          STRING,
+    sequence_number   INT,
+    period_end        STRING,
+    status            STRING,
+    final_fields_json STRING,
+    decided_at        TIMESTAMP,
+    sha256            STRING,
+    ingested_at       TIMESTAMP
+) COMMENT 'One row per landed human review decision (the D-054 reverse-sync) — a queue item a reviewer approved or corrected in the internal app. final_fields_json is the reviewer-confirmed field values (identical to the extraction for an approve, the reviewer own values for a correct).'""")  # noqa: F821
+
 # COMMAND ----------
 
 # MAGIC %md ## Column descriptions (Unity Catalog metadata)
@@ -104,6 +120,19 @@ COLUMN_COMMENTS = {
         "self_consistent": "Whether extract.py's single-document arithmetic/presence check passed",
         "confidence": "Hybrid confidence actually used downstream (self-reported, capped at 0.5 if not self-consistent)",
         "sha256": "Content digest of the extraction JSON — how a re-landed extraction is detected as changed",
+        "ingested_at": "When this file was registered into bronze (UTC)",
+    },
+    "bronze_alts_review_decisions": {
+        "file_path": "Full volume path of the landed *.decision.json file",
+        "fund_id": "Fund identifier, from the <fund_id>/ directory the file landed in",
+        "document": "Source PDF's file name — the same key bronze_alts_extractions.document uses",
+        "doc_type": "capital_call | distribution | capital_account_statement",
+        "sequence_number": "call_number or distribution_number carried from the review queue; NULL for capital_account_statement",
+        "period_end": "Statement period end (ISO date, as decided); NULL for calls/distributions",
+        "status": "approved | corrected — the review decision recorded in the internal app",
+        "final_fields_json": "The reviewer-confirmed field values, as raw JSON text (identical to the extraction for an approve, the reviewer's own values for a correct)",
+        "decided_at": "When the reviewer made this decision, in the internal app (UTC)",
+        "sha256": "Content digest of the decision JSON — how a re-landed decision is detected as changed",
         "ingested_at": "When this file was registered into bronze (UTC)",
     },
 }
@@ -238,6 +267,38 @@ register("bronze_alts_extractions", ext_rows)
 
 # COMMAND ----------
 
+# MAGIC %md ## Review decisions
+
+# COMMAND ----------
+
+dec_new, dec_restated, dec_unchanged = discover(
+    LANDING_ROOT / "reviewed", "*.decision.json", "bronze_alts_review_decisions"
+)
+print(f"review decisions: {dec_unchanged} unchanged; {len(dec_new)} new; {len(dec_restated)} restated")
+supersede("bronze_alts_review_decisions", dec_restated)
+
+dec_rows = []
+for f, digest in dec_new + dec_restated:
+    record = json.loads(f.read_text(encoding="utf-8"))
+    dec_rows.append(
+        {
+            "file_path": str(f),
+            "fund_id": record["fund_id"],
+            "document": record["document"],
+            "doc_type": record["doc_type"],
+            "sequence_number": record["sequence_number"],
+            "period_end": record["period_end"],
+            "status": record["status"],
+            "final_fields_json": json.dumps(record["final_fields"]),
+            "decided_at": datetime.fromisoformat(record["decided_at"]),
+            "sha256": digest,
+            "ingested_at": run_ts,
+        }
+    )
+register("bronze_alts_review_decisions", dec_rows)
+
+# COMMAND ----------
+
 # MAGIC %md ## What do we have?
 
 # COMMAND ----------
@@ -254,5 +315,12 @@ display(  # noqa: F821
         f"""SELECT fund_id, doc_type, COUNT(*) AS extractions, ROUND(AVG(confidence), 2) AS avg_confidence
         FROM {SCHEMA}.bronze_alts_extractions
         GROUP BY fund_id, doc_type ORDER BY fund_id, doc_type"""
+    )
+)
+display(  # noqa: F821
+    spark.sql(  # noqa: F821
+        f"""SELECT fund_id, doc_type, status, COUNT(*) AS decisions
+        FROM {SCHEMA}.bronze_alts_review_decisions
+        GROUP BY fund_id, doc_type, status ORDER BY fund_id, doc_type, status"""
     )
 )

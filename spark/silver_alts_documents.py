@@ -21,7 +21,13 @@
 # MAGIC never edits an extracted value — it only flags whether the extracted
 # MAGIC values reconcile, and routes the document to `auto_accept` or
 # MAGIC `needs_review` accordingly. Fixing a flagged document is a human's
-# MAGIC job (the review queue, a later slice), not this one's.
+# MAGIC job — the review queue (D-051) plus its reverse-sync (D-054), whose
+# MAGIC landed decisions this notebook now folds in additively: `reviewed_status`/
+# MAGIC `final_fields_json`/`reviewed_at` are NULL unless a human has actually
+# MAGIC decided a document, and existing columns (`routing`, `cross_document_valid`,
+# MAGIC `validation_notes`) keep meaning exactly what they meant before this
+# MAGIC slice — the automated pipeline's own verdict, untouched by a later
+# MAGIC human decision.
 
 # COMMAND ----------
 
@@ -51,8 +57,11 @@ spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
     self_consistent         BOOLEAN,
     cross_document_valid    BOOLEAN,
     validation_notes        STRING,
-    routing                 STRING
-) COMMENT 'One row per extracted alts document: cross-document validation (parvum_alts_hitl.validate, on top of D-049s extraction self-check) and the resulting auto_accept vs needs_review routing decision.'""")  # noqa: F821
+    routing                 STRING,
+    reviewed_status         STRING,
+    final_fields_json       STRING,
+    reviewed_at             TIMESTAMP
+) COMMENT 'One row per extracted alts document: cross-document validation (parvum_alts_hitl.validate, on top of D-049s extraction self-check), the resulting auto_accept vs needs_review routing decision, and (additively, D-054) whatever a human reviewer has since decided about it.'""")  # noqa: F821
 
 # COMMAND ----------
 
@@ -72,6 +81,9 @@ COLUMN_COMMENTS = {
         "cross_document_valid": "Whether this document reconciles against the rest of its fund's documents (see validation_notes)",
         "validation_notes": "Human-readable explanation when cross_document_valid is false; NULL when true",
         "routing": "auto_accept | needs_review",
+        "reviewed_status": "approved | corrected, from bronze_alts_review_decisions; NULL if no human has decided this document yet",
+        "final_fields_json": "The reviewer-confirmed field values, as raw JSON text; NULL if reviewed_status is NULL",
+        "reviewed_at": "When the reviewer made this decision; NULL if reviewed_status is NULL",
     },
 }
 
@@ -115,6 +127,21 @@ print(f"{len(extractions)} extractions across {len(by_fund)} funds")
 
 # COMMAND ----------
 
+# MAGIC %md ## Load review decisions (small data, same as extractions)
+# MAGIC
+# MAGIC Keyed by (fund_id, document) — the same key `bronze_alts_extractions`
+# MAGIC uses, so joining a decision onto its document is a plain dict lookup,
+# MAGIC not a Spark join, matching this notebook's existing driver-side style.
+
+# COMMAND ----------
+
+decisions = spark.table(f"{SCHEMA}.bronze_alts_review_decisions").collect()  # noqa: F821
+decisions_by_key = {(row.fund_id, row.document): row for row in decisions}
+
+print(f"{len(decisions)} review decisions across {len({k[0] for k in decisions_by_key})} funds")
+
+# COMMAND ----------
+
 # MAGIC %md ## Validate and route, per fund
 
 # COMMAND ----------
@@ -122,6 +149,7 @@ print(f"{len(extractions)} extractions across {len(by_fund)} funds")
 rows = []
 for fund_id, docs in by_fund.items():
     for doc in validate_fund_documents(docs):
+        decision = decisions_by_key.get((fund_id, doc["document"]))
         rows.append(
             {
                 "fund_id": fund_id,
@@ -133,6 +161,9 @@ for fund_id, docs in by_fund.items():
                 "self_consistent": doc["self_consistent"],
                 "cross_document_valid": doc["cross_document_valid"],
                 "validation_notes": doc["validation_notes"],
+                "reviewed_status": decision.status if decision else None,
+                "final_fields_json": decision.final_fields_json if decision else None,
+                "reviewed_at": decision.decided_at if decision else None,
                 "routing": doc["routing"],
             }
         )
@@ -155,5 +186,13 @@ display(  # noqa: F821
         f"""SELECT fund_id, doc_type, routing, COUNT(*) AS documents
         FROM {SCHEMA}.silver_alts_documents
         GROUP BY fund_id, doc_type, routing ORDER BY fund_id, doc_type, routing"""
+    )
+)
+display(  # noqa: F821
+    spark.sql(  # noqa: F821
+        f"""SELECT fund_id, doc_type, COALESCE(reviewed_status, 'undecided') AS reviewed_status,
+        COUNT(*) AS documents
+        FROM {SCHEMA}.silver_alts_documents WHERE routing = 'needs_review'
+        GROUP BY fund_id, doc_type, reviewed_status ORDER BY fund_id, doc_type, reviewed_status"""
     )
 )

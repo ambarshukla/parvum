@@ -636,3 +636,21 @@ Skimmable record of what was done and why. Newest entry last.
 **Verified:** `export` tests 29/29 (11 new — pure-Python join-row-shaping tests plus a real-Postgres suite against a throwaway schema migrated with the real `migration_internal` DDL, via a new `internal_schema` fixture in `conftest.py`). `mvn verify` 26/26 (`AltsReviewResourceTest`'s 9 tests unaffected by the added column; jOOQ codegen picked up `stale` automatically from the migration). `make lint`/`make fmt` clean across all four Python packages.
 
 **Not yet done, deliberately:** no real needs_review data has been loaded from a live Databricks run yet this session (the loader's real-Postgres tests exercise the write-side logic directly against constructed `ReviewItem`s, not a live fetch) — a real `make load-review-queue` run against the live lakehouse is a natural next check once this merges. The review queue's frontend and the reverse-sync job (D-051's other two deferred pieces) remain unbuilt.
+
+**Post-merge follow-up, done this session:** ran `make load-review-queue` for real against the live lakehouse — 18 real needs_review documents loaded (9 capital_account_statement + 7 capital_call + 2 distribution, matching D-053's live routing numbers exactly), JSONB `extracted_fields` confirmed round-tripping real content, a second run confirmed idempotent (still 18 pending, 0 stale). Local dev data truncated afterward.
+
+## 2026-07-22 — Alts review-decision reverse-sync, and the Anthropic provider's first live call (D-055)
+
+**Done:**
+- `export/src/parvum_export/review_decision_source.py`: `fetch_unsynced_decisions()` reads every `approved`/`corrected` `alts_review_queue` row with `synced_at IS NULL`.
+- `export/src/parvum_export/review_decision_sync.py`: `decision_payload()` (pure), `write_decision_files()` (one JSON per decision, staged locally), `mark_synced()` — only ever called after a real land succeeds.
+- `export/src/parvum_export/sync_review_decisions.py`: new `parvum-sync-review-decisions` CLI, combining fetch → write → `databricks fs cp` (subprocess) → mark-synced in one run, the same combined shape D-054's loader used.
+- `spark/bronze_alts_ingest.py`: third registration table, `bronze_alts_review_decisions`, extending the existing `discover`/`supersede`/`register` trio — no new notebook or job task, just a third landing subdirectory (`landing/alts/reviewed/`).
+- `spark/silver_alts_documents.py`: driver-side dict lookup (matching its existing style) folds a decision, if any, into three new columns — `reviewed_status`, `final_fields_json`, `reviewed_at` — additively; `routing`/`cross_document_valid`/`validation_notes` are untouched, still the automated pipeline's own verdict.
+- `Makefile`: `make sync-review-decisions`.
+
+**Verified live, export half:** two real decisions made against local dev Postgres (an approve and a correct), `make sync-review-decisions` landed both JSON files to the real Databricks volume (confirmed via `databricks fs cat`) and marked both `synced_at`; a second run correctly reported "nothing to sync." `export` tests 36/36 (7 new). `make lint`/`make fmt` clean across all four Python packages. `databricks bundle validate` clean (no job-config changes were needed).
+
+**Not verified live, Databricks half — and can't be until merge:** `alts_bronze_ingest` runs `main`'s notebook code via `git_source`, not this branch's local content (same constraint D-048 hit first). `bronze_alts_review_decisions` registration and the `silver_alts_documents` join are unverified against real data until this merges and the job runs post-merge.
+
+**Also this session:** the Anthropic Console credit blocker that stalled D-049 since 2026-07-20 was resolved (a small top-up). One real single-document call via `--provider anthropic` on `capital_call_01.pdf` succeeded (`claude-haiku-4-5-20251001`, confidence 0.98, self-consistent) and matched the earlier live OpenRouter extraction of the same document field-for-field. A full batch was deliberately not run to keep spend minimal — the provider is now confirmed working, not just plumbed.
