@@ -409,18 +409,21 @@ body {
     padding: 0;
 }
 
-.queue-list table.data {
-    table-layout: fixed;
-}
-
 .queue-list table.data th,
 .queue-list table.data td {
     padding: 10px 14px;
 }
 
+/* The status column sizes itself to whatever badge it holds and never wraps;
+   the document column takes the rest. `width: 1%` is the shrink-to-fit idiom
+   -- a table cell can't go below its content's min width, so the browser
+   settles on exactly that. The first attempt at this bug used a fixed 92px,
+   which was the wrong shape of fix: "Corrected" is wider than "Pending", so
+   any single number clips one badge or wastes space on the other. */
 .queue-list table.data th:last-child,
 .queue-list table.data td:last-child {
-    width: 92px;
+    width: 1%;
+    white-space: nowrap;
 }
 
 .queue-row {
