@@ -622,3 +622,17 @@ Skimmable record of what was done and why. Newest entry last.
 - The lopsided `capital_call` split (mostly needs_review) confirmed the cascading behavior D-050's integration test predicted: one early defect breaks the running-sum check for every later call in that fund too, even individually-clean ones — live evidence the checker behaves exactly as designed, not a red flag.
 
 **Verified:** 59/59 tests still green after centralizing the parsing logic.
+
+## 2026-07-22 — Alts review queue: the export-side loader (D-054)
+
+**Done:**
+- `export/src/parvum_export/review_queue_source.py`: `fetch_needs_review()` joins `silver_alts_documents` (`routing = 'needs_review'`) with `bronze_alts_extractions` (`fields_json`) over the Databricks SQL Statements API, reusing `gold_source.convert_rows` for the typed-value conversion.
+- `export/src/parvum_export/review_queue_loader.py`: `load_review_queue()` — upserts keyed on `(fund_id, document)`, gated by `WHERE status = 'pending'` so a decided row is never touched by a reload; a pending row that drops out of the fresh needs_review set is flagged `stale = true` rather than deleted, un-flagged automatically if it reappears (D-054 weighs flag-vs-delete with the user before building).
+- `serving/src/main/resources/db/migration_internal/V2__alts_review_queue_stale_flag.sql`: adds `stale boolean not null default false` to `alts_review_queue`. `AltsReviewResource.QueueItem` carries the new field.
+- `export/src/parvum_export/load_review_queue.py`: new `parvum-load-review-queue` CLI, same shape as `export_gold.py` but targeting the single `internal` schema instead of iterating tenants.
+- `export/src/parvum_export/databricks_auth.py`: `resolve_token()` extracted out of `export_gold.py` (now shared by both CLIs, rather than duplicated for the second one).
+- `Makefile`: `make load-review-queue`.
+
+**Verified:** `export` tests 29/29 (11 new — pure-Python join-row-shaping tests plus a real-Postgres suite against a throwaway schema migrated with the real `migration_internal` DDL, via a new `internal_schema` fixture in `conftest.py`). `mvn verify` 26/26 (`AltsReviewResourceTest`'s 9 tests unaffected by the added column; jOOQ codegen picked up `stale` automatically from the migration). `make lint`/`make fmt` clean across all four Python packages.
+
+**Not yet done, deliberately:** no real needs_review data has been loaded from a live Databricks run yet this session (the loader's real-Postgres tests exercise the write-side logic directly against constructed `ReviewItem`s, not a live fetch) — a real `make load-review-queue` run against the live lakehouse is a natural next check once this merges. The review queue's frontend and the reverse-sync job (D-051's other two deferred pieces) remain unbuilt.

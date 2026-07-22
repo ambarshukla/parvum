@@ -148,6 +148,7 @@ public class AltsReviewResource {
         r.getConfidence(),
         r.getValidationNotes(),
         r.getStatus(),
+        r.getStale(),
         r.getDecidedFields() == null ? null : r.getDecidedFields().data(),
         r.getDecidedAt(),
         r.getLoadedAt());
@@ -164,6 +165,7 @@ public class AltsReviewResource {
       BigDecimal confidence,
       String validationNotes,
       String status,
+      boolean stale,
       String decidedFields,
       OffsetDateTime decidedAt,
       OffsetDateTime loadedAt) {}
