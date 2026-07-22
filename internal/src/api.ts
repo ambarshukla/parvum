@@ -79,6 +79,18 @@ export async function approveQueueItem(id: number): Promise<QueueItem> {
 /** correctedFields values keep whatever type the reviewer's edit produced
  *  (string/number/boolean/null) -- the server stores them verbatim, same as
  *  an extraction's own fields. */
+/** The source PDF for a queued document.
+ *
+ *  Fetched rather than pointed at with an `<iframe src>` because every
+ *  `/internal/**` request needs the CSRF header, and an iframe cannot set
+ *  one — the caller renders the returned blob via `URL.createObjectURL`. */
+export async function fetchDocumentPdf(fundId: string, document: string): Promise<Blob> {
+    const response = await request(
+        `/internal/alts/documents/${encodeURIComponent(fundId)}/${encodeURIComponent(document)}`,
+    );
+    return await response.blob();
+}
+
 export async function correctQueueItem(
     id: number,
     correctedFields: Record<string, unknown>,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { approveQueueItem, correctQueueItem, fetchQueue } from "./api";
+import { approveQueueItem, correctQueueItem, fetchDocumentPdf, fetchQueue } from "./api";
 import { longDate } from "./format";
 import type { DocType, QueueItem, QueueStatus } from "./types";
 
@@ -250,61 +250,125 @@ function QueueDetail({ item, onDecided }: { item: QueueItem; onDecided: () => vo
 
             {item.validationNotes && <div className="validation-notes">{item.validationNotes}</div>}
 
-            <table className="data" style={{ marginTop: 14 }}>
-                <tbody>
-                    {Object.entries(extracted).map(([field, value]) => (
-                        <tr key={field}>
-                            <td className="field-name">{field}</td>
-                            <td>
-                                {decided ? (
-                                    <span className="mono">
-                                        {formatFieldValue(
-                                            decidedFields && field in decidedFields
-                                                ? decidedFields[field]
-                                                : value,
+            <div className="queue-detail-body">
+                <div>
+                    <table className="data">
+                        <tbody>
+                            {Object.entries(extracted).map(([field, value]) => (
+                                <tr key={field}>
+                                    <td className="field-name">{field}</td>
+                                    <td>
+                                        {decided ? (
+                                            <span className="mono">
+                                                {formatFieldValue(
+                                                    decidedFields && field in decidedFields
+                                                        ? decidedFields[field]
+                                                        : value,
+                                                )}
+                                            </span>
+                                        ) : (
+                                            <input
+                                                className="field-input"
+                                                aria-label={field}
+                                                value={edits[field] ?? ""}
+                                                onChange={(e) =>
+                                                    setEdits((prev) => ({
+                                                        ...prev,
+                                                        [field]: e.target.value,
+                                                    }))
+                                                }
+                                            />
                                         )}
-                                    </span>
-                                ) : (
-                                    <input
-                                        className="field-input"
-                                        aria-label={field}
-                                        value={edits[field] ?? ""}
-                                        onChange={(e) =>
-                                            setEdits((prev) => ({
-                                                ...prev,
-                                                [field]: e.target.value,
-                                            }))
-                                        }
-                                    />
-                                )}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
 
-            {decided && (
-                <div className="muted queue-row-sub" style={{ marginTop: 10 }}>
-                    {item.status === "approved" ? "Approved as extracted" : "Corrected"}
-                    {item.decidedAt && ` · ${longDate(item.decidedAt.slice(0, 10))}`}
-                </div>
-            )}
+                    {decided && (
+                        <div className="muted queue-row-sub" style={{ marginTop: 10 }}>
+                            {item.status === "approved" ? "Approved as extracted" : "Corrected"}
+                            {item.decidedAt && ` · ${longDate(item.decidedAt.slice(0, 10))}`}
+                        </div>
+                    )}
 
-            {!decided && (
-                <div className="queue-actions">
-                    <button className="theme-toggle" onClick={handleApprove} disabled={submitting}>
-                        Approve as extracted
-                    </button>
-                    <button className="theme-toggle" onClick={handleCorrect} disabled={submitting}>
-                        Save correction
-                    </button>
+                    {!decided && (
+                        <div className="queue-actions">
+                            <button
+                                className="theme-toggle"
+                                onClick={handleApprove}
+                                disabled={submitting}
+                            >
+                                Approve as extracted
+                            </button>
+                            <button
+                                className="theme-toggle"
+                                onClick={handleCorrect}
+                                disabled={submitting}
+                            >
+                                Save correction
+                            </button>
+                        </div>
+                    )}
+                    {actionError && (
+                        <code style={{ color: "var(--critical)", display: "block", marginTop: 10 }}>
+                            {actionError}
+                        </code>
+                    )}
                 </div>
-            )}
-            {actionError && (
-                <code style={{ color: "var(--critical)", display: "block", marginTop: 10 }}>
-                    {actionError}
-                </code>
-            )}
+
+                <DocumentViewer fundId={item.fundId} document={item.document} />
+            </div>
         </div>
     );
+}
+
+/** The source PDF, rendered by the browser's own viewer.
+ *
+ *  Fetched into a blob rather than pointed at directly: `/internal/**` needs
+ *  the CSRF header on every request and an `<iframe src>` can't send one.
+ *  The object URL is revoked when the selection changes, so flicking through
+ *  a queue doesn't leak one blob per document viewed. */
+function DocumentViewer({ fundId, document: documentName }: { fundId: string; document: string }) {
+    const [url, setUrl] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        let objectUrl: string | null = null;
+        setUrl(null);
+        setError(null);
+
+        fetchDocumentPdf(fundId, documentName)
+            .then((blob) => {
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(blob);
+                setUrl(objectUrl);
+            })
+            .catch((e: unknown) => {
+                if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+            });
+
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [fundId, documentName]);
+
+    if (error) {
+        return (
+            <div className="pdf-frame pdf-placeholder">
+                <span className="muted">Could not load the source PDF.</span>
+                <code>{error}</code>
+            </div>
+        );
+    }
+    if (!url) {
+        return (
+            <div className="pdf-frame pdf-placeholder">
+                <span className="muted">Loading document…</span>
+            </div>
+        );
+    }
+    return <iframe className="pdf-frame" src={url} title={`${documentName} — source document`} />;
 }

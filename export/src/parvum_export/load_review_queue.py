@@ -4,6 +4,11 @@ Runs the same way export_gold.py does — locally against docker-compose,
 from GitHub Actions against RDS. The serving app must have started once
 against the target database first (Flyway owns the "internal" schema; this
 tool only fills it).
+
+Also mirrors each queued document's source PDF (D-057) in the same run: the
+reviewer needs the document and the extraction side by side, so shipping
+them from two separate commands would only be a way for the two to drift
+apart.
 """
 
 import argparse
@@ -12,6 +17,8 @@ import sys
 
 import psycopg
 
+from parvum_export.alts_document_loader import load_documents
+from parvum_export.alts_document_source import download_document, fetch_document_index
 from parvum_export.databricks_auth import DatabricksAuthError, resolve_token
 from parvum_export.gold_source import ExportError
 from parvum_export.review_queue_loader import load_review_queue
@@ -38,10 +45,19 @@ def main() -> None:
     try:
         token = resolve_token(host)
         items = fetch_needs_review(host, token, warehouse_id)
+        documents = fetch_document_index(host, token, warehouse_id)
 
         with psycopg.connect(args.dsn) as connection:
             summary = load_review_queue(connection, _INTERNAL_SCHEMA, items)
             print(f"review queue: pending={summary['pending']}, stale={summary['stale']}")
+
+            docs = load_documents(
+                connection,
+                _INTERNAL_SCHEMA,
+                documents,
+                lambda path: download_document(host, token, path),
+            )
+            print(f"documents: {docs['documents']} referenced, {docs['fetched']} fetched")
     except (ExportError, DatabricksAuthError, psycopg.Error) as exc:
         sys.exit(f"review-queue load failed: {exc}")
 

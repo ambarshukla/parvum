@@ -27,7 +27,9 @@ class AltsReviewResourceTest {
 
   @BeforeEach
   void seed() throws Exception {
-    exec("truncate table alts_review_audit, alts_review_queue restart identity cascade");
+    exec(
+        "truncate table alts_review_audit, alts_review_queue, alts_documents"
+            + " restart identity cascade");
     exec(
         """
         insert into alts_review_queue
@@ -174,6 +176,56 @@ class AltsReviewResourceTest {
         .then()
         .statusCode(200)
         .body("decidedFields", org.hamcrest.Matchers.everyItem(nullValue()));
+  }
+
+  @Test
+  void servesTheSourcePdfBytesForADocument() throws Exception {
+    // decode(...) is the literal bytes "%PDF-1.4" — a real (tiny) PDF header,
+    // so this also proves bytea round-trips without any encoding applied.
+    exec(
+        """
+        insert into alts_documents (fund_id, document, content, byte_size, sha256)
+        values ('FUND-PE01', 'capital_call_02.pdf',
+                decode('255044462d312e34', 'hex'), 8, 'abc123');
+        """);
+    String cookie = login();
+
+    byte[] body =
+        given()
+            .header(CSRF_HEADER, "1")
+            .cookie(COOKIE, cookie)
+            .when()
+            .get("/internal/alts/documents/{fundId}/{document}", "FUND-PE01", "capital_call_02.pdf")
+            .then()
+            .statusCode(200)
+            .contentType("application/pdf")
+            .extract()
+            .asByteArray();
+
+    org.junit.jupiter.api.Assertions.assertArrayEquals(
+        "%PDF-1.4".getBytes(java.nio.charset.StandardCharsets.US_ASCII), body);
+  }
+
+  @Test
+  void anUnknownDocumentIs404() {
+    String cookie = login();
+    given()
+        .header(CSRF_HEADER, "1")
+        .cookie(COOKIE, cookie)
+        .when()
+        .get("/internal/alts/documents/{fundId}/{document}", "FUND-NOPE", "missing.pdf")
+        .then()
+        .statusCode(404);
+  }
+
+  @Test
+  void theSourcePdfStillNeedsASession() {
+    given()
+        .header(CSRF_HEADER, "1")
+        .when()
+        .get("/internal/alts/documents/{fundId}/{document}", "FUND-PE01", "capital_call_02.pdf")
+        .then()
+        .statusCode(401);
   }
 
   private long firstQueueId() {

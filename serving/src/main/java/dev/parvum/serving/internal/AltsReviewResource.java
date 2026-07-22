@@ -1,5 +1,6 @@
 package dev.parvum.serving.internal;
 
+import static dev.parvum.serving.jooq.internal.Tables.ALTS_DOCUMENTS;
 import static dev.parvum.serving.jooq.internal.Tables.ALTS_REVIEW_AUDIT;
 import static dev.parvum.serving.jooq.internal.Tables.ALTS_REVIEW_QUEUE;
 
@@ -72,6 +73,55 @@ public class AltsReviewResource {
           }
           return toQueueItem(record);
         });
+  }
+
+  /**
+   * The source PDF a queued document was extracted from, so a reviewer can read the document itself
+   * next to the extracted values rather than taking them on faith (D-057).
+   *
+   * <p>The bytes come from Postgres, mirrored there by the exporter — this app has no Databricks
+   * credentials and no route to the landing volume, deliberately (D-006).
+   *
+   * <p>Note for callers: {@link InternalAuthFilter} requires the {@code X-Parvum-Internal} header
+   * on every {@code /internal/**} request, and an {@code <iframe src>} cannot set one. The browser
+   * has to fetch this with {@code fetch()} and render the resulting blob, which is what {@code
+   * internal/}'s viewer does.
+   */
+  @GET
+  @Path("/documents/{fundId}/{document}")
+  @Produces("application/pdf")
+  public Response document(
+      @PathParam("fundId") String fundId, @PathParam("document") String document) {
+    byte[] content =
+        query.run(
+            dsl -> {
+              var record =
+                  dsl.select(ALTS_DOCUMENTS.CONTENT)
+                      .from(ALTS_DOCUMENTS)
+                      .where(
+                          ALTS_DOCUMENTS
+                              .FUND_ID
+                              .eq(fundId)
+                              .and(ALTS_DOCUMENTS.DOCUMENT.eq(document)))
+                      .fetchOne();
+              if (record == null) {
+                throw new NotFoundException("no document: " + fundId + "/" + document);
+              }
+              return record.value1();
+            });
+
+    return Response.ok(content)
+        .header("Content-Disposition", "inline; filename=\"" + safeFilename(document) + "\"")
+        .build();
+  }
+
+  /**
+   * A header value can carry no quotes or line breaks. The name came from a database row rather
+   * than straight off the request, so this is defence in depth rather than the only guard — but a
+   * header built by concatenation should never be the place that assumption gets tested.
+   */
+  private static String safeFilename(String document) {
+    return document.replaceAll("[^A-Za-z0-9._-]", "_");
   }
 
   /** Accepts the extracted fields exactly as read — no edits. */

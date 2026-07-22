@@ -40,7 +40,13 @@ const APPROVED_ITEM: QueueItem = {
 
 function mockFetchSequence(responses: Array<[string, unknown, number?]>) {
     let call = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+        // The PDF viewer fetches whenever a document is selected. Answer it
+        // out of band rather than from the sequence, so every other test
+        // doesn't have to budget an entry for a request it isn't about.
+        if (String(input).includes("/internal/alts/documents/")) {
+            return Promise.resolve(new Response("%PDF-1.4 stub", { status: 200 }));
+        }
         const entry = responses[Math.min(call, responses.length - 1)]!;
         const [, body, status] = entry;
         call += 1;
@@ -66,6 +72,15 @@ describe("ReviewQueuePage", () => {
         expect(screen.getByText(PENDING_ITEM.validationNotes!)).toBeInTheDocument();
         expect(screen.getByLabelText("call_amount")).toHaveValue("100000.00");
         expect(screen.getByLabelText("recallable")).toHaveValue("true");
+    });
+
+    it("renders the source PDF beside the extracted fields", async () => {
+        mockFetchSequence([["list", [PENDING_ITEM]]]);
+        render(<ReviewQueuePage />);
+
+        await waitFor(() =>
+            expect(screen.getByTitle("capital_call_02.pdf — source document")).toBeInTheDocument(),
+        );
     });
 
     it("approving a pending item reloads the list and clears it from the pending view", async () => {
