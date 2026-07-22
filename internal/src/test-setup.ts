@@ -11,11 +11,21 @@ class ResizeObserverStub {
 
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 
-// jsdom implements neither half of the object-URL API, which the PDF viewer
-// uses to hand a fetched blob to an <iframe>. Stub both: the tests assert the
-// frame is wired up, not that a real PDF renders.
-globalThis.URL.createObjectURL ??= (() => "blob:stub") as unknown as typeof URL.createObjectURL;
-globalThis.URL.revokeObjectURL ??= (() => {}) as unknown as typeof URL.revokeObjectURL;
+// jsdom has no canvas backend, so getContext() returns null and any real
+// rasterisation is impossible. pdf.js itself is mocked in the tests that touch
+// it; this only keeps element construction from throwing.
+HTMLCanvasElement.prototype.getContext = (() =>
+    ({}) as unknown) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+// jsdom lacks Blob.arrayBuffer() in some versions; the document viewer reads
+// fetched bytes through it before handing them to the renderer.
+if (!("arrayBuffer" in Blob.prototype)) {
+    Object.defineProperty(Blob.prototype, "arrayBuffer", {
+        value(this: Blob) {
+            return Promise.resolve(new ArrayBuffer(8));
+        },
+    });
+}
 
 // jsdom has no matchMedia; App reads it once for the initial theme.
 globalThis.matchMedia ??= ((query: string) => ({
