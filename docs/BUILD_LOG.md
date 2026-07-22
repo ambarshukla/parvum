@@ -691,3 +691,19 @@ The user's first real look at the page (localhost) found what the component test
 **One deliberate remaining difference:** `parvum-dashboard` stores `VITE_API_BASE` as a *sensitive* variable (write-only, unreadable afterwards); `internal`'s is a normal encrypted one. `VITE_API_BASE` is compiled into a public JS bundle, so marking it sensitive protects nothing and only makes the value impossible to read back when debugging a deploy — which is exactly what this session needed to do more than once. Left as-is rather than propagated; if the two are ever squared up, the honest direction is relaxing the dashboard's, not tightening this one.
 
 **Not done (noted, not silently skipped):** neither project sets an Ignored Build Step, so a push touching only `internal/` still rebuilds `parvum-dashboard` and vice versa. Harmless (both builds are seconds and free at this scale), and fixing it means changing both projects together to avoid trading one divergence for another.
+
+## 2026-07-22 — The source PDF beside the extraction (D-057)
+
+**Done:**
+- `serving/.../migration_internal/V3__alts_documents.sql`: `alts_documents` (fund_id, document, `content bytea`, byte_size, sha256, loaded_at), keyed `(fund_id, document)` — document names repeat across funds, so the fund has to be part of the key.
+- `export/src/parvum_export/alts_document_source.py`: `fetch_document_index()` (SQL join of `bronze_alts_documents` × `silver_alts_documents` for the reviewable set, returning the volume path + landed sha256) and `download_document()` (Databricks Files API, `GET /api/2.0/fs/files{volume_path}`, refusing anything that doesn't start with `%PDF` so a truncated or error response can't be stored and surface later as an unreadable viewer).
+- `export/src/parvum_export/alts_document_loader.py`: `load_documents()` — digest-gated upsert, `download` injected so the skip/fetch/replace logic is testable offline.
+- `load_review_queue.py`: the same CLI now loads the queue *and* mirrors its documents; one command, so the two can't drift apart.
+- `AltsReviewResource`: `GET /internal/alts/documents/{fundId}/{document}` streaming `application/pdf`, with the `Content-Disposition` filename sanitised (the value comes from a DB row, but a header built by concatenation shouldn't be where that assumption gets tested).
+- `internal/`: `fetchDocumentPdf()` + a `DocumentViewer` that fetches the blob, renders it in an iframe via an object URL, and revokes the URL on change. `.queue-detail-body` is a two-column grid (fields | document) collapsing to one column under 1300px.
+
+**Verified live, end to end:** probed the Files API *before* writing code against it (2131 bytes, `%PDF-1.4`), then confirmed the same document exits the serving API at exactly 2131 bytes with the magic intact — byte-level agreement across the whole chain. `make load-review-queue`: `18 referenced, 18 fetched` (37,412 bytes, all 18 confirmed to start with `%PDF` by SQL), then an immediate re-run reporting `18 referenced, 0 fetched` — the digest gate doing its job. `mvn verify` 29/29 (3 new), `export` 40/40 (4 new), `internal` 11/11 (1 new), lint/format clean everywhere.
+
+**A constraint worth recording because it shaped the UI:** `InternalAuthFilter` requires a custom header on every `/internal/**` request and an `<iframe src>` cannot send one, so the viewer *had* to go via `fetch` → blob → object URL rather than pointing the frame at the endpoint. Discovering that after building the simple version would have meant rewriting it.
+
+**Not done:** source-linking (click a field → highlight where it was read from). Genuinely larger — the extraction pipeline captures no positional data, so it needs a different PDF library, a re-extraction, value→position matching, and a real PDF renderer to overlay on. Scoped in D-057 rather than left as a vague "later".

@@ -45,3 +45,11 @@ data/
 
 # Session/working notes — deliberately local-only, never pushed
 CLAUDE.md
+
+# Local dev-server logs (make serving-run / web-dev / internal-dev)
+*.log
+
+# Vercel CLI link state. Each frontend links its own project from its own
+# directory (web/.vercel, internal/.vercel); a stray one at the repo root
+# would point `vercel` at the whole repo instead.
+.vercel/
