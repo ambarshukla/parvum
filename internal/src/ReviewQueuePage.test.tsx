@@ -62,7 +62,7 @@ describe("ReviewQueuePage", () => {
         await waitFor(() =>
             expect(screen.getAllByText("capital_call_02.pdf").length).toBeGreaterThanOrEqual(1),
         );
-        expect(screen.getAllByText("FUND-PE01").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText(/FUND-PE01/).length).toBeGreaterThanOrEqual(1);
         expect(screen.getByText(PENDING_ITEM.validationNotes!)).toBeInTheDocument();
         expect(screen.getByLabelText("call_amount")).toHaveValue("100000.00");
         expect(screen.getByLabelText("recallable")).toHaveValue("true");

@@ -360,6 +360,7 @@ body {
     padding: 4px 10px;
     border-radius: 999px;
     border: 1px solid transparent;
+    white-space: nowrap;
 }
 
 .badge .dot {
@@ -406,12 +407,20 @@ body {
     width: 340px;
     flex-shrink: 0;
     padding: 0;
-    overflow: hidden;
+}
+
+.queue-list table.data {
+    table-layout: fixed;
 }
 
 .queue-list table.data th,
 .queue-list table.data td {
     padding: 10px 14px;
+}
+
+.queue-list table.data th:last-child,
+.queue-list table.data td:last-child {
+    width: 92px;
 }
 
 .queue-row {
