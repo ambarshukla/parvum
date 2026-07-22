@@ -1,4 +1,4 @@
-import type { DqMetricRow } from "./types";
+import type { DqMetricRow, QueueItem, QueueStatus } from "./types";
 
 // Same-origin by default (empty base), split-deployment override via
 // VITE_API_BASE — same story as web/api.ts. Unlike the public dashboard,
@@ -63,4 +63,30 @@ const OPS_TENANT = "aldergate";
 export async function fetchDqMetrics(): Promise<DqMetricRow[]> {
     const response = await request(`/internal/tenants/${OPS_TENANT}/dq-metrics`);
     return (await response.json()) as DqMetricRow[];
+}
+
+export async function fetchQueue(status?: QueueStatus): Promise<QueueItem[]> {
+    const query = status ? `?status=${status}` : "";
+    const response = await request(`/internal/alts/queue${query}`);
+    return (await response.json()) as QueueItem[];
+}
+
+export async function approveQueueItem(id: number): Promise<QueueItem> {
+    const response = await request(`/internal/alts/queue/${id}/approve`, { method: "POST" });
+    return (await response.json()) as QueueItem;
+}
+
+/** correctedFields values keep whatever type the reviewer's edit produced
+ *  (string/number/boolean/null) -- the server stores them verbatim, same as
+ *  an extraction's own fields. */
+export async function correctQueueItem(
+    id: number,
+    correctedFields: Record<string, unknown>,
+): Promise<QueueItem> {
+    const response = await request(`/internal/alts/queue/${id}/correct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(correctedFields),
+    });
+    return (await response.json()) as QueueItem;
 }

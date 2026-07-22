@@ -386,6 +386,110 @@ body {
     background: var(--critical);
 }
 
+.badge.neutral {
+    color: var(--muted);
+    background: var(--bar-track);
+}
+
+.badge.neutral .dot {
+    background: var(--muted);
+}
+
+/* ---- Review queue ---- */
+.queue-layout {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+}
+
+.queue-list {
+    width: 340px;
+    flex-shrink: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.queue-list table.data th,
+.queue-list table.data td {
+    padding: 10px 14px;
+}
+
+.queue-row {
+    cursor: pointer;
+}
+
+.queue-row:hover {
+    background: var(--bar-track);
+}
+
+.queue-row.active {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.queue-row-sub {
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.queue-detail {
+    flex: 1;
+    min-width: 0;
+}
+
+.queue-detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.validation-notes {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--critical) 10%, transparent);
+    color: var(--critical);
+    font-size: 13px;
+}
+
+.field-name {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+    width: 1%;
+}
+
+.field-input {
+    width: 100%;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 14px;
+}
+
+.field-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.queue-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.queue-actions .theme-toggle {
+    color: var(--ink);
+    border-color: var(--border);
+}
+
+.queue-actions .theme-toggle:hover {
+    border-color: var(--accent);
+}
+
 /* ---- Tables ---- */
 table.data {
     width: 100%;
