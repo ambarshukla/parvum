@@ -12,39 +12,17 @@ served, otherwise its data would silently reach nobody.
 """
 
 import argparse
-import json
 import os
-import subprocess
 import sys
 
 import psycopg
 
+from parvum_export.databricks_auth import DatabricksAuthError, resolve_token
 from parvum_export.gold_source import GOLD_TABLES, UNSCOPED_TABLES, ExportError, fetch_table
 from parvum_export.loader import load_tenant
 from parvum_export.tenants import TENANT_CLIENTS, client_tenants, schema_for
 
 _LOCAL_DSN = "postgresql://parvum:parvum_local_dev@127.0.0.1:5432/parvum"
-
-
-def _resolve_token(host: str) -> str:
-    """DATABRICKS_TOKEN if set (CI); otherwise mint one from the CLI's OAuth cache."""
-    token = os.environ.get("DATABRICKS_TOKEN", "").strip()
-    if token:
-        return token
-    try:
-        minted = subprocess.run(
-            ["databricks", "auth", "token", "--host", host, "--output", "json"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-        return json.loads(minted.stdout)["access_token"]
-    except (OSError, subprocess.SubprocessError, KeyError, json.JSONDecodeError) as exc:
-        raise ExportError(
-            "no DATABRICKS_TOKEN and the databricks CLI could not mint one "
-            f"(run `databricks auth login`): {exc}"
-        ) from exc
 
 
 def main() -> None:
@@ -62,7 +40,7 @@ def main() -> None:
         sys.exit("DATABRICKS_HOST and DATABRICKS_WAREHOUSE_ID must be set — see .env.example")
 
     try:
-        token = _resolve_token(host)
+        token = resolve_token(host)
         tables = [fetch_table(host, token, warehouse_id, table) for table in GOLD_TABLES]
         # No client_id to filter by — a fact about the pipeline, not about any
         # one firm's clients, so the same rows load into every tenant as-is.
@@ -82,7 +60,7 @@ def main() -> None:
                 counts = load_tenant(connection, schema_for(tenant_id), filtered + unscoped)
                 summary = ", ".join(f"{table}={count}" for table, count in counts.items())
                 print(f"{tenant_id}: {summary}")
-    except (ExportError, psycopg.Error) as exc:
+    except (ExportError, DatabricksAuthError, psycopg.Error) as exc:
         sys.exit(f"export failed: {exc}")
 
 

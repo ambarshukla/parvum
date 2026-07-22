@@ -24,6 +24,15 @@ TEST_DSN = os.environ.get(
 _MIGRATIONS = (
     Path(__file__).parents[2] / "serving" / "src" / "main" / "resources" / "db" / "migration"
 )
+_INTERNAL_MIGRATIONS = (
+    Path(__file__).parents[2]
+    / "serving"
+    / "src"
+    / "main"
+    / "resources"
+    / "db"
+    / "migration_internal"
+)
 
 
 @pytest.fixture(scope="session")
@@ -59,3 +68,24 @@ def tenant_schemas(connection):
     for schema in schemas:
         with connection.transaction():
             connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+@pytest.fixture
+def internal_schema(connection):
+    """One migrated throwaway "internal"-shaped schema, dropped afterwards even on failure.
+
+    Not the real "internal" schema the serving app owns — a same-DDL
+    lookalike, unique per test, so runs never collide with each other or
+    with a real running serving instance.
+    """
+    schema = f"i_export_{uuid.uuid4().hex[:8]}"
+    migrations = sorted(_INTERNAL_MIGRATIONS.glob("V*.sql"))
+    assert migrations, f"no Flyway migrations found under {_INTERNAL_MIGRATIONS}"
+    with connection.transaction():
+        connection.execute(f'CREATE SCHEMA "{schema}"')
+        connection.execute(f'SET LOCAL search_path TO "{schema}"')
+        for migration in migrations:
+            connection.execute(migration.read_text(encoding="utf-8"))
+    yield schema
+    with connection.transaction():
+        connection.execute(f'DROP SCHEMA "{schema}" CASCADE')

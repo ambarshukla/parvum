@@ -47,7 +47,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold load-review-queue serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -124,6 +124,9 @@ web-dev: ## run the web dashboard locally on :5173
 # Local OAuth is fine (the CLI mints a token); CI would set DATABRICKS_TOKEN.
 export-gold: ## reload the serving Postgres projection from gold (needs DATABRICKS_HOST, DATABRICKS_WAREHOUSE_ID)
 	cd export && uv run parvum-export-gold
+
+load-review-queue: ## load silver_alts_documents needs_review rows into the internal review queue
+	cd export && uv run parvum-load-review-queue
 
 # Incremental: filings are immutable, so anything already in data/edgar is
 # never re-fetched. SEC requires a contact in the User-Agent — see .env.example.
