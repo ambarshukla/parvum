@@ -47,7 +47,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -117,6 +117,14 @@ web-install: ## install the web dashboard's dependencies (one-time)
 # Vite dev server on :5173, proxying API calls to the serving app on :8080.
 web-dev: ## run the web dashboard locally on :5173
 	cd web && npm run dev
+
+internal-install: ## install the internal app's dependencies (one-time)
+	cd internal && npm install
+
+# Vite dev server on :5174 (web/ holds :5173, so both can run at once),
+# proxying /internal/* to the serving app on :8080.
+internal-dev: ## run the internal app locally on :5174
+	cd internal && npm run dev
 
 # Pulls the four gold tables over the SQL Statements API and truncate-reloads
 # each tenant schema (D-029). The serving app must have started once against
