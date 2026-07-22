@@ -139,7 +139,6 @@ function QueueList({
                 <thead>
                     <tr>
                         <th>Document</th>
-                        <th>Type</th>
                         <th>Status</th>
                     </tr>
                 </thead>
@@ -152,9 +151,10 @@ function QueueList({
                         >
                             <td>
                                 <div>{item.document}</div>
-                                <div className="muted queue-row-sub">{item.fundId}</div>
+                                <div className="muted queue-row-sub">
+                                    {item.fundId} · {docTypeLabel(item.docType)}
+                                </div>
                             </td>
-                            <td className="muted queue-row-sub">{docTypeLabel(item.docType)}</td>
                             <td>
                                 <StatusBadge status={item.status} stale={item.stale} />
                             </td>
