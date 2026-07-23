@@ -19,7 +19,7 @@ Five layers, mirroring a real wealth-data platform:
    small React/Svelte frontend. Local dev on Docker; production on AWS
    (RDS + ECS Express Mode) provisioned by Terraform.
 5. **Control & ops** — reconciliation + data-quality framework (Phase 3),
-   the alts HITL review queue (Phase 6), Grafana/Prometheus + PagerDuty (Phase 9).
+   the alts HITL review queue (Phase 6), Grafana/Prometheus + PagerDuty (Phase 8).
    Unlike the client dashboard, this layer needs a real access-control
    boundary (write actions + an audit trail), so it lives in its own
    authenticated app, `internal/` (D-046) — a separate Vercel deployment

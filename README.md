@@ -7,7 +7,7 @@ built end-to-end from open and synthetic data: custodial feeds in **real wire
 formats** → normalisation against a **securities master** → **reconciliation &
 data-quality control** → a **total-portfolio view** served by Java web
 services and a React dashboard — plus a human-in-the-loop pipeline for
-alternatives documents, and an infra/observability wrapper.
+alternatives documents, all deployed on cloud infrastructure defined as code.
 
 The feeds are synthetic but the *formats* are real (ISO 20022, SWIFT MT),
 seeded with real reference data and real SEC 13F holdings, with defects
@@ -27,22 +27,37 @@ viewer straight in via a public demo credential (D-059), so there's nothing to t
 
 ```mermaid
 flowchart LR
-    subgraph GHA [GitHub Actions cron — the fetch half, open egress]
-        FG[Feed generator<br/>5 accounts × semt.002 / MT535<br/>+ consolidated camt.053<br/>+ injected defects]
-        EX[13F filings<br/>ETF proxies]
+    subgraph acq [GitHub Actions — fetch half, open egress]
+        FG["Feed generator<br/>5 accounts · semt.002 / MT535 / camt.053<br/>+ injected defects"]
+        EXT["SEC 13F filings · ECB FX rates"]
     end
-    GHA -->|raw files via CLI/API| UC[Unity Catalog volume]
-    UC -->|file-arrival trigger| B[Bronze<br/>raw as received]
-    B --> S[Silver<br/>normalised, ID-mapped]
-    S --> G[Gold<br/>portfolio views]
-    subgraph DBX [Databricks Free Edition — Delta Lake, Workflows]
-        B --> S --> G
+    ALTS["Synthetic alts PDFs<br/>capital calls · distributions · statements"] --> LLM["LLM extraction<br/>confidence + cross-document validation"]
+
+    acq -->|"land raw files (CLI/API)"| UC[("Unity Catalog<br/>landing volume")]
+    LLM -->|land| UC
+
+    subgraph dbx [Databricks Free Edition — Delta Lake · Workflows]
+        B["Bronze<br/>raw as received"] --> S["Silver<br/>conformed · ID-mapped · owner-attributed"]
+        S --> DQ["Reconciliation & DQ<br/>graded vs defect manifests"]
+        SA["Silver alts<br/>auto-accept / needs-review"]
+        S --> G["Gold<br/>portfolio + performance views"]
+        DQ --> G
+        SA --> G
     end
-    G -->|load| PG[(Postgres<br/>local Docker → RDS)]
-    PG --> API[Quarkus + jOOQ REST<br/>AWS ECS Express Mode]
-    API --> FE[React/Svelte frontend<br/>Vercel]
-    PDF[Synthetic alts PDFs<br/>capital calls etc.] --> HITL[Extraction + confidence<br/>+ human review queue] --> S
+    UC -->|file-arrival trigger| B
+    UC --> SA
+
+    G -->|export| PG[("Postgres<br/>schema-per-tenant + internal")]
+    PG --> API["Quarkus + jOOQ REST<br/>AWS ECS Express Mode"]
+    API --> WEB["Client dashboard<br/>Vercel"]
+    API --> INT["Internal app · review queue<br/>Vercel"]
+    INT -.->|"reviewed decision → land file"| UC
 ```
+
+The client-facing path runs left to right; the dashed edge is the
+human-in-the-loop returning a reviewed alts decision to the lakehouse as a
+landed file (the serving app never writes to Delta — it stays the system of
+record).
 
 ### The Databricks Workflow
 
@@ -121,9 +136,13 @@ than silently assumed correct (D-060).
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ✅ done |
-| 7 | Liquidity & scenario projection view | ⬜ |
-| 8 | External analytics integration (mocked) | ⬜ |
-| 9 | Terraform + Grafana/Prometheus + PagerDuty | ⬜ |
+| 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
+| 8 | Observability stack — metrics, dashboards, paging | ⬜ |
+
+Failure and data-freshness alerting already run on the daily pipeline (a
+job-failure email, a long-run warning, and a freshness gate that fails the
+build if bronze stops updating); phase 8 is the heavier metrics-and-dashboards
+layer on top.
 
 ## Quickstart
 
