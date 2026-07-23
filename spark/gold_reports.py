@@ -257,20 +257,24 @@ spark.createDataFrame(  # noqa: F821
     "nav_native DECIMAL(24,2)",
 ).createOrReplaceTempView("alts_nav_raw")
 
-# Owner-prorated NAV in USD per (client, statement date) — the input to
-# alts_daily's forward fill below. Converted at that specific statement
+# Owner-prorated NAV in USD per (client, FUND, statement date) — kept at
+# fund grain, not summed across a client's funds yet. A client can hold more
+# than one alts fund on different statement schedules (Okafor: Bramwell and
+# Alpenrose), so collapsing to (client, date) here would let one fund's
+# later statement silently push another fund's earlier-but-still-current
+# mark out of the picture the moment alts_daily's forward fill looks at only
+# the most recent date it has a row for. Converted at each statement's own
 # date's rate (fx is keyed by as_of, so joined on statement_date here).
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TEMP VIEW alts_nav_points AS
-    SELECT o.client_id, n.statement_date,
-           CAST(SUM(
+    SELECT o.client_id, n.fund_id, n.statement_date,
+           CAST(
                (CASE WHEN n.currency = 'USD' THEN n.nav_native ELSE n.nav_native * f.eur_usd END)
                * o.ownership_pct
-           ) AS DECIMAL(24,2)) AS nav_usd
+           AS DECIMAL(24,2)) AS nav_usd
     FROM alts_nav_raw n
     JOIN {SCHEMA}.silver_account_owners o USING (account_id)
-    JOIN fx f ON f.as_of = n.statement_date
-    GROUP BY o.client_id, n.statement_date"""
+    JOIN fx f ON f.as_of = n.statement_date"""
 )
 
 # COMMAND ----------
@@ -337,8 +341,15 @@ spark.sql(  # noqa: F821
 # MAGIC %md ### `alts_daily` — forward-filled NAV, one row per (client, date)
 # MAGIC
 # MAGIC Reused by both `gold_client_wealth` and `gold_asset_allocation` below.
-# MAGIC The date grid is every date `silver_position_owners` already reports on,
-# MAGIC UNIONed with the fund's own statement dates — a statement landing
+# MAGIC Forward-filled *per fund first, summed second* — not the other way
+# MAGIC round. A client holding more than one fund (Okafor: Bramwell and
+# MAGIC Alpenrose) will see each fund report its own statements on its own
+# MAGIC schedule; summing by date before filling would mean the moment either
+# MAGIC fund's date range moves past the other's, the LAST_VALUE window picks
+# MAGIC up only the most-recently-reporting fund's contribution and silently
+# MAGIC drops the other's still-current mark. The date grid for each fund's
+# MAGIC own fill is every date `silver_position_owners` already reports on,
+# MAGIC UNIONed with that fund's own statement dates — a statement landing
 # MAGIC *before* the wealth-reporting window even starts still has to seed the
 # MAGIC forward fill, or its NAV would read as zero for the whole window
 # MAGIC instead of "whatever the last confirmed mark said".
@@ -350,26 +361,37 @@ spark.sql(  # noqa: F821
     WITH wealth_dates AS (
         SELECT DISTINCT as_of, client_id, client_name FROM {SCHEMA}.silver_position_owners
     ),
+    funds AS (
+        SELECT DISTINCT client_id, fund_id FROM alts_nav_points
+    ),
     all_dates AS (
-        SELECT as_of, client_id FROM wealth_dates
+        SELECT w.as_of, f.client_id, f.fund_id
+        FROM wealth_dates w
+        JOIN funds f USING (client_id)
         UNION
-        SELECT statement_date AS as_of, client_id FROM alts_nav_points
+        SELECT statement_date AS as_of, client_id, fund_id FROM alts_nav_points
     ),
     joined AS (
-        SELECT d.as_of, d.client_id, p.nav_usd
+        SELECT d.as_of, d.client_id, d.fund_id, p.nav_usd
         FROM all_dates d
-        LEFT JOIN alts_nav_points p ON p.client_id = d.client_id AND p.statement_date = d.as_of
+        LEFT JOIN alts_nav_points p
+            ON p.client_id = d.client_id AND p.fund_id = d.fund_id AND p.statement_date = d.as_of
     ),
     filled AS (
-        SELECT as_of, client_id,
+        SELECT as_of, client_id, fund_id,
                COALESCE(LAST_VALUE(nav_usd, true) OVER (
-                   PARTITION BY client_id ORDER BY as_of
-                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS alts_usd
+                   PARTITION BY client_id, fund_id ORDER BY as_of
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS nav_usd
         FROM joined
+    ),
+    summed AS (
+        SELECT as_of, client_id, SUM(nav_usd) AS alts_usd
+        FROM filled
+        GROUP BY as_of, client_id
     )
-    SELECT w.as_of, w.client_id, w.client_name, f.alts_usd
+    SELECT w.as_of, w.client_id, w.client_name, COALESCE(s.alts_usd, 0) AS alts_usd
     FROM wealth_dates w
-    JOIN filled f USING (as_of, client_id)"""
+    LEFT JOIN summed s ON s.as_of = w.as_of AND s.client_id = w.client_id"""
 )
 
 # COMMAND ----------
