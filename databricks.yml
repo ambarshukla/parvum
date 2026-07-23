@@ -192,10 +192,20 @@ resources:
             notebook_path: spark/silver_alts_documents
             source: GIT
 
+      # Watches the alts/ parent, not just raw/: bronze_alts_ingest.py reads
+      # three subdirectories (raw/, extracted/, reviewed/) but the trigger
+      # was scoped to raw/ alone, so arrivals in the other two never fired
+      # this job — reviewed decisions (D-055, now landed on a schedule by
+      # sync-review-queue.yml) would sit in the volume unprocessed until
+      # someone noticed and ran `make run-alts-job` by hand. Same
+      # file-arrival semantics as everywhere else in this project (D-018):
+      # new paths fire, overwritten ones don't — decision files are
+      # one-shot writes (review_decision_sync.write_decision_files), so
+      # this holds for reviewed/ too.
       trigger:
         pause_status: UNPAUSED
         file_arrival:
-          url: /Volumes/workspace/parvum/landing/alts/raw/
+          url: /Volumes/workspace/parvum/landing/alts/
           wait_after_last_change_seconds: 60
           min_time_between_triggers_seconds: 300
 
