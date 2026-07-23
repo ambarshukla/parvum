@@ -114,7 +114,7 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 # COMMAND ----------
 
 _alts_confirmed = spark.sql(  # noqa: F821
-    f"""SELECT doc_type, confirmed_fields_json
+    f"""SELECT fund_id, doc_type, confirmed_fields_json
     FROM {SCHEMA}.silver_alts_documents WHERE confirmed_fields_json IS NOT NULL"""
 ).collect()
 
@@ -131,8 +131,13 @@ _dists: dict[str, list[dict]] = {}
 _stmts: dict[str, list[dict]] = {}
 _by_doc_type = {"capital_call": _calls, "distribution": _dists, "capital_account_statement": _stmts}
 for _row in _alts_confirmed:
+    # fund_id is never a key inside the fields JSON itself -- it's a
+    # directory-derived fact the extraction pipeline attaches alongside
+    # `fields` (parvum_alts_hitl.extract.process_directory), not something
+    # the LLM was asked to read off the page. Group by the silver row's own
+    # column, never by parsing it back out of the JSON.
     _fields = json.loads(_row.confirmed_fields_json)
-    _by_doc_type[_row.doc_type].setdefault(_fields["fund_id"], []).append(_fields)
+    _by_doc_type[_row.doc_type].setdefault(_row.fund_id, []).append(_fields)
 
 _alts_fund_rows = []
 _alts_nav_rows = []
