@@ -10,6 +10,11 @@ const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 const CSRF_HEADER = "X-Parvum-Internal";
 
+// Public by design (D-059): logs a viewer in exactly like the real password,
+// but meant to be embedded in a shareable link rather than kept secret. See
+// App.tsx's handling of the `?demo=` query param.
+const DEMO_PASSWORD = "parvum-showcase";
+
 export class ApiError extends Error {
     constructor(
         public status: number,
@@ -53,6 +58,11 @@ export async function login(password: string): Promise<void> {
 
 export async function logout(): Promise<void> {
     await request("/internal/auth/logout", { method: "POST" });
+}
+
+/** Logs in with the public demo credential — see DEMO_PASSWORD above. */
+export async function demoLogin(): Promise<void> {
+    await login(DEMO_PASSWORD);
 }
 
 // dq_metrics rows are identical regardless of tenant (see

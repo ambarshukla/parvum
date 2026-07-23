@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { checkSession, fetchDqMetrics, logout } from "./api";
+import { checkSession, demoLogin, fetchDqMetrics, logout } from "./api";
 import { LoginPage } from "./LoginPage";
 import { OpsPage } from "./OpsPage";
 import { ReviewQueuePage } from "./ReviewQueuePage";
@@ -28,6 +28,24 @@ export function App() {
     }, [theme]);
 
     useEffect(() => {
+        // A `?demo=` link (D-059) logs a portfolio viewer in without anyone
+        // sending a password out of band. The param is stripped immediately
+        // so it doesn't linger in the address bar or get echoed if the page
+        // is shared onward.
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("demo")) {
+            params.delete("demo");
+            const rest = params.toString();
+            window.history.replaceState(
+                {},
+                "",
+                window.location.pathname + (rest ? `?${rest}` : ""),
+            );
+            demoLogin()
+                .then(() => setAuth("in"))
+                .catch(() => setAuth("out"));
+            return;
+        }
         checkSession().then((ok) => setAuth(ok ? "in" : "out"));
     }, []);
 

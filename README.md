@@ -17,9 +17,11 @@ and data-quality work in practice.
 **Live:**
 [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app) — the client wealth dashboard, open.
 [parvum-internal.vercel.app](https://parvum-internal.vercel.app) — the internal tools (data-ops
-scorecard and the alts review queue), password-gated: these are back-office
-screens, not client-facing ones, so they sit behind an access boundary rather
-than in the dashboard above.
+scorecard and the alts review queue). These are back-office screens, not
+client-facing ones, so they sit behind a login rather than in the dashboard
+above — but [this link](https://parvum-internal.vercel.app/?demo=1) signs a
+viewer straight in via a public demo credential (D-059), so there's nothing
+to type or request.
 
 ## Architecture (target)
 

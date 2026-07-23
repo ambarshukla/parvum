@@ -730,3 +730,18 @@ The user's first real look at the page (localhost) found what the component test
 **Verified:** pdf.js parses all three real document types (1 page, 612×792pt, real text). `/standard_fonts/FoxitSans.pfb` served 200 at the exact URL the viewer requests; all 16 font files emitted to `dist/`. `internal` 11/11 (pdf.js mocked at the module boundary — jsdom has no canvas, so a test that appeared to rasterise would only be testing the mock), typecheck/build/format clean.
 
 **Not verified by eye:** no browser-automation tool is available in this session, so the rendered output hasn't been looked at directly — the evidence is that pdf.js parses these exact documents, the font data resolves, and the wiring is under test. Worth a glance before relying on it in a demo.
+
+**2026-07-23 addendum:** the user looked at the pdf.js viewer in a real browser and confirmed it renders correctly, closing the one gap D-058 flagged as unverified.
+
+## 2026-07-23 — A demo link that logs a viewer in without a shared password (D-059)
+
+**Done:**
+- `serving/src/main/resources/application.properties`: new checked-in `parvum.internal.demo-password` default (`parvum-showcase`) — public by design, unlike the real password/session-secret above it which fail closed with no default.
+- `AuthResource.login()`: accepts either the real password or the demo password, both via constant-time compare.
+- `internal/src/api.ts`: `demoLogin()` wraps the existing `login()` with the (frontend-side, equally public) demo constant.
+- `internal/src/App.tsx`: on mount, a `?demo=1` query param triggers `demoLogin()` instead of the normal `checkSession()` check, then strips the param via `history.replaceState` so it doesn't linger in the address bar.
+- README: the internal-app line now points to `parvum-internal.vercel.app/?demo=1` as the no-friction entry point, alongside the plain URL.
+
+**Why not just remove the login:** `InternalAuthFilter` gates everything under `/internal/**` by path prefix, including the review queue's `approve`/`correct` mutation endpoints — removing auth entirely would leave those open to the public internet, not just the page. This keeps every request, demo or not, behind a real session; only how a viewer *obtains* one got easier.
+
+**Verified:** `serving` 30/30 (new: demo password logs in and returns a valid session cookie); `internal` 12/12 (new: a `?demo=1` load reaches the signed-in shell with no login screen shown, and the URL is clean afterward). `mvn verify` and `internal`'s format/typecheck/build all clean.

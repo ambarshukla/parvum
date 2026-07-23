@@ -57,6 +57,19 @@ class AuthResourceTest {
         .statusCode(204);
   }
 
+  @Test
+  void logsInWithTheDemoPassword() {
+    given()
+        .header(CSRF_HEADER, "1")
+        .contentType(ContentType.JSON)
+        .body("{\"password\":\"parvum-showcase\"}")
+        .when()
+        .post("/internal/auth/login")
+        .then()
+        .statusCode(204)
+        .cookie(COOKIE);
+  }
+
   // Sessions are stateless (no session table, see SessionToken) — logout can only tell the
   // browser to drop its cookie (maxAge=0), not revoke the token server-side. A replayed token
   // therefore still validates until it expires; that trade is recorded in D-046.
