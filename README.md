@@ -15,15 +15,15 @@ injected deliberately — because the defects are what drive reconciliation
 and data-quality work in practice.
 
 **Live:**
-[parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app) — the client wealth dashboard, open.
-[parvum-internal.vercel.app](https://parvum-internal.vercel.app) — the internal tools (data-ops
-scorecard and the alts review queue). These are back-office screens, not
-client-facing ones, so they sit behind a login rather than in the dashboard
-above — but [this link](https://parvum-internal.vercel.app/?demo=1) signs a
-viewer straight in via a public demo credential (D-059), so there's nothing
-to type or request.
 
-## Architecture (target)
+[parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app) — the client wealth dashboard, open.
+
+[parvum-internal.vercel.app](https://parvum-internal.vercel.app/?demo=1) — the internal tools
+(data-ops scorecard and the alts review queue). These are back-office screens, not client-facing
+ones, so they sit behind a login rather than in the dashboard above — but the link above signs a
+viewer straight in via a public demo credential (D-059), so there's nothing to type or request.
+
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -56,7 +56,7 @@ flowchart LR
     bronze["bronze<br/>raw as received"] --> silver["silver<br/>positions"]
     bronze --> cash["silver_cash<br/>balances + movements"]
     cash --> dq["dq_recon<br/>reconciliation + integrity"]
-    silver --> gold["gold<br/>5 report tables"]
+    silver --> gold["gold<br/>8 report tables"]
     dq --> gold
 ```
 
@@ -75,7 +75,7 @@ own tests and CI.
 | Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
 | Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
-| Alts documents | **Python**, **reportlab** — synthetic capital-call/distribution/capital-account PDFs, defect injection | [`alts-hitl/`](alts-hitl/) |
+| Alts documents & HITL review | **Python**, **reportlab**, LLM extraction (Claude/OpenRouter) — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
@@ -85,7 +85,7 @@ own tests and CI.
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-053); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-060); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![The web dashboard — client overview](docs/img/dashboard-overview.png)
 
@@ -103,6 +103,13 @@ review queue — see D-046.)
 
 ![Performance tab, three methodologies side by side](docs/img/dashboard-performance.png)
 
+Private-fund (alts) holdings count toward the headline wealth number too, not
+just a side table: NAV from the human-reviewed capital account statements
+folds into total wealth and a dedicated allocation class, with an
+"Alternatives" tab showing the commitment/called/distributed/NAV/MOIC detail
+behind it — and a document still awaiting review is visibly excluded rather
+than silently assumed correct (D-060).
+
 ## Phases
 
 | # | Phase | Status |
@@ -113,7 +120,7 @@ review queue — see D-046.)
 | 3 | Reconciliation & data-quality control | ✅ done |
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
-| 6 | Alternatives HITL pipeline | ⬜ |
+| 6 | Alternatives HITL pipeline | ✅ done |
 | 7 | Liquidity & scenario projection view | ⬜ |
 | 8 | External analytics integration (mocked) | ⬜ |
 | 9 | Terraform + Grafana/Prometheus + PagerDuty | ⬜ |
@@ -186,7 +193,7 @@ each step does, and a troubleshooting table.
 | `export/` | gold → serving-Postgres exporter (Python) | 5 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
-| `internal/` | Auth-gated internal app — data ops scorecard, alts review queue (Vite + TypeScript) | 6 |
-| `alts-hitl/` | Synthetic private-fund document generator (built); extraction + validation to come | 6 |
+| `internal/` | Auth-gated internal app — data ops scorecard, alts review queue, source PDF viewer (Vite + TypeScript) | 6 |
+| `alts-hitl/` | Synthetic private-fund document generator, LLM extraction, cross-document validation | 6 |
 | `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
