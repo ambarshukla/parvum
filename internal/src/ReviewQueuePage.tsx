@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { approveQueueItem, correctQueueItem, fetchDocumentPdf, fetchQueue } from "./api";
+import { PdfViewer } from "./components/PdfViewer";
 import { longDate } from "./format";
 import type { DocType, QueueItem, QueueStatus } from "./types";
 
@@ -323,27 +324,24 @@ function QueueDetail({ item, onDecided }: { item: QueueItem; onDecided: () => vo
     );
 }
 
-/** The source PDF, rendered by the browser's own viewer.
+/** Fetches the source PDF and hands the bytes to the app's own renderer.
  *
- *  Fetched into a blob rather than pointed at directly: `/internal/**` needs
- *  the CSRF header on every request and an `<iframe src>` can't send one.
- *  The object URL is revoked when the selection changes, so flicking through
- *  a queue doesn't leak one blob per document viewed. */
+ *  The fetch has to go through `fetch()` rather than any element that loads a
+ *  URL itself: `/internal/**` requires the CSRF header on every request, and
+ *  neither an `<iframe src>` nor an `<embed>` can send one. */
 function DocumentViewer({ fundId, document: documentName }: { fundId: string; document: string }) {
-    const [url, setUrl] = useState<string | null>(null);
+    const [data, setData] = useState<ArrayBuffer | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        let objectUrl: string | null = null;
-        setUrl(null);
+        setData(null);
         setError(null);
 
         fetchDocumentPdf(fundId, documentName)
-            .then((blob) => {
-                if (cancelled) return;
-                objectUrl = URL.createObjectURL(blob);
-                setUrl(objectUrl);
+            .then((blob) => blob.arrayBuffer())
+            .then((bytes) => {
+                if (!cancelled) setData(bytes);
             })
             .catch((e: unknown) => {
                 if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -351,35 +349,23 @@ function DocumentViewer({ fundId, document: documentName }: { fundId: string; do
 
         return () => {
             cancelled = true;
-            if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
     }, [fundId, documentName]);
 
     if (error) {
         return (
-            <div className="pdf-frame pdf-placeholder">
+            <div className="pdf-viewer pdf-state">
                 <span className="muted">Could not load the source PDF.</span>
                 <code>{error}</code>
             </div>
         );
     }
-    if (!url) {
+    if (!data) {
         return (
-            <div className="pdf-frame pdf-placeholder">
+            <div className="pdf-viewer pdf-state">
                 <span className="muted">Loading document…</span>
             </div>
         );
     }
-    // #view=FitH asks the browser's PDF viewer to fit the page to the frame's
-    // width. Without it a half-width pane renders the page at a default zoom
-    // and clips the right-hand column behind a horizontal scrollbar — which
-    // hides exactly the numbers a reviewer is here to check. A viewer that
-    // ignores the fragment simply falls back to its own default.
-    return (
-        <iframe
-            className="pdf-frame"
-            src={`${url}#view=FitH`}
-            title={`${documentName} — source document`}
-        />
-    );
+    return <PdfViewer data={data} label={`${documentName} — source document`} />;
 }

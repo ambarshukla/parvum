@@ -3,6 +3,32 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ReviewQueuePage } from "./ReviewQueuePage";
 import type { QueueItem } from "./types";
 
+// pdf.js rasterises to a canvas, which jsdom cannot do. Mock it at the module
+// boundary: these tests are about the page wiring the renderer up with the
+// right bytes and label, not about pixels — the real renderer is exercised
+// against real documents in the browser.
+vi.mock("pdfjs-dist", () => ({
+    GlobalWorkerOptions: { workerSrc: "" },
+    getDocument: () => ({
+        destroy: () => Promise.resolve(),
+        promise: Promise.resolve({
+            numPages: 1,
+            getPage: () =>
+                Promise.resolve({
+                    getViewport: ({ scale }: { scale: number }) => ({
+                        width: 600 * scale,
+                        height: 800 * scale,
+                    }),
+                    render: () => ({ promise: Promise.resolve() }),
+                    cleanup: () => {},
+                }),
+            destroy: () => Promise.resolve(),
+        }),
+    }),
+}));
+
+vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "worker-stub" }));
+
 afterEach(() => {
     vi.restoreAllMocks();
 });
@@ -74,13 +100,21 @@ describe("ReviewQueuePage", () => {
         expect(screen.getByLabelText("recallable")).toHaveValue("true");
     });
 
-    it("renders the source PDF beside the extracted fields", async () => {
+    it("renders the source PDF beside the extracted fields, in the app's own viewer", async () => {
         mockFetchSequence([["list", [PENDING_ITEM]]]);
         render(<ReviewQueuePage />);
 
+        // Labelled by the app, not by a browser's built-in viewer — the point
+        // of D-058 is that this element is ours.
         await waitFor(() =>
-            expect(screen.getByTitle("capital_call_02.pdf — source document")).toBeInTheDocument(),
+            expect(
+                screen.getByLabelText("capital_call_02.pdf — source document"),
+            ).toBeInTheDocument(),
         );
+        // The zoom controls are the app's chrome; a browser viewer would have
+        // supplied its own and we'd have none of these.
+        expect(screen.getByLabelText("Zoom in")).toBeInTheDocument();
+        expect(screen.getByLabelText("Zoom out")).toBeInTheDocument();
     });
 
     it("approving a pending item reloads the list and clears it from the pending view", async () => {
