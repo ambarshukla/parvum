@@ -15,11 +15,12 @@ import java.time.Duration;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 /**
- * The internal app's single shared login. There is one credential (an SSM-stored secret in prod,
- * mirroring the RDS password's trust model — see D-046) rather than a per-user account table, so
- * checking it is a direct constant-time equality, not a hashed-password lookup: bcrypt earns its
- * keep defending a stored table of many hashes against a database leak, which doesn't apply to
- * comparing against one live secret value.
+ * The internal app's login. Two credentials are accepted, both checked by direct constant-time
+ * equality rather than a hashed-password lookup (bcrypt earns its keep defending a stored table of
+ * many hashes against a database leak, which doesn't apply to comparing against one or two live
+ * secret values): the real password (an SSM-stored secret in prod, mirroring the RDS password's
+ * trust model — see D-046), and a public demo password (D-059) that a shareable link uses to log a
+ * portfolio viewer in without anyone having to send it out of band.
  */
 @Path("/internal/auth")
 @Produces(MediaType.APPLICATION_JSON)
@@ -30,18 +31,21 @@ public class AuthResource {
 
   private final SessionToken sessionToken;
   private final String password;
+  private final String demoPassword;
   private final boolean cookieSecure;
   private final NewCookie.SameSite cookieSameSite;
 
   public AuthResource(
       SessionToken sessionToken,
       @ConfigProperty(name = "parvum.internal.password") String password,
+      @ConfigProperty(name = "parvum.internal.demo-password") String demoPassword,
       @ConfigProperty(name = "parvum.internal.cookie-secure", defaultValue = "true")
           boolean cookieSecure,
       @ConfigProperty(name = "parvum.internal.cookie-samesite", defaultValue = "None")
           String cookieSameSite) {
     this.sessionToken = sessionToken;
     this.password = password;
+    this.demoPassword = demoPassword;
     this.cookieSecure = cookieSecure;
     this.cookieSameSite = NewCookie.SameSite.valueOf(cookieSameSite.toUpperCase());
   }
@@ -52,10 +56,12 @@ public class AuthResource {
   @Path("/login")
   @Consumes(MediaType.APPLICATION_JSON)
   public Response login(LoginRequest request) {
-    byte[] expected = password.getBytes(StandardCharsets.UTF_8);
     String submitted = request == null || request.password() == null ? "" : request.password();
     byte[] actual = submitted.getBytes(StandardCharsets.UTF_8);
-    if (!MessageDigest.isEqual(expected, actual)) {
+    boolean ok =
+        MessageDigest.isEqual(password.getBytes(StandardCharsets.UTF_8), actual)
+            || MessageDigest.isEqual(demoPassword.getBytes(StandardCharsets.UTF_8), actual);
+    if (!ok) {
       throw new NotAuthorizedException("invalid password");
     }
     return Response.noContent().cookie(sessionCookie(sessionToken.issue(SESSION_TTL))).build();

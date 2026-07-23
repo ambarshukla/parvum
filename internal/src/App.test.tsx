@@ -4,6 +4,7 @@ import { App } from "./App";
 
 afterEach(() => {
     vi.restoreAllMocks();
+    window.history.replaceState({}, "", "/");
 });
 
 describe("App", () => {
@@ -17,5 +18,14 @@ describe("App", () => {
         vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
         render(<App />);
         await waitFor(() => expect(screen.getByText("Sign out")).toBeInTheDocument());
+    });
+
+    it("auto-logs in via a ?demo= link and strips the param, without showing the login page", async () => {
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+        window.history.replaceState({}, "", "/?demo=1");
+        render(<App />);
+        await waitFor(() => expect(screen.getByText("Sign out")).toBeInTheDocument());
+        expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+        expect(window.location.search).toBe("");
     });
 });
