@@ -67,6 +67,19 @@ _SYSTEM_PROMPT = (
 # rather than one field's local description (see D-053).
 _AMOUNT_DESC = "Decimal, no currency symbol or thousands separators, e.g. 150000.00"
 
+# Documents in this corpus are not all US-formatted (D-061): a EUR-fund
+# template prints dates as DD/MM/YYYY and amounts with European grouping
+# ('.') and decimal ('.') marks swapped from the US convention. The
+# instruction asks for a normalised ISO/plain-decimal OUTPUT regardless of
+# how the source is formatted -- the model has to actually interpret the
+# document's own convention, not just copy digits through.
+_CURRENCY_DESC = "ISO 4217 currency code as stated in the document, e.g. USD or EUR"
+_DATE_DESC = (
+    "ISO 8601 YYYY-MM-DD. The source document may use another convention "
+    "(e.g. DD/MM/YYYY) -- read it as written and convert, do not assume US "
+    "MM/DD/YYYY ordering."
+)
+
 _CALL_TOOL = {
     "name": "extract_capital_call",
     "description": "Extract structured fields from a capital call notice.",
@@ -75,9 +88,10 @@ _CALL_TOOL = {
         "properties": {
             "fund_name": {"type": "string"},
             "account_id": {"type": "string"},
+            "currency": {"type": "string", "description": _CURRENCY_DESC},
             "call_number": {"type": "integer"},
-            "call_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
-            "due_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
+            "call_date": {"type": "string", "description": _DATE_DESC},
+            "due_date": {"type": "string", "description": _DATE_DESC},
             "call_amount": {"type": "string", "description": _AMOUNT_DESC},
             "cumulative_called": {"type": "string", "description": _AMOUNT_DESC},
             "remaining_commitment": {"type": "string", "description": _AMOUNT_DESC},
@@ -90,6 +104,7 @@ _CALL_TOOL = {
         "required": [
             "fund_name",
             "account_id",
+            "currency",
             "call_number",
             "call_date",
             "due_date",
@@ -110,8 +125,9 @@ _DISTRIBUTION_TOOL = {
         "properties": {
             "fund_name": {"type": "string"},
             "account_id": {"type": "string"},
+            "currency": {"type": "string", "description": _CURRENCY_DESC},
             "distribution_number": {"type": "integer"},
-            "distribution_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
+            "distribution_date": {"type": "string", "description": _DATE_DESC},
             "distribution_amount": {"type": "string", "description": _AMOUNT_DESC},
             "cumulative_distributed": {"type": "string", "description": _AMOUNT_DESC},
             "source": {
@@ -124,6 +140,7 @@ _DISTRIBUTION_TOOL = {
         "required": [
             "fund_name",
             "account_id",
+            "currency",
             "distribution_number",
             "distribution_date",
             "distribution_amount",
@@ -143,7 +160,8 @@ _STATEMENT_TOOL = {
         "properties": {
             "fund_name": {"type": "string"},
             "account_id": {"type": "string"},
-            "period_end": {"type": "string", "description": "ISO 8601 YYYY-MM-DD"},
+            "currency": {"type": "string", "description": _CURRENCY_DESC},
+            "period_end": {"type": "string", "description": _DATE_DESC},
             "beginning_balance": {"type": "string", "description": _AMOUNT_DESC},
             "contributions": {"type": "string", "description": _AMOUNT_DESC},
             "distributions": {"type": "string", "description": _AMOUNT_DESC},
@@ -158,6 +176,7 @@ _STATEMENT_TOOL = {
         "required": [
             "fund_name",
             "account_id",
+            "currency",
             "period_end",
             "beginning_balance",
             "contributions",

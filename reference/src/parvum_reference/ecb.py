@@ -35,7 +35,10 @@ _CSV_MEMBER = "eurofxref-hist.csv"
 
 # Keep only what the universe needs: USD, from just before the earliest data
 # this project generates. A smaller slice of a real series, on purpose.
-_FLOOR = date(2026, 1, 1)
+# 2024-01-01, not 2026-01-01: the alts corpus's document history starts
+# 2024-03-31 (D-061, the EUR fund), pushing the floor back from where it sat
+# when only the custodial feed's much shorter window needed covering.
+_FLOOR = date(2024, 1, 1)
 
 
 def _parse_history_csv(text: str) -> dict[date, Decimal]:

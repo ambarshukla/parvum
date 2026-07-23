@@ -39,6 +39,13 @@
 # MAGIC decided, and NULL otherwise. A document still awaiting review
 # MAGIC contributes nothing downstream — the same DQ-honesty stance the rest of
 # MAGIC gold takes.
+# MAGIC
+# MAGIC **`currency` (D-061)** exists because the corpus is no longer USD-only:
+# MAGIC one fund is EUR-denominated, and its documents state that explicitly
+# MAGIC (an extracted field, same as `account_id` — never assumed). Sourced from
+# MAGIC the original extraction's own fields, not `confirmed_fields_json`, for
+# MAGIC the same reason `account_id` is: it must be reliable even for a document
+# MAGIC still awaiting review.
 
 # COMMAND ----------
 
@@ -61,6 +68,7 @@ SCHEMA = "workspace.parvum"
 spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
     fund_id               STRING,
     account_id             STRING,
+    currency               STRING,
     document              STRING,
     doc_type              STRING,
     sequence_number        INT,
@@ -86,6 +94,7 @@ COLUMN_COMMENTS = {
     "silver_alts_documents": {
         "fund_id": "Fund identifier",
         "account_id": "Custody account this fund's commitment rolls up to (parvum_alts_hitl.model.FundCommitment.account_id) — the join key into silver_account_owners",
+        "currency": "ISO 4217 currency code the fund's documents are denominated in (extracted, not assumed — the corpus is not USD-only, D-061)",
         "document": "Source PDF file name",
         "doc_type": "capital_call | distribution | capital_account_statement",
         "sequence_number": "call_number or distribution_number; NULL for capital_account_statement",
@@ -175,6 +184,7 @@ for fund_id, docs in by_fund.items():
             {
                 "fund_id": fund_id,
                 "account_id": doc["fields"].get("account_id"),
+                "currency": doc["fields"].get("currency"),
                 "document": doc["document"],
                 "doc_type": doc["doc_type"],
                 "sequence_number": doc["sequence_number"],

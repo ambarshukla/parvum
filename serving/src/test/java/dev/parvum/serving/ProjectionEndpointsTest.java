@@ -70,7 +70,7 @@ class ProjectionEndpointsTest {
           ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
         insert into alts_holdings values
           ('HART','Hartwell','FUND-VC01','Bramwell Ventures Fund II','ACC-HART',
-           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now());
+           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now(), 'USD');
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
@@ -115,6 +115,7 @@ class ProjectionEndpointsTest {
         .body("size()", is(1))
         .body("[0].clientId", is("HART"))
         .body("[0].fundId", is("FUND-VC01"))
+        .body("[0].currency", is("USD"))
         .body("[0].inceptionDate", is("2024-03-31"))
         .body("[0].asOf", is("2026-06-30"))
         .body("[0].currentNavUsd", comparesEqualTo(new BigDecimal("1200000.00")))

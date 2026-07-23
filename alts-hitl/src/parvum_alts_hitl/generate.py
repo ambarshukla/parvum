@@ -27,6 +27,10 @@ from parvum_alts_hitl.defects import (
 )
 from parvum_alts_hitl.model import FundCommitment
 from parvum_alts_hitl.render import (
+    DRAWDOWN,
+    EURO,
+    PLAIN,
+    DocTemplate,
     render_capital_account_statement,
     render_capital_call,
     render_distribution,
@@ -35,7 +39,10 @@ from parvum_alts_hitl.render import (
 # Each fund's account_id rolls up to an existing custody account from
 # parvum_reference.accounts.UNIVERSE (X4478210, FQ5521) — alts holdings join
 # the same client rollup as everything else, not a parallel universe of
-# their own.
+# their own. FQ5521 hosts two funds deliberately (Bramwell, then the EUR
+# fund below) — a real LP can hold more than one fund interest through one
+# custody account, and FQ5521's own base currency is EUR (accounts.py),
+# which is why the EUR fund pairs with it rather than a USD-only account.
 FUND_UNIVERSE: tuple[FundCommitment, ...] = (
     FundCommitment(
         fund_id="FUND-PE01",
@@ -53,7 +60,24 @@ FUND_UNIVERSE: tuple[FundCommitment, ...] = (
         vintage_year=2024,
         total_commitment=Decimal("2000000.00"),
     ),
+    FundCommitment(
+        fund_id="FUND-EU01",
+        fund_name="Alpenrose Capital Fund III",
+        account_id="FQ5521",
+        currency="EUR",
+        vintage_year=2024,
+        total_commitment=Decimal("1500000.00"),
+    ),
 )
+
+# One administrator's document conventions per fund (D-061): a single
+# layout/vocabulary/locale made every extraction trivially easy, which was a
+# property of the fixture rather than evidence the extractor works.
+_TEMPLATE_BY_FUND: dict[str, DocTemplate] = {
+    "FUND-PE01": PLAIN,
+    "FUND-VC01": DRAWDOWN,
+    "FUND-EU01": EURO,
+}
 
 _CALL_DEFECT_POOL = (
     DefectType.MISSING_FIELD,
@@ -80,6 +104,7 @@ def _doc_seed(fund_index: int, doc_kind: int, doc_number: int) -> int:
 
 def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) -> dict:
     book = build_fund_book(commitment)
+    template = _TEMPLATE_BY_FUND[commitment.fund_id]
     fund_dir = out_dir / commitment.fund_id
     fund_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +114,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
         seed = _doc_seed(fund_index, 1, call.call_number)
         config = DefectConfig(seed=seed, defects=_pick_defects(_CALL_DEFECT_POOL, Random(seed)))
         corrupted, injections = inject_call(call, config)
-        pdf = render_capital_call(corrupted)
+        pdf = render_capital_call(corrupted, template)
         name = f"capital_call_{call.call_number:02d}.pdf"
         (fund_dir / name).write_bytes(pdf)
         documents.append(_doc_entry(name, "capital_call", pdf, corrupted, injections))
@@ -100,7 +125,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
             seed=seed, defects=_pick_defects(_DISTRIBUTION_DEFECT_POOL, Random(seed))
         )
         corrupted, injections = inject_distribution(distribution, config)
-        pdf = render_distribution(corrupted)
+        pdf = render_distribution(corrupted, template)
         name = f"distribution_{distribution.distribution_number:02d}.pdf"
         (fund_dir / name).write_bytes(pdf)
         documents.append(_doc_entry(name, "distribution", pdf, corrupted, injections))
@@ -111,7 +136,7 @@ def generate_fund(fund_index: int, commitment: FundCommitment, out_dir: Path) ->
             seed=seed, defects=_pick_defects(_STATEMENT_DEFECT_POOL, Random(seed))
         )
         corrupted, injections = inject_statement(statement, config)
-        pdf = render_capital_account_statement(corrupted)
+        pdf = render_capital_account_statement(corrupted, template)
         name = f"capital_account_{statement.period_end.isoformat()}.pdf"
         (fund_dir / name).write_bytes(pdf)
         documents.append(_doc_entry(name, "capital_account_statement", pdf, corrupted, injections))

@@ -160,6 +160,7 @@ ALTS_HOLDINGS_COLUMNS = (
     "moic",
     "pending_review_documents",
     "rebuilt_at",
+    "currency",
 )
 
 
@@ -171,6 +172,7 @@ def alts_holding_row(
     called: str,
     moic: str | None,
     pending: int,
+    currency: str = "USD",
 ) -> tuple:
     return (
         client_id,
@@ -188,6 +190,7 @@ def alts_holding_row(
         Decimal(moic) if moic is not None else None,
         pending,
         REBUILT,
+        currency,
     )
 
 

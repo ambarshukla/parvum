@@ -39,3 +39,12 @@ def test_manifest_lives_outside_the_landing_directory(tmp_path) -> None:
     generate(out_dir)
     assert not (out_dir / "manifests").exists()
     assert (tmp_path / "manifests").exists()
+
+
+def test_the_universe_spans_more_than_one_currency_and_template() -> None:
+    # D-061: a single fund/template/currency made every document trivially
+    # easy to extract. At least one fund must be non-USD for that gap to
+    # actually be closed, not just structurally possible.
+    currencies = {c.currency for c in FUND_UNIVERSE}
+    assert "EUR" in currencies
+    assert len(currencies) > 1
