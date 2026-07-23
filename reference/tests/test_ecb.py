@@ -20,7 +20,7 @@ FIXTURE_CSV = """Date,USD,JPY,GBP
 2026-07-03,1.0899,168.10,0.8503
 2026-07-02,,167.95,0.8498
 2026-07-01,1.0873,167.80,0.8490
-2025-12-31,1.0405,164.00,0.8300
+2023-12-31,1.0405,164.00,0.8300
 """
 
 
@@ -37,7 +37,7 @@ def test_parse_keeps_only_published_usd_rates_after_floor() -> None:
     }
     # The empty cell and the pre-floor row are absent, not zero or None.
     assert date(2026, 7, 2) not in rates
-    assert date(2025, 12, 31) not in rates
+    assert date(2023, 12, 31) not in rates
 
 
 def test_round_trip_through_the_store(tmp_path) -> None:

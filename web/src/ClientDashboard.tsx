@@ -348,9 +348,11 @@ export function ClientDashboard({ data, client, dark }: Props) {
                     <h2>Private markets</h2>
                     <p className="muted" style={{ marginTop: -6, fontSize: 13 }}>
                         Committed, called, and distributed capital, unfunded commitment, and current
-                        NAV per fund. MOIC is the multiple on invested capital (distributed + NAV,
-                        over called). Only confirmed documents are reflected — a fund still awaiting
-                        review shows as pending rather than moving these figures early.
+                        NAV per fund, in USD (a fund denominated in another currency is converted at
+                        the rate for its own as-of date, not the client's home currency). MOIC is
+                        the multiple on invested capital (distributed + NAV, over called). Only
+                        confirmed documents are reflected — a fund still awaiting review shows as
+                        pending rather than moving these figures early.
                     </p>
                     <table className="data">
                         <thead>
@@ -376,6 +378,11 @@ export function ClientDashboard({ data, client, dark }: Props) {
                                 <tr key={r.fundId}>
                                     <td>
                                         {r.fundName}
+                                        {r.currency !== "USD" && (
+                                            <span className="muted" style={{ marginLeft: 8 }}>
+                                                ({r.currency})
+                                            </span>
+                                        )}
                                         {r.pendingReviewDocuments > 0 && (
                                             <span className="chip" style={{ marginLeft: 8 }}>
                                                 {r.pendingReviewDocuments} pending review

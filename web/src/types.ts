@@ -84,6 +84,7 @@ export interface AltsHoldingRow {
     fundId: string;
     fundName: string;
     accountId: string;
+    currency: string;
     inceptionDate: string | null;
     asOf: string | null;
     totalCommitmentUsd: number;

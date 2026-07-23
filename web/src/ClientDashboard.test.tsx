@@ -89,6 +89,7 @@ const data: TenantData = {
             fundId: "FUND-PE01",
             fundName: "Meridian Capital Partners IV",
             accountId: "X4478210",
+            currency: "USD",
             inceptionDate: "2024-03-31",
             asOf: "2026-06-30",
             totalCommitmentUsd: 3000000,
@@ -98,6 +99,23 @@ const data: TenantData = {
             currentNavUsd: 1900000,
             moic: 1.17,
             pendingReviewDocuments: 1,
+        },
+        {
+            clientId: "CLI-REYES",
+            clientName: "Reyes Family",
+            fundId: "FUND-EU01",
+            fundName: "Alpenrose Capital Fund III",
+            accountId: "FQ5521",
+            currency: "EUR",
+            inceptionDate: "2024-03-31",
+            asOf: "2026-06-30",
+            totalCommitmentUsd: 1600000,
+            calledToDateUsd: 400000,
+            distributedToDateUsd: 50000,
+            unfundedCommitmentUsd: 1200000,
+            currentNavUsd: 380000,
+            moic: 1.08,
+            pendingReviewDocuments: 0,
         },
     ],
 };
@@ -137,5 +155,17 @@ describe("ClientDashboard", () => {
         expect(screen.getByText("Meridian Capital Partners IV")).toBeInTheDocument();
         expect(screen.getByText("1.17x")).toBeInTheDocument();
         expect(screen.getByText(/1 pending review/)).toBeInTheDocument();
+    });
+
+    it("annotates a non-USD fund but not a USD one on the alternatives tab", () => {
+        render(<ClientDashboard data={data} client={reyes} dark={false} />);
+        fireEvent.click(screen.getByRole("tab", { name: "Alternatives" }));
+
+        expect(screen.getByText("Alpenrose Capital Fund III")).toBeInTheDocument();
+        expect(screen.getByText("(EUR)")).toBeInTheDocument();
+        // The USD fund's row carries no currency annotation.
+        expect(
+            screen.getByText("Meridian Capital Partners IV").parentElement,
+        ).not.toHaveTextContent("(USD)");
     });
 });

@@ -48,6 +48,7 @@ class CapitalCallNotice(BaseModel):
     fund_id: str
     fund_name: str
     account_id: str
+    currency: str
     call_number: int
     call_date: date
     due_date: date
@@ -63,6 +64,7 @@ class DistributionNotice(BaseModel):
     fund_id: str
     fund_name: str
     account_id: str
+    currency: str
     distribution_number: int
     distribution_date: date
     distribution_amount: Decimal
@@ -83,6 +85,7 @@ class CapitalAccountStatement(BaseModel):
     fund_id: str
     fund_name: str
     account_id: str
+    currency: str
     period_end: date
     beginning_balance: Decimal
     contributions: Decimal

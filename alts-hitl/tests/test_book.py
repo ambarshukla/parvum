@@ -75,3 +75,11 @@ def test_distribution_sources_are_return_of_capital_then_capital_gain() -> None:
     ]
     assert book.distributions[0].recallable is True
     assert book.distributions[1].recallable is False
+
+
+def test_currency_is_carried_from_the_commitment_onto_every_document() -> None:
+    eur_commitment = COMMITMENT.model_copy(update={"currency": "EUR"})
+    book = build_fund_book(eur_commitment)
+    assert all(c.currency == "EUR" for c in book.calls)
+    assert all(d.currency == "EUR" for d in book.distributions)
+    assert all(s.currency == "EUR" for s in book.statements)

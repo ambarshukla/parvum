@@ -55,11 +55,25 @@ RATES_PATH = Path("/Volumes/workspace/parvum/landing/reference/fx_rates.json")
 # MAGIC completes the calendar at read time and names each rate's publication
 # MAGIC day. The date range comes from the data, not a constant — gold should
 # MAGIC never fail because the pile grew.
+# MAGIC
+# MAGIC The range has to cover alts statement dates too (D-061), not just the
+# MAGIC custodial feed's own window: the alts corpus's document history runs
+# MAGIC back to 2024, well before the feed's much shorter, more recent window,
+# MAGIC and a EUR-denominated fund needs a rate for every one of those earlier
+# MAGIC dates to convert its NAV. `silver_alts_documents.period_end` alone is
+# MAGIC enough — by construction (`parvum_alts_hitl.book`'s quarter indices)
+# MAGIC every call/distribution date already falls within some statement's own
+# MAGIC period-end range.
 
 # COMMAND ----------
 
 lo, hi = spark.sql(  # noqa: F821
-    f"SELECT MIN(as_of), MAX(as_of) FROM {SCHEMA}.silver_positions"
+    f"""SELECT MIN(d), MAX(d) FROM (
+        SELECT as_of AS d FROM {SCHEMA}.silver_positions
+        UNION ALL
+        SELECT CAST(period_end AS DATE) AS d FROM {SCHEMA}.silver_alts_documents
+        WHERE period_end IS NOT NULL
+    )"""
 ).first()
 
 rates = fill_forward(load_rates(RATES_PATH), lo, hi)
@@ -106,15 +120,20 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 # MAGIC "flat-then-a-jump" shape the 13F price data already produces elsewhere
 # MAGIC in this project, not a defect.
 # MAGIC
-# MAGIC **Amounts are treated as USD outright** — the two-fund universe
-# MAGIC (`generate.py`'s `FUND_UNIVERSE`) is USD-only today and no document
-# MAGIC schema carries a currency field to convert from; a non-USD fund would
-# MAGIC need that added, not assumed away.
+# MAGIC **Currency-converted, not assumed USD (D-061).** The corpus now
+# MAGIC includes a EUR-denominated fund, so every money figure below is
+# MAGIC computed twice: once in the document's own (native) currency — what a
+# MAGIC reviewer actually reads on the page — and once converted to USD via
+# MAGIC the same `fx` view positions and cash already use, at the specific
+# MAGIC date each figure is *as of* (a statement's own period end, or a fund's
+# MAGIC earliest document date when no statement is confirmed yet). A ratio
+# MAGIC like MOIC needs no conversion at all — numerator and denominator scale
+# MAGIC by the same rate, so it cancels regardless of which currency it started in.
 
 # COMMAND ----------
 
 _alts_confirmed = spark.sql(  # noqa: F821
-    f"""SELECT fund_id, doc_type, confirmed_fields_json
+    f"""SELECT fund_id, currency, doc_type, confirmed_fields_json
     FROM {SCHEMA}.silver_alts_documents WHERE confirmed_fields_json IS NOT NULL"""
 ).collect()
 
@@ -130,14 +149,19 @@ _calls: dict[str, list[dict]] = {}
 _dists: dict[str, list[dict]] = {}
 _stmts: dict[str, list[dict]] = {}
 _by_doc_type = {"capital_call": _calls, "distribution": _dists, "capital_account_statement": _stmts}
+_fund_currency: dict[str, str] = {}
 for _row in _alts_confirmed:
     # fund_id is never a key inside the fields JSON itself -- it's a
     # directory-derived fact the extraction pipeline attaches alongside
     # `fields` (parvum_alts_hitl.extract.process_directory), not something
     # the LLM was asked to read off the page. Group by the silver row's own
-    # column, never by parsing it back out of the JSON.
+    # column, never by parsing it back out of the JSON. Same story for
+    # currency (D-061): it's extracted per-document but is a fund-level
+    # constant, so the silver column -- reliable even for an undecided
+    # needs_review row -- is the source of truth, not this JSON.
     _fields = json.loads(_row.confirmed_fields_json)
     _by_doc_type[_row.doc_type].setdefault(_row.fund_id, []).append(_fields)
+    _fund_currency[_row.fund_id] = _row.currency
 
 _alts_fund_rows = []
 _alts_nav_rows = []
@@ -181,18 +205,24 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
     # can carry more digits than the target column.
     _moic = (_distributed + _nav) / _called if _called > 0 else None
 
+    _inception = min(_dates) if _dates else None
+    _currency = _fund_currency[_fid]
     _alts_fund_rows.append(
         {
             "fund_id": _fid,
             "fund_name": _any_doc["fund_name"],
             "account_id": _any_doc["account_id"],
-            "inception_date": min(_dates) if _dates else None,
+            "currency": _currency,
+            "inception_date": _inception,
             "as_of": _stmt_as_of,
-            "total_commitment_usd": _commitment,
-            "called_to_date_usd": _called,
-            "distributed_to_date_usd": _distributed,
-            "unfunded_commitment_usd": _unfunded,
-            "current_nav_usd": _nav,
+            # Native-currency figures -- converted to USD in SQL below,
+            # against the specific date each one is as of. Deliberately not
+            # named *_usd here: that suffix is earned after conversion.
+            "total_commitment_native": _commitment,
+            "called_to_date_native": _called,
+            "distributed_to_date_native": _distributed,
+            "unfunded_commitment_native": _unfunded,
+            "current_nav_native": _nav,
             "moic_str": str(_moic) if _moic is not None else None,
             "pending_review_documents": int(_alts_pending.get(_fid, 0)),
         }
@@ -202,8 +232,9 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
             {
                 "fund_id": _fid,
                 "account_id": _any_doc["account_id"],
+                "currency": _currency,
                 "statement_date": date.fromisoformat(_stmt["period_end"]),
-                "nav_usd": parse_decimal(_stmt["ending_balance"]),
+                "nav_native": parse_decimal(_stmt["ending_balance"]),
             }
         )
 
@@ -213,25 +244,32 @@ print(f"alts: {len(_alts_fund_rows)} funds, {len(_alts_nav_rows)} confirmed NAV 
 
 spark.createDataFrame(  # noqa: F821
     _alts_fund_rows,
-    schema="fund_id STRING, fund_name STRING, account_id STRING, inception_date DATE, "
-    "as_of DATE, total_commitment_usd DECIMAL(24,2), called_to_date_usd DECIMAL(24,2), "
-    "distributed_to_date_usd DECIMAL(24,2), unfunded_commitment_usd DECIMAL(24,2), "
-    "current_nav_usd DECIMAL(24,2), moic_str STRING, pending_review_documents INT",
+    schema="fund_id STRING, fund_name STRING, account_id STRING, currency STRING, "
+    "inception_date DATE, as_of DATE, total_commitment_native DECIMAL(24,2), "
+    "called_to_date_native DECIMAL(24,2), distributed_to_date_native DECIMAL(24,2), "
+    "unfunded_commitment_native DECIMAL(24,2), current_nav_native DECIMAL(24,2), "
+    "moic_str STRING, pending_review_documents INT",
 ).createOrReplaceTempView("alts_fund_raw")
 
 spark.createDataFrame(  # noqa: F821
     _alts_nav_rows,
-    schema="fund_id STRING, account_id STRING, statement_date DATE, nav_usd DECIMAL(24,2)",
+    schema="fund_id STRING, account_id STRING, currency STRING, statement_date DATE, "
+    "nav_native DECIMAL(24,2)",
 ).createOrReplaceTempView("alts_nav_raw")
 
-# Owner-prorated NAV per (client, statement date) — the input to alts_daily's
-# forward fill below.
+# Owner-prorated NAV in USD per (client, statement date) — the input to
+# alts_daily's forward fill below. Converted at that specific statement
+# date's rate (fx is keyed by as_of, so joined on statement_date here).
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TEMP VIEW alts_nav_points AS
     SELECT o.client_id, n.statement_date,
-           CAST(SUM(n.nav_usd * o.ownership_pct) AS DECIMAL(24,2)) AS nav_usd
+           CAST(SUM(
+               (CASE WHEN n.currency = 'USD' THEN n.nav_native ELSE n.nav_native * f.eur_usd END)
+               * o.ownership_pct
+           ) AS DECIMAL(24,2)) AS nav_usd
     FROM alts_nav_raw n
     JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+    JOIN fx f ON f.as_of = n.statement_date
     GROUP BY o.client_id, n.statement_date"""
 )
 
@@ -249,25 +287,48 @@ spark.sql(  # noqa: F821
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_alts_holdings
-    COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents counts what is deliberately left out.'
+    COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC, converted to USD at the rate for each figure''s own as-of date. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents counts what is deliberately left out.'
     AS
+    WITH rated AS (
+        -- One rate per fund: the latest confirmed statement's date, or (no
+        -- statement confirmed yet) the fund's earliest document date.
+        -- Native-currency figures stay native (no-op for USD, CASE WHEN
+        -- below does the actual conversion) until multiplied out.
+        SELECT f.*, COALESCE(fx1.eur_usd, fx2.eur_usd) AS eur_usd
+        FROM alts_fund_raw f
+        LEFT JOIN fx fx1 ON fx1.as_of = f.as_of
+        LEFT JOIN fx fx2 ON fx2.as_of = f.inception_date
+    )
     SELECT
         o.client_id,
         o.client_name,
-        f.fund_id,
-        f.fund_name,
-        f.account_id,
-        f.inception_date,
-        f.as_of,
-        CAST(f.total_commitment_usd * o.ownership_pct AS DECIMAL(24,2))     AS total_commitment_usd,
-        CAST(f.called_to_date_usd * o.ownership_pct AS DECIMAL(24,2))      AS called_to_date_usd,
-        CAST(f.distributed_to_date_usd * o.ownership_pct AS DECIMAL(24,2)) AS distributed_to_date_usd,
-        CAST(f.unfunded_commitment_usd * o.ownership_pct AS DECIMAL(24,2)) AS unfunded_commitment_usd,
-        CAST(f.current_nav_usd * o.ownership_pct AS DECIMAL(24,2))         AS current_nav_usd,
-        CAST(f.moic_str AS DECIMAL(14,6))                                  AS moic,
-        f.pending_review_documents,
+        r.fund_id,
+        r.fund_name,
+        r.account_id,
+        r.currency,
+        r.inception_date,
+        r.as_of,
+        CAST((CASE WHEN r.currency = 'USD' THEN r.total_commitment_native
+                   ELSE r.total_commitment_native * r.eur_usd END)
+             * o.ownership_pct AS DECIMAL(24,2))                          AS total_commitment_usd,
+        CAST((CASE WHEN r.currency = 'USD' THEN r.called_to_date_native
+                   ELSE r.called_to_date_native * r.eur_usd END)
+             * o.ownership_pct AS DECIMAL(24,2))                          AS called_to_date_usd,
+        CAST((CASE WHEN r.currency = 'USD' THEN r.distributed_to_date_native
+                   ELSE r.distributed_to_date_native * r.eur_usd END)
+             * o.ownership_pct AS DECIMAL(24,2))                          AS distributed_to_date_usd,
+        CAST((CASE WHEN r.currency = 'USD' THEN r.unfunded_commitment_native
+                   ELSE r.unfunded_commitment_native * r.eur_usd END)
+             * o.ownership_pct AS DECIMAL(24,2))                          AS unfunded_commitment_usd,
+        CAST((CASE WHEN r.currency = 'USD' THEN r.current_nav_native
+                   ELSE r.current_nav_native * r.eur_usd END)
+             * o.ownership_pct AS DECIMAL(24,2))                          AS current_nav_usd,
+        -- Owner-invariant ratio -- proration cancels, and so does currency
+        -- (both sides of distributed+nav / called scale by the same rate).
+        CAST(r.moic_str AS DECIMAL(14,6))                                  AS moic,
+        r.pending_review_documents,
         current_timestamp()                                                AS rebuilt_at
-    FROM alts_fund_raw f
+    FROM rated r
     JOIN {SCHEMA}.silver_account_owners o USING (account_id)"""
 )
 
@@ -331,6 +392,8 @@ unknown = spark.sql(  # noqa: F821
         SELECT currency FROM {SCHEMA}.silver_cash_balance_owners
         UNION ALL
         SELECT currency FROM {SCHEMA}.silver_cash_transaction_owners
+        UNION ALL
+        SELECT currency FROM {SCHEMA}.silver_alts_documents WHERE currency IS NOT NULL
     ) WHERE ccy NOT IN ('USD', 'EUR')"""
 ).collect()
 if unknown:
@@ -872,13 +935,14 @@ COLUMN_COMMENTS = {
         "fund_id": "Private-fund identifier (parvum_alts_hitl.generate.FUND_UNIVERSE)",
         "fund_name": "Display name of the fund",
         "account_id": "Custody account this fund's commitment rolls up to",
+        "currency": "ISO 4217 currency code the fund's own documents are denominated in -- the *_usd columns are converted from this, not assumed already USD (D-061)",
         "inception_date": "Earliest confirmed document date for this fund (call, distribution, or statement)",
         "as_of": "Period end of the latest confirmed capital account statement; NULL if none confirmed yet",
-        "total_commitment_usd": "Owner-prorated total commitment, from the latest confirmed statement (or calls alone if no statement is confirmed yet)",
-        "called_to_date_usd": "Owner-prorated cumulative capital called, from the latest confirmed capital call",
-        "distributed_to_date_usd": "Owner-prorated cumulative capital distributed, from the latest confirmed distribution",
-        "unfunded_commitment_usd": "Owner-prorated total_commitment_usd minus called_to_date_usd",
-        "current_nav_usd": "Owner-prorated ending balance from the latest confirmed capital account statement; 0 if none confirmed yet",
+        "total_commitment_usd": "Owner-prorated total commitment in USD, converted at the rate for as_of (or inception_date if no statement is confirmed yet)",
+        "called_to_date_usd": "Owner-prorated cumulative capital called in USD, converted the same way",
+        "distributed_to_date_usd": "Owner-prorated cumulative capital distributed in USD, converted the same way",
+        "unfunded_commitment_usd": "Owner-prorated (total_commitment - called_to_date) in USD, converted the same way",
+        "current_nav_usd": "Owner-prorated ending balance from the latest confirmed capital account statement, in USD; 0 if none confirmed yet",
         "moic": "(distributed_to_date_usd + current_nav_usd) / called_to_date_usd — multiple on invested capital, unprorated (a ratio is owner-invariant); NULL if nothing has been called yet",
         "pending_review_documents": "Count of this fund's documents still awaiting a human decision (routing = needs_review, reviewed_status NULL) — not reflected in any figure above",
         "rebuilt_at": "When this gold rebuild ran (UTC)",

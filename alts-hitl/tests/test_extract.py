@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 from parvum_alts_hitl.book import build_fund_book
 from parvum_alts_hitl.extract import (
+    _TOOLS_BY_DOC_TYPE,
     AnthropicProvider,
     LLMProvider,
     OpenRouterProvider,
@@ -98,6 +99,14 @@ def test_call_with_all_amounts_present_is_self_consistent() -> None:
         "remaining_commitment": "900.00",
     }
     assert self_consistency_ok("capital_call", fields) is True
+
+
+def test_every_tool_schema_requires_currency() -> None:
+    # D-061: the corpus now spans USD and EUR funds, so the model has to
+    # report which one it's reading rather than one being assumed.
+    for doc_type, tool in _TOOLS_BY_DOC_TYPE.items():
+        assert "currency" in tool["input_schema"]["properties"], doc_type
+        assert "currency" in tool["input_schema"]["required"], doc_type
 
 
 def test_call_missing_an_amount_is_not_self_consistent() -> None:
