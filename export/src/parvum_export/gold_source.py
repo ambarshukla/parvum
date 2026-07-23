@@ -25,6 +25,7 @@ GOLD_TABLES = (
     "gold_ownership",
     "gold_performance",
     "gold_performance_summary",
+    "gold_alts_holdings",
 )
 
 # Tables that carry no client_id — a fact about the whole pipeline (D-043),

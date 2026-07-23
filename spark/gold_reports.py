@@ -30,13 +30,18 @@ dbutils.library.restartPython()  # noqa: F821
 
 # COMMAND ----------
 
+import json
 import os
 import sys
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "ingest", "src")))
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "reference", "src")))
+sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "alts-hitl", "src")))
 
+from parvum_alts_hitl.parsing import parse_decimal
 from parvum_reference.ecb import fill_forward, load_rates
 
 SCHEMA = "workspace.parvum"
@@ -71,6 +76,238 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 
 # COMMAND ----------
 
+# MAGIC %md ## Alts (private-fund) holdings — small data, computed in Python
+# MAGIC
+# MAGIC Same "collect, compute locally, `createDataFrame` back" pattern the FX
+# MAGIC and IRR sections use: a couple of funds and a few dozen documents,
+# MAGIC trivial to bring to the driver. Two things come out of it:
+# MAGIC
+# MAGIC - **`gold_alts_holdings`**, a standalone detail table (committed,
+# MAGIC   called, distributed, unfunded, NAV, MOIC per client per fund) — the
+# MAGIC   private-markets analogue of `gold_top_holdings`.
+# MAGIC - **`alts_daily`**, a per-client daily NAV series that `gold_client_wealth`
+# MAGIC   and `gold_asset_allocation` below both join into, so alts stop being
+# MAGIC   invisible to the headline wealth number.
+# MAGIC
+# MAGIC **Only confirmed values count.** A document still sitting in
+# MAGIC `needs_review` with no human decision yet contributes nothing here —
+# MAGIC the same DQ-honesty stance the rest of gold takes (a number nobody has
+# MAGIC signed off on doesn't get to move a client's reported wealth).
+# MAGIC `pending_review_documents` surfaces how many are waiting, per fund, so
+# MAGIC that omission is visible rather than silent.
+# MAGIC
+# MAGIC **NAV updates quarterly, wealth is reported daily.** Without
+# MAGIC forward-filling, alts would vanish from `gold_client_wealth` on every
+# MAGIC date that isn't an exact statement date. The most recent confirmed NAV
+# MAGIC holds until the next statement supersedes it — exactly how a real
+# MAGIC reported mark behaves. Worth naming, not hiding: on the day a new
+# MAGIC statement's date lands, `daily_twr_return` will show a real, not fake,
+# MAGIC jump — a private-markets NAV mark landing all at once, the same
+# MAGIC "flat-then-a-jump" shape the 13F price data already produces elsewhere
+# MAGIC in this project, not a defect.
+# MAGIC
+# MAGIC **Amounts are treated as USD outright** — the two-fund universe
+# MAGIC (`generate.py`'s `FUND_UNIVERSE`) is USD-only today and no document
+# MAGIC schema carries a currency field to convert from; a non-USD fund would
+# MAGIC need that added, not assumed away.
+
+# COMMAND ----------
+
+_alts_confirmed = spark.sql(  # noqa: F821
+    f"""SELECT doc_type, confirmed_fields_json
+    FROM {SCHEMA}.silver_alts_documents WHERE confirmed_fields_json IS NOT NULL"""
+).collect()
+
+_alts_pending = {
+    row.fund_id: row.pending
+    for row in spark.sql(  # noqa: F821
+        f"""SELECT fund_id, COUNT(*) AS pending FROM {SCHEMA}.silver_alts_documents
+        WHERE routing = 'needs_review' AND reviewed_status IS NULL GROUP BY fund_id"""
+    ).collect()
+}
+
+_calls: dict[str, list[dict]] = {}
+_dists: dict[str, list[dict]] = {}
+_stmts: dict[str, list[dict]] = {}
+_by_doc_type = {"capital_call": _calls, "distribution": _dists, "capital_account_statement": _stmts}
+for _row in _alts_confirmed:
+    _fields = json.loads(_row.confirmed_fields_json)
+    _by_doc_type[_row.doc_type].setdefault(_fields["fund_id"], []).append(_fields)
+
+_alts_fund_rows = []
+_alts_nav_rows = []
+for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
+    _fund_calls = sorted(_calls.get(_fid, []), key=lambda f: f["call_number"])
+    _fund_dists = sorted(_dists.get(_fid, []), key=lambda f: f["distribution_number"])
+    _fund_stmts = sorted(_stmts.get(_fid, []), key=lambda f: f["period_end"])
+    _any_doc = (_fund_stmts or _fund_calls or _fund_dists)[0]
+
+    _called = parse_decimal(_fund_calls[-1]["cumulative_called"]) if _fund_calls else Decimal(0)
+    _distributed = (
+        parse_decimal(_fund_dists[-1]["cumulative_distributed"]) if _fund_dists else Decimal(0)
+    )
+
+    if _fund_stmts:
+        _latest = _fund_stmts[-1]
+        _nav = parse_decimal(_latest["ending_balance"])
+        _unfunded = parse_decimal(_latest["unfunded_commitment"])
+        _commitment = parse_decimal(_latest["total_commitment"])
+        _stmt_as_of = date.fromisoformat(_latest["period_end"])
+    else:
+        # No confirmed statement yet — fall back to what the calls imply.
+        _nav = Decimal(0)
+        _commitment = _called + (
+            parse_decimal(_fund_calls[-1]["remaining_commitment"]) if _fund_calls else Decimal(0)
+        )
+        _unfunded = _commitment - _called
+        _stmt_as_of = None
+
+    _dates = []
+    if _fund_calls:
+        _dates.append(date.fromisoformat(_fund_calls[0]["call_date"]))
+    if _fund_dists:
+        _dates.append(date.fromisoformat(_fund_dists[0]["distribution_date"]))
+    if _fund_stmts:
+        _dates.append(date.fromisoformat(_fund_stmts[0]["period_end"]))
+
+    # A ratio, owner-invariant (proration cancels in both numerator and
+    # denominator) — stored as text and CAST later, the same trick
+    # gold_performance_summary uses for IRR, since a Python Decimal division
+    # can carry more digits than the target column.
+    _moic = (_distributed + _nav) / _called if _called > 0 else None
+
+    _alts_fund_rows.append(
+        {
+            "fund_id": _fid,
+            "fund_name": _any_doc["fund_name"],
+            "account_id": _any_doc["account_id"],
+            "inception_date": min(_dates) if _dates else None,
+            "as_of": _stmt_as_of,
+            "total_commitment_usd": _commitment,
+            "called_to_date_usd": _called,
+            "distributed_to_date_usd": _distributed,
+            "unfunded_commitment_usd": _unfunded,
+            "current_nav_usd": _nav,
+            "moic_str": str(_moic) if _moic is not None else None,
+            "pending_review_documents": int(_alts_pending.get(_fid, 0)),
+        }
+    )
+    for _stmt in _fund_stmts:
+        _alts_nav_rows.append(
+            {
+                "fund_id": _fid,
+                "account_id": _any_doc["account_id"],
+                "statement_date": date.fromisoformat(_stmt["period_end"]),
+                "nav_usd": parse_decimal(_stmt["ending_balance"]),
+            }
+        )
+
+print(f"alts: {len(_alts_fund_rows)} funds, {len(_alts_nav_rows)} confirmed NAV marks")
+
+# COMMAND ----------
+
+spark.createDataFrame(  # noqa: F821
+    _alts_fund_rows,
+    schema="fund_id STRING, fund_name STRING, account_id STRING, inception_date DATE, "
+    "as_of DATE, total_commitment_usd DECIMAL(24,2), called_to_date_usd DECIMAL(24,2), "
+    "distributed_to_date_usd DECIMAL(24,2), unfunded_commitment_usd DECIMAL(24,2), "
+    "current_nav_usd DECIMAL(24,2), moic_str STRING, pending_review_documents INT",
+).createOrReplaceTempView("alts_fund_raw")
+
+spark.createDataFrame(  # noqa: F821
+    _alts_nav_rows,
+    schema="fund_id STRING, account_id STRING, statement_date DATE, nav_usd DECIMAL(24,2)",
+).createOrReplaceTempView("alts_nav_raw")
+
+# Owner-prorated NAV per (client, statement date) — the input to alts_daily's
+# forward fill below.
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TEMP VIEW alts_nav_points AS
+    SELECT o.client_id, n.statement_date,
+           CAST(SUM(n.nav_usd * o.ownership_pct) AS DECIMAL(24,2)) AS nav_usd
+    FROM alts_nav_raw n
+    JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+    GROUP BY o.client_id, n.statement_date"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ### `gold_alts_holdings` — the detail behind the number
+# MAGIC
+# MAGIC Grain: one row per (client, fund). Owner-prorated the same way
+# MAGIC everything else in gold is; `moic` and `pending_review_documents` are
+# MAGIC ratios/counts, not money, so they are copied to every owner unprorated
+# MAGIC (proration cancels out of a ratio, and a document count isn't anyone's
+# MAGIC dollar amount to divide up).
+
+# COMMAND ----------
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_alts_holdings
+    COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents counts what is deliberately left out.'
+    AS
+    SELECT
+        o.client_id,
+        o.client_name,
+        f.fund_id,
+        f.fund_name,
+        f.account_id,
+        f.inception_date,
+        f.as_of,
+        CAST(f.total_commitment_usd * o.ownership_pct AS DECIMAL(24,2))     AS total_commitment_usd,
+        CAST(f.called_to_date_usd * o.ownership_pct AS DECIMAL(24,2))      AS called_to_date_usd,
+        CAST(f.distributed_to_date_usd * o.ownership_pct AS DECIMAL(24,2)) AS distributed_to_date_usd,
+        CAST(f.unfunded_commitment_usd * o.ownership_pct AS DECIMAL(24,2)) AS unfunded_commitment_usd,
+        CAST(f.current_nav_usd * o.ownership_pct AS DECIMAL(24,2))         AS current_nav_usd,
+        CAST(f.moic_str AS DECIMAL(14,6))                                  AS moic,
+        f.pending_review_documents,
+        current_timestamp()                                                AS rebuilt_at
+    FROM alts_fund_raw f
+    JOIN {SCHEMA}.silver_account_owners o USING (account_id)"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ### `alts_daily` — forward-filled NAV, one row per (client, date)
+# MAGIC
+# MAGIC Reused by both `gold_client_wealth` and `gold_asset_allocation` below.
+# MAGIC The date grid is every date `silver_position_owners` already reports on,
+# MAGIC UNIONed with the fund's own statement dates — a statement landing
+# MAGIC *before* the wealth-reporting window even starts still has to seed the
+# MAGIC forward fill, or its NAV would read as zero for the whole window
+# MAGIC instead of "whatever the last confirmed mark said".
+
+# COMMAND ----------
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TEMP VIEW alts_daily AS
+    WITH wealth_dates AS (
+        SELECT DISTINCT as_of, client_id, client_name FROM {SCHEMA}.silver_position_owners
+    ),
+    all_dates AS (
+        SELECT as_of, client_id FROM wealth_dates
+        UNION
+        SELECT statement_date AS as_of, client_id FROM alts_nav_points
+    ),
+    joined AS (
+        SELECT d.as_of, d.client_id, p.nav_usd
+        FROM all_dates d
+        LEFT JOIN alts_nav_points p ON p.client_id = d.client_id AND p.statement_date = d.as_of
+    ),
+    filled AS (
+        SELECT as_of, client_id,
+               COALESCE(LAST_VALUE(nav_usd, true) OVER (
+                   PARTITION BY client_id ORDER BY as_of
+                   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), 0) AS alts_usd
+        FROM joined
+    )
+    SELECT w.as_of, w.client_id, w.client_name, f.alts_usd
+    FROM wealth_dates w
+    JOIN filled f USING (as_of, client_id)"""
+)
+
+# COMMAND ----------
+
 # MAGIC %md ## `gold_client_wealth` — the headline number
 # MAGIC
 # MAGIC Grain: one row per (client, date). Positions plus closing cash, each
@@ -96,7 +333,7 @@ if unknown:
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_client_wealth
-    COMMENT 'Per client per day: total wealth in USD (positions + closing cash, converted at that day''s ECB reference rate). books_reconcile is the DQ layer''s cash verdict across the client''s accounts.'
+    COMMENT 'Per client per day: total wealth in USD (positions + closing cash + forward-filled alts NAV, converted at that day''s ECB reference rate). books_reconcile is the DQ layer''s cash verdict across the client''s accounts.'
     AS
     WITH pos AS (
         SELECT p.as_of, p.client_id, p.client_name,
@@ -129,14 +366,16 @@ spark.sql(  # noqa: F821
         p.client_name,
         CAST(p.positions_usd AS DECIMAL(24,2))                       AS positions_usd,
         CAST(COALESCE(c.cash_usd, 0) AS DECIMAL(24,2))               AS cash_usd,
-        CAST(p.positions_usd + COALESCE(c.cash_usd, 0)
+        CAST(COALESCE(a.alts_usd, 0) AS DECIMAL(24,2))               AS alts_usd,
+        CAST(p.positions_usd + COALESCE(c.cash_usd, 0) + COALESCE(a.alts_usd, 0)
              AS DECIMAL(24,2))                                       AS total_wealth_usd,
         f.eur_usd                                                    AS fx_rate_used,
         f.fx_rate_date,
         COALESCE(q.books_reconcile, TRUE)                            AS books_reconcile,
         current_timestamp()                                          AS rebuilt_at
     FROM pos p
-    LEFT JOIN cash c   USING (as_of, client_id)
+    LEFT JOIN cash c     USING (as_of, client_id)
+    LEFT JOIN alts_daily a USING (as_of, client_id)
     LEFT JOIN quality q USING (as_of, client_id)
     JOIN fx f USING (as_of)"""
 )
@@ -173,6 +412,16 @@ spark.sql(  # noqa: F821
         JOIN fx f USING (as_of)
         WHERE b.balance_type = 'CLOSING'
         GROUP BY b.as_of, b.client_id, b.client_name
+        UNION ALL
+        -- 'Alternatives' matches the color slot the web palette already
+        -- reserves for this class (web/src/palette.ts ASSET_CLASS_SLOT) —
+        -- picked to line up with that reservation, not coined fresh here.
+        -- Already USD (see the alts section above) and already forward-filled
+        -- to every wealth date; skipped for clients holding none, same as any
+        -- other class never appears for a client with none of it.
+        SELECT ad.as_of, ad.client_id, ad.client_name, 'Alternatives', ad.alts_usd
+        FROM alts_daily ad
+        WHERE ad.alts_usd > 0
     )
     SELECT
         c.as_of,
@@ -542,7 +791,8 @@ COLUMN_COMMENTS = {
         "client_name": "Display name of the client",
         "positions_usd": "Owner-prorated securities value in USD, converted at fx_rate_used",
         "cash_usd": "Owner-prorated closing cash in USD, converted at fx_rate_used",
-        "total_wealth_usd": "positions_usd + cash_usd — the headline number",
+        "alts_usd": "Owner-prorated private-fund NAV in USD, forward-filled from the most recent confirmed capital account statement (see alts_daily, D-060); 0 before a client's first confirmed statement or if they hold no alts fund",
+        "total_wealth_usd": "positions_usd + cash_usd + alts_usd — the headline number",
         "fx_rate_used": "EUR→USD ECB reference rate applied to this date's EUR amounts",
         "fx_rate_date": "The day fx_rate_used was published; earlier than as_of means carried forward (weekend/holiday) — labelled, not hidden",
         "books_reconcile": "TRUE when the DQ layer's conformed cash check passes for every account this client owns on this date",
@@ -552,7 +802,7 @@ COLUMN_COMMENTS = {
         "as_of": "Valuation date. Grain: one row per (client, date, asset_class)",
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
-        "asset_class": "Instrument class from the securities master; 'Cash' for cash; 'Unknown' where the master could not identify the instrument (kept visible, D-022)",
+        "asset_class": "Instrument class from the securities master; 'Cash' for cash; 'Alternatives' for owner-prorated, forward-filled alts NAV (D-060); 'Unknown' where the master could not identify the instrument (kept visible, D-022)",
         "value_usd": "Owner-prorated USD value of this class on this date",
         "weight": "value_usd / the client's total wealth that date; weights per (client, date) sum to 1",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
@@ -611,6 +861,23 @@ COLUMN_COMMENTS = {
         "is_shared": "True when the account has more than one owner (owner_count > 1)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
+    "gold_alts_holdings": {
+        "client_id": "The family/relationship this row belongs to",
+        "client_name": "Display name of the client",
+        "fund_id": "Private-fund identifier (parvum_alts_hitl.generate.FUND_UNIVERSE)",
+        "fund_name": "Display name of the fund",
+        "account_id": "Custody account this fund's commitment rolls up to",
+        "inception_date": "Earliest confirmed document date for this fund (call, distribution, or statement)",
+        "as_of": "Period end of the latest confirmed capital account statement; NULL if none confirmed yet",
+        "total_commitment_usd": "Owner-prorated total commitment, from the latest confirmed statement (or calls alone if no statement is confirmed yet)",
+        "called_to_date_usd": "Owner-prorated cumulative capital called, from the latest confirmed capital call",
+        "distributed_to_date_usd": "Owner-prorated cumulative capital distributed, from the latest confirmed distribution",
+        "unfunded_commitment_usd": "Owner-prorated total_commitment_usd minus called_to_date_usd",
+        "current_nav_usd": "Owner-prorated ending balance from the latest confirmed capital account statement; 0 if none confirmed yet",
+        "moic": "(distributed_to_date_usd + current_nav_usd) / called_to_date_usd — multiple on invested capital, unprorated (a ratio is owner-invariant); NULL if nothing has been called yet",
+        "pending_review_documents": "Count of this fund's documents still awaiting a human decision (routing = needs_review, reviewed_status NULL) — not reflected in any figure above",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
 }
 
 for _table, _comments in COLUMN_COMMENTS.items():
@@ -629,11 +896,23 @@ print(f"column comments applied to {len(COLUMN_COMMENTS)} gold tables")
 
 display(  # noqa: F821
     spark.sql(  # noqa: F821
-        f"""SELECT client_name, total_wealth_usd, positions_usd, cash_usd,
+        f"""SELECT client_name, total_wealth_usd, positions_usd, cash_usd, alts_usd,
                fx_rate_used, fx_rate_date, books_reconcile
         FROM {SCHEMA}.gold_client_wealth
         WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_client_wealth)
         ORDER BY total_wealth_usd DESC"""
+    )
+)
+
+# COMMAND ----------
+
+display(  # noqa: F821
+    spark.sql(  # noqa: F821
+        f"""SELECT client_name, fund_name, total_commitment_usd, called_to_date_usd,
+               distributed_to_date_usd, unfunded_commitment_usd, current_nav_usd, moic,
+               pending_review_documents
+        FROM {SCHEMA}.gold_alts_holdings
+        ORDER BY client_name, fund_name"""
     )
 )
 

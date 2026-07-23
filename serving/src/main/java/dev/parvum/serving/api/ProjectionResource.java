@@ -1,5 +1,6 @@
 package dev.parvum.serving.api;
 
+import static dev.parvum.serving.jooq.Tables.ALTS_HOLDINGS;
 import static dev.parvum.serving.jooq.Tables.ASSET_ALLOCATION;
 import static dev.parvum.serving.jooq.Tables.CLIENT_WEALTH;
 import static dev.parvum.serving.jooq.Tables.INCOME;
@@ -57,6 +58,7 @@ public class ProjectionResource {
                             r.getClientName(),
                             r.getPositionsUsd(),
                             r.getCashUsd(),
+                            r.getAltsUsd(),
                             r.getTotalWealthUsd(),
                             r.getFxRateUsed(),
                             r.getFxRateDate(),
@@ -202,12 +204,44 @@ public class ProjectionResource {
                             r.getIrrSinceInceptionAnnualized())));
   }
 
+  /**
+   * Private-fund holdings behind the alts slice of a client's wealth (D-060) — commitment, capital
+   * called/distributed, unfunded commitment, current NAV, and MOIC per (client, fund).
+   */
+  @GET
+  @Path("/alts-holdings")
+  public List<AltsHoldingRow> altsHoldings(@PathParam("tenantId") String tenantId) {
+    return tenantQuery.inTenant(
+        tenantId,
+        dsl ->
+            dsl.selectFrom(ALTS_HOLDINGS)
+                .orderBy(ALTS_HOLDINGS.CLIENT_NAME, ALTS_HOLDINGS.FUND_NAME)
+                .fetch(
+                    r ->
+                        new AltsHoldingRow(
+                            r.getClientId(),
+                            r.getClientName(),
+                            r.getFundId(),
+                            r.getFundName(),
+                            r.getAccountId(),
+                            r.getInceptionDate(),
+                            r.getAsOf(),
+                            r.getTotalCommitmentUsd(),
+                            r.getCalledToDateUsd(),
+                            r.getDistributedToDateUsd(),
+                            r.getUnfundedCommitmentUsd(),
+                            r.getCurrentNavUsd(),
+                            r.getMoic(),
+                            r.getPendingReviewDocuments())));
+  }
+
   public record WealthRow(
       LocalDate asOf,
       String clientId,
       String clientName,
       BigDecimal positionsUsd,
       BigDecimal cashUsd,
+      BigDecimal altsUsd,
       BigDecimal totalWealthUsd,
       BigDecimal fxRateUsed,
       LocalDate fxRateDate,
@@ -269,4 +303,20 @@ public class ProjectionResource {
       BigDecimal twrSinceInception,
       BigDecimal dietzSinceInception,
       BigDecimal irrSinceInceptionAnnualized) {}
+
+  public record AltsHoldingRow(
+      String clientId,
+      String clientName,
+      String fundId,
+      String fundName,
+      String accountId,
+      LocalDate inceptionDate,
+      LocalDate asOf,
+      BigDecimal totalCommitmentUsd,
+      BigDecimal calledToDateUsd,
+      BigDecimal distributedToDateUsd,
+      BigDecimal unfundedCommitmentUsd,
+      BigDecimal currentNavUsd,
+      BigDecimal moic,
+      int pendingReviewDocuments) {}
 }

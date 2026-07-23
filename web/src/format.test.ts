@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { money, percent, longDate, monthLabel } from "./format";
+import { money, percent, longDate, monthLabel, multiple } from "./format";
 
 describe("formatters", () => {
     it("money renders whole-dollar USD", () => {
@@ -19,5 +19,10 @@ describe("formatters", () => {
 
     it("monthLabel formats a first-of-month ISO date", () => {
         expect(monthLabel("2026-06-01")).toBe("Jun 2026");
+    });
+
+    it("multiple renders a ratio with a trailing x", () => {
+        expect(multiple(1.44)).toBe("1.44x");
+        expect(multiple(0)).toBe("0.00x");
     });
 });

@@ -17,6 +17,11 @@ export function percent(weight: number, digits = 1): string {
     return `${(weight * 100).toFixed(digits)}%`;
 }
 
+/** A ratio like MOIC as "1.44x" — the private-markets convention. */
+export function multiple(value: number): string {
+    return `${value.toFixed(2)}x`;
+}
+
 /** ISO date (YYYY-MM-DD) → "17 Jul 2026". */
 export function longDate(iso: string): string {
     const [y, m, d] = iso.split("-").map(Number);

@@ -28,6 +28,17 @@
 # MAGIC `validation_notes`) keep meaning exactly what they meant before this
 # MAGIC slice — the automated pipeline's own verdict, untouched by a later
 # MAGIC human decision.
+# MAGIC
+# MAGIC **`account_id` and `confirmed_fields_json` (D-060)** exist so gold can
+# MAGIC build alts metrics without re-deciding what to trust: `account_id` rolls
+# MAGIC every document up to a real custody account (`parvum_alts_hitl.model`),
+# MAGIC the same join key everything else in gold uses. `confirmed_fields_json`
+# MAGIC is the field values gold is allowed to report — the extraction's own
+# MAGIC fields when `routing` is `auto_accept` (trusted automatically), the
+# MAGIC reviewer's `final_fields_json` once a `needs_review` document has been
+# MAGIC decided, and NULL otherwise. A document still awaiting review
+# MAGIC contributes nothing downstream — the same DQ-honesty stance the rest of
+# MAGIC gold takes.
 
 # COMMAND ----------
 
@@ -49,6 +60,7 @@ SCHEMA = "workspace.parvum"
 
 spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
     fund_id               STRING,
+    account_id             STRING,
     document              STRING,
     doc_type              STRING,
     sequence_number        INT,
@@ -60,8 +72,9 @@ spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
     routing                 STRING,
     reviewed_status         STRING,
     final_fields_json       STRING,
-    reviewed_at             TIMESTAMP
-) COMMENT 'One row per extracted alts document: cross-document validation (parvum_alts_hitl.validate, on top of D-049s extraction self-check), the resulting auto_accept vs needs_review routing decision, and (additively, D-054) whatever a human reviewer has since decided about it.'""")  # noqa: F821
+    reviewed_at             TIMESTAMP,
+    confirmed_fields_json   STRING
+) COMMENT 'One row per extracted alts document: cross-document validation (parvum_alts_hitl.validate, on top of D-049s extraction self-check), the resulting auto_accept vs needs_review routing decision, and (additively, D-054) whatever a human reviewer has since decided about it. confirmed_fields_json (D-060) is the field values gold is allowed to report; account_id rolls the document up to a real custody account.'""")  # noqa: F821
 
 # COMMAND ----------
 
@@ -72,6 +85,7 @@ spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
 COLUMN_COMMENTS = {
     "silver_alts_documents": {
         "fund_id": "Fund identifier",
+        "account_id": "Custody account this fund's commitment rolls up to (parvum_alts_hitl.model.FundCommitment.account_id) — the join key into silver_account_owners",
         "document": "Source PDF file name",
         "doc_type": "capital_call | distribution | capital_account_statement",
         "sequence_number": "call_number or distribution_number; NULL for capital_account_statement",
@@ -84,6 +98,7 @@ COLUMN_COMMENTS = {
         "reviewed_status": "approved | corrected, from bronze_alts_review_decisions; NULL if no human has decided this document yet",
         "final_fields_json": "The reviewer-confirmed field values, as raw JSON text; NULL if reviewed_status is NULL",
         "reviewed_at": "When the reviewer made this decision; NULL if reviewed_status is NULL",
+        "confirmed_fields_json": "The field values gold is allowed to report (D-060): the extraction's own fields when routing is auto_accept, final_fields_json once a needs_review document is decided, NULL while still awaiting review",
     },
 }
 
@@ -150,9 +165,16 @@ rows = []
 for fund_id, docs in by_fund.items():
     for doc in validate_fund_documents(docs):
         decision = decisions_by_key.get((fund_id, doc["document"]))
+        if decision is not None:
+            confirmed_fields_json = decision.final_fields_json
+        elif doc["routing"] == "auto_accept":
+            confirmed_fields_json = json.dumps(doc["fields"])
+        else:
+            confirmed_fields_json = None
         rows.append(
             {
                 "fund_id": fund_id,
+                "account_id": doc["fields"].get("account_id"),
                 "document": doc["document"],
                 "doc_type": doc["doc_type"],
                 "sequence_number": doc["sequence_number"],
@@ -165,6 +187,7 @@ for fund_id, docs in by_fund.items():
                 "final_fields_json": decision.final_fields_json if decision else None,
                 "reviewed_at": decision.decided_at if decision else None,
                 "routing": doc["routing"],
+                "confirmed_fields_json": confirmed_fields_json,
             }
         )
 
