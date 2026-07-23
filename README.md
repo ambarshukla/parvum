@@ -102,28 +102,29 @@ own tests and CI.
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
 (D-001…D-062); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
-![The web dashboard — client overview](docs/img/dashboard-overview.png)
-
-The dashboard also surfaces the ownership graph — including an account shared
-60/40 between two families, with its co-owner named:
-
-![Ownership view](docs/img/dashboard-ownership.png)
+![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
 Performance is time-weighted, Modified Dietz, and money-weighted IRR side by
 side, not just one number — the growth-of-$1 chart marks the 13F filing
-boundary that explains its own flat stretches. (The pipeline's own
-data-quality scorecard, "Ops," used to live as a tab here; it now lives in
-the auth-gated [`internal/`](internal/) app instead, alongside the alts
-review queue — see D-046.)
+boundary that explains its own flat stretches.
 
-![Performance tab, three methodologies side by side](docs/img/dashboard-performance.png)
+![Performance — three methodologies side by side, with the 13F filing boundary marked on the growth-of-$1 chart](docs/img/dashboard-performance.png)
 
-Private-fund (alts) holdings count toward the headline wealth number too, not
-just a side table: NAV from the human-reviewed capital account statements
-folds into total wealth and a dedicated allocation class, with an
-"Alternatives" tab showing the commitment/called/distributed/NAV/MOIC detail
-behind it — and a document still awaiting review is visibly excluded rather
-than silently assumed correct (D-060).
+The dashboard also surfaces the ownership graph — including an account shared
+60/40 between two families, with its co-owner named — and folds private-fund
+(alts) NAV from human-reviewed capital account statements into the headline
+wealth number and a dedicated allocation class, not just a side table; a
+document still awaiting review is visibly excluded rather than silently
+assumed correct (D-060). (The pipeline's own data-quality scorecard, "Ops,"
+used to live as a tab here; it now lives in the auth-gated
+[`internal/`](internal/) app alongside the alts review queue — see D-046.)
+
+The internal app is where a person actually works a flagged document — the
+source PDF beside the extracted fields, the cross-document check that caught it
+(here a statement's opening balance not matching the prior period's close), and
+approve / save-correction actions that write an append-only audit row:
+
+![Internal alts review queue — source PDF beside the extracted fields, with the cross-document validation note that flagged the document](docs/img/internal-review-queue.png)
 
 ## Phases
 
