@@ -8,6 +8,7 @@ export interface WealthRow {
     clientName: string;
     positionsUsd: number;
     cashUsd: number;
+    altsUsd: number;
     totalWealthUsd: number;
     fxRateUsed: number;
     fxRateDate: string;
@@ -77,6 +78,23 @@ export interface PerformanceSummaryRow {
     irrSinceInceptionAnnualized: number | null;
 }
 
+export interface AltsHoldingRow {
+    clientId: string;
+    clientName: string;
+    fundId: string;
+    fundName: string;
+    accountId: string;
+    inceptionDate: string | null;
+    asOf: string | null;
+    totalCommitmentUsd: number;
+    calledToDateUsd: number;
+    distributedToDateUsd: number;
+    unfundedCommitmentUsd: number;
+    currentNavUsd: number;
+    moic: number | null;
+    pendingReviewDocuments: number;
+}
+
 // Everything the dashboard needs for one tenant, fetched together.
 export interface TenantData {
     wealth: WealthRow[];
@@ -86,4 +104,5 @@ export interface TenantData {
     ownership: OwnershipRow[];
     performance: PerformanceRow[];
     performanceSummary: PerformanceSummaryRow[];
+    altsHoldings: AltsHoldingRow[];
 }

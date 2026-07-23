@@ -1,5 +1,6 @@
 import type {
     AllocationRow,
+    AltsHoldingRow,
     HoldingRow,
     IncomeRow,
     OwnershipRow,
@@ -26,15 +27,33 @@ async function getJson<T>(path: string): Promise<T> {
 /** Fetch every projection for one tenant in parallel. */
 export async function fetchTenant(tenantId: string): Promise<TenantData> {
     const base = `/tenants/${tenantId}`;
-    const [wealth, allocation, income, holdings, ownership, performance, performanceSummary] =
-        await Promise.all([
-            getJson<WealthRow[]>(`${base}/wealth`),
-            getJson<AllocationRow[]>(`${base}/allocation`),
-            getJson<IncomeRow[]>(`${base}/income`),
-            getJson<HoldingRow[]>(`${base}/holdings`),
-            getJson<OwnershipRow[]>(`${base}/ownership`),
-            getJson<PerformanceRow[]>(`${base}/performance`),
-            getJson<PerformanceSummaryRow[]>(`${base}/performance-summary`),
-        ]);
-    return { wealth, allocation, income, holdings, ownership, performance, performanceSummary };
+    const [
+        wealth,
+        allocation,
+        income,
+        holdings,
+        ownership,
+        performance,
+        performanceSummary,
+        altsHoldings,
+    ] = await Promise.all([
+        getJson<WealthRow[]>(`${base}/wealth`),
+        getJson<AllocationRow[]>(`${base}/allocation`),
+        getJson<IncomeRow[]>(`${base}/income`),
+        getJson<HoldingRow[]>(`${base}/holdings`),
+        getJson<OwnershipRow[]>(`${base}/ownership`),
+        getJson<PerformanceRow[]>(`${base}/performance`),
+        getJson<PerformanceSummaryRow[]>(`${base}/performance-summary`),
+        getJson<AltsHoldingRow[]>(`${base}/alts-holdings`),
+    ]);
+    return {
+        wealth,
+        allocation,
+        income,
+        holdings,
+        ownership,
+        performance,
+        performanceSummary,
+        altsHoldings,
+    };
 }

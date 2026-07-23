@@ -9,6 +9,7 @@ const reyes: WealthRow = {
     clientName: "Reyes Family",
     positionsUsd: 1645489.38,
     cashUsd: 48811.45,
+    altsUsd: 0,
     totalWealthUsd: 1694300.83,
     fxRateUsed: 1.1435,
     fxRateDate: "2026-07-17",
@@ -81,6 +82,24 @@ const data: TenantData = {
             irrSinceInceptionAnnualized: -0.37707435,
         },
     ],
+    altsHoldings: [
+        {
+            clientId: "CLI-REYES",
+            clientName: "Reyes Family",
+            fundId: "FUND-PE01",
+            fundName: "Meridian Capital Partners IV",
+            accountId: "X4478210",
+            inceptionDate: "2024-03-31",
+            asOf: "2026-06-30",
+            totalCommitmentUsd: 3000000,
+            calledToDateUsd: 1800000,
+            distributedToDateUsd: 200000,
+            unfundedCommitmentUsd: 1200000,
+            currentNavUsd: 1900000,
+            moic: 1.17,
+            pendingReviewDocuments: 1,
+        },
+    ],
 };
 
 describe("ClientDashboard", () => {
@@ -109,5 +128,14 @@ describe("ClientDashboard", () => {
         expect(screen.getByText("-10.79%")).toBeInTheDocument(); // Modified Dietz
         expect(screen.getByText("-37.71%")).toBeInTheDocument(); // IRR, annualized
         expect(screen.getByText("$22,500")).toBeInTheDocument(); // net external flow
+    });
+
+    it("shows the fund detail and a pending-review badge on the alternatives tab", () => {
+        render(<ClientDashboard data={data} client={reyes} dark={false} />);
+        fireEvent.click(screen.getByRole("tab", { name: "Alternatives" }));
+
+        expect(screen.getByText("Meridian Capital Partners IV")).toBeInTheDocument();
+        expect(screen.getByText("1.17x")).toBeInTheDocument();
+        expect(screen.getByText(/1 pending review/)).toBeInTheDocument();
     });
 });

@@ -1,9 +1,17 @@
 import { useState } from "react";
 import type { TenantData, WealthRow } from "./types";
-import { money, longDate, monthLabel, percent } from "./format";
+import { money, longDate, monthLabel, multiple, percent } from "./format";
 import { AllocationDonut, IncomeChart, PerformanceChart } from "./components/Charts";
 
-const TABS = ["Overview", "Allocation", "Income", "Holdings", "Ownership", "Performance"] as const;
+const TABS = [
+    "Overview",
+    "Allocation",
+    "Income",
+    "Holdings",
+    "Ownership",
+    "Performance",
+    "Alternatives",
+] as const;
 type Tab = (typeof TABS)[number];
 
 interface Props {
@@ -29,6 +37,9 @@ export function ClientDashboard({ data, client, dark }: Props) {
         .filter((r) => r.clientId === client.clientId)
         .sort((a, b) => a.asOf.localeCompare(b.asOf));
     const performanceSummary = data.performanceSummary.find((r) => r.clientId === client.clientId);
+    const altsHoldings = data.altsHoldings
+        .filter((r) => r.clientId === client.clientId)
+        .sort((a, b) => a.fundName.localeCompare(b.fundName));
 
     return (
         <>
@@ -60,6 +71,7 @@ export function ClientDashboard({ data, client, dark }: Props) {
                         <Tile label="Total wealth" value={money(client.totalWealthUsd)} hero />
                         <Tile label="Positions" value={money(client.positionsUsd)} />
                         <Tile label="Cash" value={money(client.cashUsd)} />
+                        <Tile label="Private markets" value={money(client.altsUsd)} />
                         <Tile
                             label="FX rate used"
                             value={client.fxRateUsed.toFixed(4)}
@@ -329,6 +341,60 @@ export function ClientDashboard({ data, client, dark }: Props) {
                         )}
                     </div>
                 </>
+            )}
+
+            {tab === "Alternatives" && (
+                <div className="card">
+                    <h2>Private markets</h2>
+                    <p className="muted" style={{ marginTop: -6, fontSize: 13 }}>
+                        Committed, called, and distributed capital, unfunded commitment, and current
+                        NAV per fund. MOIC is the multiple on invested capital (distributed + NAV,
+                        over called). Only confirmed documents are reflected — a fund still awaiting
+                        review shows as pending rather than moving these figures early.
+                    </p>
+                    <table className="data">
+                        <thead>
+                            <tr>
+                                <th>Fund</th>
+                                <th className="num">Committed</th>
+                                <th className="num">Called</th>
+                                <th className="num">Distributed</th>
+                                <th className="num">Unfunded</th>
+                                <th className="num">Current NAV</th>
+                                <th className="num">MOIC</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {altsHoldings.length === 0 && (
+                                <tr>
+                                    <td colSpan={7} className="muted">
+                                        No private-fund holdings.
+                                    </td>
+                                </tr>
+                            )}
+                            {altsHoldings.map((r) => (
+                                <tr key={r.fundId}>
+                                    <td>
+                                        {r.fundName}
+                                        {r.pendingReviewDocuments > 0 && (
+                                            <span className="chip" style={{ marginLeft: 8 }}>
+                                                {r.pendingReviewDocuments} pending review
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="num">{money(r.totalCommitmentUsd)}</td>
+                                    <td className="num">{money(r.calledToDateUsd)}</td>
+                                    <td className="num">{money(r.distributedToDateUsd)}</td>
+                                    <td className="num">{money(r.unfundedCommitmentUsd)}</td>
+                                    <td className="num">{money(r.currentNavUsd)}</td>
+                                    <td className="num">
+                                        {r.moic === null ? "—" : multiple(r.moic)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
             )}
         </>
     );

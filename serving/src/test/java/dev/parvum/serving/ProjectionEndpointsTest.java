@@ -47,8 +47,8 @@ class ProjectionEndpointsTest {
         "tenant_aldergate",
         """
         insert into client_wealth values
-          ('2026-05-15','HART','Hartwell', 1000000.00, 0.00, 1000000.00, 1.1000, '2026-05-15', true, now()),
-          ('2026-06-30','HART','Hartwell', 40000000.00, 1091835.83, 41091835.83, 1.1435, '2026-06-30', true, now());
+          ('2026-05-15','HART','Hartwell', 1000000.00, 0.00, 1000000.00, 1.1000, '2026-05-15', true, now(), 0.00),
+          ('2026-06-30','HART','Hartwell', 40000000.00, 1091835.83, 41091835.83, 1.1435, '2026-06-30', true, now(), 1200000.00);
         insert into asset_allocation values
           ('2026-06-30','HART','Hartwell','Equity', 40000000.00, 0.9734312757, now()),
           ('2026-06-30','HART','Hartwell','Cash',    1091835.83, 0.0265687243, now());
@@ -68,6 +68,9 @@ class ProjectionEndpointsTest {
           ('2026-06-30','HART','Hartwell', 41091835.83, 500000.00, 0.02500000, 1.02500000, now());
         insert into performance_summary values
           ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
+        insert into alts_holdings values
+          ('HART','Hartwell','FUND-VC01','Bramwell Ventures Fund II','ACC-HART',
+           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now());
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
@@ -78,7 +81,7 @@ class ProjectionEndpointsTest {
         "tenant_stonefield",
         """
         insert into client_wealth values
-          ('2026-06-30','OKAF','Okafor', 2800000.00, 67257.58, 2867257.58, 1.1435, '2026-06-30', true, now());
+          ('2026-06-30','OKAF','Okafor', 2800000.00, 67257.58, 2867257.58, 1.1435, '2026-06-30', true, now(), 0.00);
         insert into ownership values
           ('ACC-SHARED','REYES','Reyes', 0.600000, 2, true, now()),
           ('ACC-SHARED','OKAF','Okafor', 0.400000, 2, true, now());
@@ -96,8 +99,35 @@ class ProjectionEndpointsTest {
         .body("size()", is(1))
         .body("[0].clientId", is("HART"))
         .body("[0].asOf", is("2026-06-30"))
+        .body("[0].altsUsd", comparesEqualTo(new BigDecimal("1200000.00")))
         .body("[0].totalWealthUsd", comparesEqualTo(new BigDecimal("41091835.83")))
         .body("[0].booksReconcile", is(true));
+  }
+
+  @Test
+  void altsHoldingsExposesTheDetailBehindTheAltsSliceOfWealth() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/aldergate/alts-holdings")
+        .then()
+        .statusCode(200)
+        .body("size()", is(1))
+        .body("[0].clientId", is("HART"))
+        .body("[0].fundId", is("FUND-VC01"))
+        .body("[0].inceptionDate", is("2024-03-31"))
+        .body("[0].asOf", is("2026-06-30"))
+        .body("[0].currentNavUsd", comparesEqualTo(new BigDecimal("1200000.00")))
+        .body("[0].moic", comparesEqualTo(new BigDecimal("1.44")))
+        .body("[0].pendingReviewDocuments", is(0));
+
+    // Stonefield seeded no alts rows this test — proves an empty tenant returns [], not 404.
+    given()
+        .when()
+        .get("/tenants/stonefield/alts-holdings")
+        .then()
+        .statusCode(200)
+        .body("size()", is(0));
   }
 
   @Test
@@ -231,7 +261,7 @@ class ProjectionEndpointsTest {
     exec(
         schema,
         "truncate table client_wealth, asset_allocation, income, top_holdings, ownership, "
-            + "performance, performance_summary, dq_metrics");
+            + "performance, performance_summary, dq_metrics, alts_holdings");
   }
 
   /** Runs semicolon-separated statements inside {@code schema} via a temporary search_path. */

@@ -24,6 +24,7 @@ PROJECTION_TABLES = {
     "gold_ownership": "ownership",
     "gold_performance": "performance",
     "gold_performance_summary": "performance_summary",
+    "gold_alts_holdings": "alts_holdings",
     "dq_metrics": "dq_metrics",
 }
 

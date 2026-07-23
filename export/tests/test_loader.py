@@ -20,6 +20,7 @@ WEALTH_COLUMNS = (
     "client_name",
     "positions_usd",
     "cash_usd",
+    "alts_usd",
     "total_wealth_usd",
     "fx_rate_used",
     "fx_rate_date",
@@ -34,6 +35,7 @@ def wealth_row(client_id: str, day: date, total: str) -> tuple:
         client_id,
         f"{client_id} name",
         Decimal(total),
+        Decimal("0.00"),
         Decimal("0.00"),
         Decimal(total),
         Decimal("1.143500"),
@@ -142,6 +144,57 @@ def performance_summary_table(*rows: tuple) -> GoldTable:
     )
 
 
+ALTS_HOLDINGS_COLUMNS = (
+    "client_id",
+    "client_name",
+    "fund_id",
+    "fund_name",
+    "account_id",
+    "inception_date",
+    "as_of",
+    "total_commitment_usd",
+    "called_to_date_usd",
+    "distributed_to_date_usd",
+    "unfunded_commitment_usd",
+    "current_nav_usd",
+    "moic",
+    "pending_review_documents",
+    "rebuilt_at",
+)
+
+
+def alts_holding_row(
+    client_id: str,
+    fund_id: str,
+    inception: date | None,
+    as_of: date | None,
+    called: str,
+    moic: str | None,
+    pending: int,
+) -> tuple:
+    return (
+        client_id,
+        f"{client_id} name",
+        fund_id,
+        f"{fund_id} name",
+        "ACC-1",
+        inception,
+        as_of,
+        Decimal("5000000.00"),
+        Decimal(called),
+        Decimal("100000.00"),
+        Decimal("4900000.00"),
+        Decimal("1200000.00"),
+        Decimal(moic) if moic is not None else None,
+        pending,
+        REBUILT,
+    )
+
+
+def alts_holdings_table(*rows: tuple) -> GoldTable:
+    return GoldTable(name="gold_alts_holdings", columns=ALTS_HOLDINGS_COLUMNS, rows=rows)
+
+
 DQ_METRICS_COLUMNS = ("as_of", "dimension", "metric", "value", "passed", "detail", "rebuilt_at")
 
 
@@ -187,6 +240,12 @@ def empty_other_tables() -> list[GoldTable]:
     )
     return [
         GoldTable(name="gold_asset_allocation", columns=allocation_columns, rows=()),
+        # Inserted here, not appended at the end: the tests below slice
+        # empty_other_tables() from the tail (e.g. [:-3]) to override the last
+        # few tables while keeping the rest empty. Adding a new table has to
+        # go somewhere that doesn't change how many elements those negative
+        # offsets from the end skip over.
+        alts_holdings_table(),
         GoldTable(name="gold_income", columns=income_columns, rows=()),
         GoldTable(name="gold_top_holdings", columns=holdings_columns, rows=()),
         dq_metrics_table(),
@@ -283,6 +342,38 @@ def test_ownership_graph_loads_the_shared_account(connection, tenant_schemas):
     assert stored == [
         ("CLI-REYES", Decimal("0.600000"), 2, True),
         ("CLI-OKAFOR", Decimal("0.400000"), 2, True),
+    ]
+
+
+def test_alts_holdings_load_with_nullable_fields_intact(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # A fund with a confirmed statement (dates and moic present) alongside
+    # one with nothing confirmed yet (inception_date/as_of/moic all NULL,
+    # per gold_reports.py's fallback when no capital account statement has
+    # been reviewed) -- the loader must not choke on either shape.
+    holdings = alts_holdings_table(
+        alts_holding_row(
+            "CLI-HARTWELL",
+            "FUND-VC01",
+            date(2024, 3, 31),
+            date(2026, 6, 30),
+            "1200000.00",
+            "1.10",
+            0,
+        ),
+        alts_holding_row("CLI-REYES", "FUND-PE01", None, None, "0.00", None, 2),
+    )
+    others = [t for t in empty_other_tables() if t.name != "gold_alts_holdings"]
+    counts = load_tenant(connection, schema, [wealth_table(), holdings, *others])
+    assert counts["alts_holdings"] == 2
+
+    stored = connection.execute(
+        f"SELECT client_id, inception_date, as_of, moic, pending_review_documents "
+        f'FROM "{schema}".alts_holdings ORDER BY client_id'
+    ).fetchall()
+    assert stored == [
+        ("CLI-HARTWELL", date(2024, 3, 31), date(2026, 6, 30), Decimal("1.10"), 0),
+        ("CLI-REYES", None, None, None, 2),
     ]
 
 
