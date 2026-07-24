@@ -37,12 +37,16 @@ from parvum_alts_hitl.render import (
 )
 
 # Each fund's account_id rolls up to an existing custody account from
-# parvum_reference.accounts.UNIVERSE (X4478210, FQ5521) — alts holdings join
-# the same client rollup as everything else, not a parallel universe of
-# their own. FQ5521 hosts two funds deliberately (Bramwell, then the EUR
-# fund below) — a real LP can hold more than one fund interest through one
-# custody account, and FQ5521's own base currency is EUR (accounts.py),
-# which is why the EUR fund pairs with it rather than a USD-only account.
+# parvum_reference.accounts.UNIVERSE (X4478210, FQ5521, FQ9007) — alts
+# holdings join the same client rollup as everything else, not a parallel
+# universe of their own. FQ5521 hosts two funds deliberately (Bramwell, then
+# the EUR fund below) — a real LP can hold more than one fund interest
+# through one custody account, and FQ5521's own base currency is EUR
+# (accounts.py), which is why the EUR fund pairs with it rather than a
+# USD-only account. FQ9007 is the fourth fund's account: it's the one
+# account owned outright by the Hartwell Family Foundation (ownership.py),
+# so it gives Aldergate/Hartwell its own alts exposure without the
+# cross-family entanglement FQ5521/X4478210 have.
 FUND_UNIVERSE: tuple[FundCommitment, ...] = (
     FundCommitment(
         fund_id="FUND-PE01",
@@ -68,15 +72,26 @@ FUND_UNIVERSE: tuple[FundCommitment, ...] = (
         vintage_year=2024,
         total_commitment=Decimal("1500000.00"),
     ),
+    FundCommitment(
+        fund_id="FUND-PE02",
+        fund_name="Wraithmoor Endowment Partners III",
+        account_id="FQ9007",
+        currency="USD",
+        vintage_year=2024,
+        total_commitment=Decimal("3000000.00"),
+    ),
 )
 
 # One administrator's document conventions per fund (D-061): a single
 # layout/vocabulary/locale made every extraction trivially easy, which was a
-# property of the fixture rather than evidence the extractor works.
+# property of the fixture rather than evidence the extractor works. FUND-PE02
+# reuses PLAIN rather than a new template — the corpus already spans three
+# distinct conventions, and a fourth doesn't teach the extractor anything new.
 _TEMPLATE_BY_FUND: dict[str, DocTemplate] = {
     "FUND-PE01": PLAIN,
     "FUND-VC01": DRAWDOWN,
     "FUND-EU01": EURO,
+    "FUND-PE02": PLAIN,
 }
 
 _CALL_DEFECT_POOL = (
