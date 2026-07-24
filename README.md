@@ -90,17 +90,20 @@ own tests and CI.
 | Custodial feeds & formats | **Python**, ISO 20022 (`semt.002`, `camt.053`), SWIFT `MT535`, defect injection | [`ingest/`](ingest/) |
 | Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
-| Alts documents & HITL review | **Python**, **reportlab**, LLM extraction (Claude/OpenRouter) — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
+| Alts documents & HITL review | **Python**, **reportlab**, **LLM extraction (Anthropic Claude / OpenRouter)** — swappable behind one interface — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
 | Internal tools (auth-gated) | **React**, **TypeScript**, **Vite** — data ops + alts review queue | [`internal/`](internal/) |
 | CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
-| Infra | **Docker Compose** (local), **Terraform** (AWS: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
+| Infra | **Docker Compose** (local), **Terraform** (**AWS**: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
+Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
+guardrail, not free-tier-and-forget.
+
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-062); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-063); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
@@ -215,5 +218,5 @@ each step does, and a troubleshooting table.
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `internal/` | Auth-gated internal app — data ops scorecard, alts review queue, source PDF viewer (Vite + TypeScript) | 6 |
 | `alts-hitl/` | Synthetic private-fund document generator, LLM extraction, cross-document validation | 6 |
-| `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5 |
+| `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5, 7 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |
