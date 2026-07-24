@@ -99,6 +99,9 @@ own tests and CI.
 | Infra | **Docker Compose** (local), **Terraform** (**AWS**: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
+Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
+guardrail, not free-tier-and-forget.
+
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
 (D-001…D-063); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
