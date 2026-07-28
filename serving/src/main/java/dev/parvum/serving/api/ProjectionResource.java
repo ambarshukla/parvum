@@ -62,7 +62,9 @@ public class ProjectionResource {
                             r.getTotalWealthUsd(),
                             r.getFxRateUsed(),
                             r.getFxRateDate(),
-                            r.getBooksReconcile())));
+                            r.getBooksReconcile(),
+                            r.getReconcileBreakAccounts(),
+                            r.getReconcileVarianceUsd())));
   }
 
   /** Asset-class breakdown per client, on the latest exported date. */
@@ -233,7 +235,9 @@ public class ProjectionResource {
                             r.getUnfundedCommitmentUsd(),
                             r.getCurrentNavUsd(),
                             r.getMoic(),
-                            r.getPendingReviewDocuments())));
+                            r.getPendingReviewDocuments(),
+                            r.getPendingReviewDocTypes(),
+                            r.getPendingReviewLatestPeriod())));
   }
 
   public record WealthRow(
@@ -246,7 +250,9 @@ public class ProjectionResource {
       BigDecimal totalWealthUsd,
       BigDecimal fxRateUsed,
       LocalDate fxRateDate,
-      boolean booksReconcile) {}
+      boolean booksReconcile,
+      int reconcileBreakAccounts,
+      BigDecimal reconcileVarianceUsd) {}
 
   public record AllocationRow(
       LocalDate asOf,
@@ -320,5 +326,7 @@ public class ProjectionResource {
       BigDecimal unfundedCommitmentUsd,
       BigDecimal currentNavUsd,
       BigDecimal moic,
-      int pendingReviewDocuments) {}
+      int pendingReviewDocuments,
+      String pendingReviewDocTypes,
+      LocalDate pendingReviewLatestPeriod) {}
 }

@@ -14,6 +14,15 @@ const reyes: WealthRow = {
     fxRateUsed: 1.1435,
     fxRateDate: "2026-07-17",
     booksReconcile: true,
+    reconcileBreakAccounts: 0,
+    reconcileVarianceUsd: 0,
+};
+
+const reyesUnreconciled: WealthRow = {
+    ...reyes,
+    booksReconcile: false,
+    reconcileBreakAccounts: 1,
+    reconcileVarianceUsd: 2480.15,
 };
 
 const data: TenantData = {
@@ -99,6 +108,8 @@ const data: TenantData = {
             currentNavUsd: 1900000,
             moic: 1.17,
             pendingReviewDocuments: 1,
+            pendingReviewDocTypes: "capital_account_statement",
+            pendingReviewLatestPeriod: "2026-09-30",
         },
         {
             clientId: "CLI-REYES",
@@ -116,6 +127,8 @@ const data: TenantData = {
             currentNavUsd: 380000,
             moic: 1.08,
             pendingReviewDocuments: 0,
+            pendingReviewDocTypes: null,
+            pendingReviewLatestPeriod: null,
         },
     ],
 };
@@ -125,6 +138,14 @@ describe("ClientDashboard", () => {
         render(<ClientDashboard data={data} client={reyes} dark={false} />);
         expect(screen.getByText("Reyes Family")).toBeInTheDocument();
         expect(screen.getByText("$1,694,301")).toBeInTheDocument();
+    });
+
+    it("shows the account count and dollar variance behind a reconcile break", () => {
+        render(<ClientDashboard data={data} client={reyesUnreconciled} dark={false} />);
+        // Not just a boolean: how many of the client's accounts, and how much.
+        expect(
+            screen.getByText(/Reconciliation variance · 1 of 1 account · \$2,480/),
+        ).toBeInTheDocument();
     });
 
     it("surfaces the shared account and its co-owner on the ownership tab", () => {
@@ -154,7 +175,12 @@ describe("ClientDashboard", () => {
 
         expect(screen.getByText("Meridian Capital Partners IV")).toBeInTheDocument();
         expect(screen.getByText("1.17x")).toBeInTheDocument();
-        expect(screen.getByText(/1 pending review/)).toBeInTheDocument();
+        // Not just a bare count: what's pending and through what period.
+        expect(
+            screen.getByText(
+                /1 pending review · capital_account_statement · through 30 Sept? 2026/,
+            ),
+        ).toBeInTheDocument();
     });
 
     it("annotates a non-USD fund but not a USD one on the alternatives tab", () => {

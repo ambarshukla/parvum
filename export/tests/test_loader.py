@@ -26,10 +26,18 @@ WEALTH_COLUMNS = (
     "fx_rate_date",
     "books_reconcile",
     "rebuilt_at",
+    "reconcile_break_accounts",
+    "reconcile_variance_usd",
 )
 
 
-def wealth_row(client_id: str, day: date, total: str) -> tuple:
+def wealth_row(
+    client_id: str,
+    day: date,
+    total: str,
+    reconcile_break_accounts: int = 0,
+    reconcile_variance_usd: str = "0.00",
+) -> tuple:
     return (
         day,
         client_id,
@@ -40,8 +48,10 @@ def wealth_row(client_id: str, day: date, total: str) -> tuple:
         Decimal(total),
         Decimal("1.143500"),
         day,
-        True,
+        reconcile_break_accounts == 0,
         REBUILT,
+        reconcile_break_accounts,
+        Decimal(reconcile_variance_usd),
     )
 
 
@@ -161,6 +171,8 @@ ALTS_HOLDINGS_COLUMNS = (
     "pending_review_documents",
     "rebuilt_at",
     "currency",
+    "pending_review_doc_types",
+    "pending_review_latest_period",
 )
 
 
@@ -173,6 +185,8 @@ def alts_holding_row(
     moic: str | None,
     pending: int,
     currency: str = "USD",
+    pending_review_doc_types: str | None = None,
+    pending_review_latest_period: date | None = None,
 ) -> tuple:
     return (
         client_id,
@@ -191,6 +205,8 @@ def alts_holding_row(
         pending,
         REBUILT,
         currency,
+        pending_review_doc_types,
+        pending_review_latest_period,
     )
 
 
@@ -313,16 +329,30 @@ def test_typed_values_round_trip_through_postgres(connection, tenant_schemas):
     load_tenant(
         connection,
         schema,
-        [wealth_table(wealth_row("CLI-REYES", day, "1694300.83")), *empty_other_tables()],
+        [
+            wealth_table(
+                wealth_row(
+                    "CLI-REYES",
+                    day,
+                    "1694300.83",
+                    reconcile_break_accounts=1,
+                    reconcile_variance_usd="874.31",
+                )
+            ),
+            *empty_other_tables(),
+        ],
     )
     stored = connection.execute(
-        f"SELECT total_wealth_usd, fx_rate_used, books_reconcile, rebuilt_at "
+        f"SELECT total_wealth_usd, fx_rate_used, books_reconcile, rebuilt_at, "
+        f"reconcile_break_accounts, reconcile_variance_usd "
         f'FROM "{schema}".client_wealth'
     ).fetchone()
     assert stored[0] == Decimal("1694300.83")
     assert stored[1] == Decimal("1.143500")
-    assert stored[2] is True
+    assert stored[2] is False
     assert stored[3] == REBUILT
+    assert stored[4] == 1
+    assert stored[5] == Decimal("874.31")
 
 
 def test_ownership_graph_loads_the_shared_account(connection, tenant_schemas):
@@ -364,19 +394,38 @@ def test_alts_holdings_load_with_nullable_fields_intact(connection, tenant_schem
             "1.10",
             0,
         ),
-        alts_holding_row("CLI-REYES", "FUND-PE01", None, None, "0.00", None, 2),
+        alts_holding_row(
+            "CLI-REYES",
+            "FUND-PE01",
+            None,
+            None,
+            "0.00",
+            None,
+            2,
+            pending_review_doc_types="capital_account_statement, distribution",
+            pending_review_latest_period=date(2026, 6, 30),
+        ),
     )
     others = [t for t in empty_other_tables() if t.name != "gold_alts_holdings"]
     counts = load_tenant(connection, schema, [wealth_table(), holdings, *others])
     assert counts["alts_holdings"] == 2
 
     stored = connection.execute(
-        f"SELECT client_id, inception_date, as_of, moic, pending_review_documents "
+        f"SELECT client_id, inception_date, as_of, moic, pending_review_documents, "
+        f"pending_review_doc_types, pending_review_latest_period "
         f'FROM "{schema}".alts_holdings ORDER BY client_id'
     ).fetchall()
     assert stored == [
-        ("CLI-HARTWELL", date(2024, 3, 31), date(2026, 6, 30), Decimal("1.10"), 0),
-        ("CLI-REYES", None, None, None, 2),
+        ("CLI-HARTWELL", date(2024, 3, 31), date(2026, 6, 30), Decimal("1.10"), 0, None, None),
+        (
+            "CLI-REYES",
+            None,
+            None,
+            None,
+            2,
+            "capital_account_statement, distribution",
+            date(2026, 6, 30),
+        ),
     ]
 
 

@@ -48,7 +48,12 @@ export function ClientDashboard({ data, client, dark }: Props) {
                     <h1>{client.clientName}</h1>
                     <div className="asof">As of {longDate(client.asOf)}</div>
                 </div>
-                <ReconcileBadge ok={client.booksReconcile} />
+                <ReconcileBadge
+                    ok={client.booksReconcile}
+                    breakAccounts={client.reconcileBreakAccounts}
+                    varianceUsd={client.reconcileVarianceUsd}
+                    totalAccounts={ownedAccounts.length}
+                />
             </div>
 
             <div className="tabs" role="tablist">
@@ -384,8 +389,16 @@ export function ClientDashboard({ data, client, dark }: Props) {
                                             </span>
                                         )}
                                         {r.pendingReviewDocuments > 0 && (
-                                            <span className="chip" style={{ marginLeft: 8 }}>
+                                            <span
+                                                className="chip"
+                                                style={{ marginLeft: 8 }}
+                                                title={`Awaiting a human decision: ${r.pendingReviewDocTypes ?? "documents"}. Only confirmed documents are reflected in the figures on this row.`}
+                                            >
                                                 {r.pendingReviewDocuments} pending review
+                                                {r.pendingReviewDocTypes &&
+                                                    ` · ${r.pendingReviewDocTypes}`}
+                                                {r.pendingReviewLatestPeriod &&
+                                                    ` · through ${longDate(r.pendingReviewLatestPeriod)}`}
                                             </span>
                                         )}
                                     </td>
@@ -427,18 +440,30 @@ function Tile({
     );
 }
 
-function ReconcileBadge({ ok }: { ok: boolean }) {
+function ReconcileBadge({
+    ok,
+    breakAccounts,
+    varianceUsd,
+    totalAccounts,
+}: {
+    ok: boolean;
+    breakAccounts: number;
+    varianceUsd: number;
+    totalAccounts: number;
+}) {
     return (
         <span
             className={`badge ${ok ? "ok" : "warn"}`}
             title={
                 ok
                     ? "Positions + cash agree with the custodial books"
-                    : "The daily quality check flagged a variance against the books"
+                    : `The daily cash-ledger check (opening + movements = closing) is failing on ${breakAccounts} of ${totalAccounts} account${totalAccounts === 1 ? "" : "s"}, a ${money(varianceUsd)} gap. This flags a feed problem — it does not mean the total wealth figure above is wrong.`
             }
         >
             <span className="dot" />
-            {ok ? "Books reconcile" : "Reconciliation variance"}
+            {ok
+                ? "Books reconcile"
+                : `Reconciliation variance · ${breakAccounts} of ${totalAccounts} account${totalAccounts === 1 ? "" : "s"} · ${money(varianceUsd)}`}
         </span>
     );
 }
