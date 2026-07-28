@@ -96,8 +96,17 @@ export interface AltsHoldingRow {
     currentNavUsd: number;
     moic: number | null;
     pendingReviewDocuments: number;
-    pendingReviewDocTypes: string | null;
     pendingReviewLatestPeriod: string | null;
+}
+
+export interface ReconciliationExceptionRow {
+    clientId: string;
+    clientName: string;
+    accountId: string;
+    asOf: string;
+    currency: string;
+    deltaNative: number;
+    deltaUsd: number;
 }
 
 // Everything the dashboard needs for one tenant, fetched together.
@@ -110,4 +119,5 @@ export interface TenantData {
     performance: PerformanceRow[];
     performanceSummary: PerformanceSummaryRow[];
     altsHoldings: AltsHoldingRow[];
+    reconciliationExceptions: ReconciliationExceptionRow[];
 }

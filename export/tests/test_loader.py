@@ -171,7 +171,6 @@ ALTS_HOLDINGS_COLUMNS = (
     "pending_review_documents",
     "rebuilt_at",
     "currency",
-    "pending_review_doc_types",
     "pending_review_latest_period",
 )
 
@@ -185,7 +184,6 @@ def alts_holding_row(
     moic: str | None,
     pending: int,
     currency: str = "USD",
-    pending_review_doc_types: str | None = None,
     pending_review_latest_period: date | None = None,
 ) -> tuple:
     return (
@@ -205,13 +203,47 @@ def alts_holding_row(
         pending,
         REBUILT,
         currency,
-        pending_review_doc_types,
         pending_review_latest_period,
     )
 
 
 def alts_holdings_table(*rows: tuple) -> GoldTable:
     return GoldTable(name="gold_alts_holdings", columns=ALTS_HOLDINGS_COLUMNS, rows=rows)
+
+
+RECONCILIATION_EXCEPTIONS_COLUMNS = (
+    "client_id",
+    "client_name",
+    "account_id",
+    "as_of",
+    "currency",
+    "delta_native",
+    "delta_usd",
+    "rebuilt_at",
+)
+
+
+def reconciliation_exception_row(
+    client_id: str, account_id: str, day: date, delta: str, currency: str = "USD"
+) -> tuple:
+    return (
+        client_id,
+        f"{client_id} name",
+        account_id,
+        day,
+        currency,
+        Decimal(delta),
+        Decimal(delta),
+        REBUILT,
+    )
+
+
+def reconciliation_exceptions_table(*rows: tuple) -> GoldTable:
+    return GoldTable(
+        name="gold_reconciliation_exceptions",
+        columns=RECONCILIATION_EXCEPTIONS_COLUMNS,
+        rows=rows,
+    )
 
 
 DQ_METRICS_COLUMNS = ("as_of", "dimension", "metric", "value", "passed", "detail", "rebuilt_at")
@@ -265,6 +297,7 @@ def empty_other_tables() -> list[GoldTable]:
         # go somewhere that doesn't change how many elements those negative
         # offsets from the end skip over.
         alts_holdings_table(),
+        reconciliation_exceptions_table(),
         GoldTable(name="gold_income", columns=income_columns, rows=()),
         GoldTable(name="gold_top_holdings", columns=holdings_columns, rows=()),
         dq_metrics_table(),
@@ -402,7 +435,6 @@ def test_alts_holdings_load_with_nullable_fields_intact(connection, tenant_schem
             "0.00",
             None,
             2,
-            pending_review_doc_types="capital_account_statement, distribution",
             pending_review_latest_period=date(2026, 6, 30),
         ),
     )
@@ -412,21 +444,33 @@ def test_alts_holdings_load_with_nullable_fields_intact(connection, tenant_schem
 
     stored = connection.execute(
         f"SELECT client_id, inception_date, as_of, moic, pending_review_documents, "
-        f"pending_review_doc_types, pending_review_latest_period "
+        f"pending_review_latest_period "
         f'FROM "{schema}".alts_holdings ORDER BY client_id'
     ).fetchall()
     assert stored == [
-        ("CLI-HARTWELL", date(2024, 3, 31), date(2026, 6, 30), Decimal("1.10"), 0, None, None),
-        (
-            "CLI-REYES",
-            None,
-            None,
-            None,
-            2,
-            "capital_account_statement, distribution",
-            date(2026, 6, 30),
-        ),
+        ("CLI-HARTWELL", date(2024, 3, 31), date(2026, 6, 30), Decimal("1.10"), 0, None),
+        ("CLI-REYES", None, None, None, 2, date(2026, 6, 30)),
     ]
+
+
+def test_reconciliation_exceptions_load_with_a_signed_delta(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # A negative delta (closing higher than opening + movements implied) is
+    # just as real as a positive one -- the loader/column must not assume
+    # unsigned, unlike client_wealth.reconcile_variance_usd's ABS-summed
+    # aggregate.
+    exceptions = reconciliation_exceptions_table(
+        reconciliation_exception_row("CLI-OKAFOR", "ACC-SHARED", date(2026, 6, 30), "-874.31"),
+    )
+    others = [t for t in empty_other_tables() if t.name != "gold_reconciliation_exceptions"]
+    counts = load_tenant(connection, schema, [wealth_table(), exceptions, *others])
+    assert counts["reconciliation_exceptions"] == 1
+
+    stored = connection.execute(
+        f"SELECT client_id, account_id, currency, delta_native, delta_usd "
+        f'FROM "{schema}".reconciliation_exceptions'
+    ).fetchone()
+    assert stored == ("CLI-OKAFOR", "ACC-SHARED", "USD", Decimal("-874.31"), Decimal("-874.31"))
 
 
 def test_performance_series_and_summary_load_with_nulls_intact(connection, tenant_schemas):
