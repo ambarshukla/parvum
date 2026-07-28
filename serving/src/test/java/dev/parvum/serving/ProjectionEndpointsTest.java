@@ -47,8 +47,8 @@ class ProjectionEndpointsTest {
         "tenant_aldergate",
         """
         insert into client_wealth values
-          ('2026-05-15','HART','Hartwell', 1000000.00, 0.00, 1000000.00, 1.1000, '2026-05-15', true, now(), 0.00),
-          ('2026-06-30','HART','Hartwell', 40000000.00, 1091835.83, 41091835.83, 1.1435, '2026-06-30', true, now(), 1200000.00);
+          ('2026-05-15','HART','Hartwell', 1000000.00, 0.00, 1000000.00, 1.1000, '2026-05-15', true, now(), 0.00, 0, 0.00),
+          ('2026-06-30','HART','Hartwell', 40000000.00, 1091835.83, 41091835.83, 1.1435, '2026-06-30', true, now(), 1200000.00, 0, 0.00);
         insert into asset_allocation values
           ('2026-06-30','HART','Hartwell','Equity', 40000000.00, 0.9734312757, now()),
           ('2026-06-30','HART','Hartwell','Cash',    1091835.83, 0.0265687243, now());
@@ -70,18 +70,21 @@ class ProjectionEndpointsTest {
           ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
         insert into alts_holdings values
           ('HART','Hartwell','FUND-VC01','Bramwell Ventures Fund II','ACC-HART',
-           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now(), 'USD');
+           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now(), 'USD', null, null);
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
     // the signature shared account — one account split 60/40 between the two clients this firm
-    // advises, so both edges live in this one tenant.
+    // advises, so both edges live in this one tenant. Okafor's day also seeds a real reconcile
+    // break, so reconcile_break_accounts/_variance_usd have something non-zero to prove they carry
+    // through the full path (dq_cash_integrity's numbers never reach this table directly; the
+    // seeded row stands in for what gold_reports.py would have computed).
     reset("tenant_stonefield");
     exec(
         "tenant_stonefield",
         """
         insert into client_wealth values
-          ('2026-06-30','OKAF','Okafor', 2800000.00, 67257.58, 2867257.58, 1.1435, '2026-06-30', true, now(), 0.00);
+          ('2026-06-30','OKAF','Okafor', 2800000.00, 67257.58, 2867257.58, 1.1435, '2026-06-30', false, now(), 0.00, 1, 2480.15);
         insert into ownership values
           ('ACC-SHARED','REYES','Reyes', 0.600000, 2, true, now()),
           ('ACC-SHARED','OKAF','Okafor', 0.400000, 2, true, now());
@@ -101,7 +104,9 @@ class ProjectionEndpointsTest {
         .body("[0].asOf", is("2026-06-30"))
         .body("[0].altsUsd", comparesEqualTo(new BigDecimal("1200000.00")))
         .body("[0].totalWealthUsd", comparesEqualTo(new BigDecimal("41091835.83")))
-        .body("[0].booksReconcile", is(true));
+        .body("[0].booksReconcile", is(true))
+        .body("[0].reconcileBreakAccounts", is(0))
+        .body("[0].reconcileVarianceUsd", comparesEqualTo(new BigDecimal("0.00")));
   }
 
   @Test
@@ -120,7 +125,9 @@ class ProjectionEndpointsTest {
         .body("[0].asOf", is("2026-06-30"))
         .body("[0].currentNavUsd", comparesEqualTo(new BigDecimal("1200000.00")))
         .body("[0].moic", comparesEqualTo(new BigDecimal("1.44")))
-        .body("[0].pendingReviewDocuments", is(0));
+        .body("[0].pendingReviewDocuments", is(0))
+        .body("[0].pendingReviewDocTypes", is(nullValue()))
+        .body("[0].pendingReviewLatestPeriod", is(nullValue()));
 
     // Stonefield seeded no alts rows this test — proves an empty tenant returns [], not 404.
     given()
@@ -142,12 +149,18 @@ class ProjectionEndpointsTest {
         .body("clientId", not(hasItem("OKAF")));
 
     given()
+        .config(BIG_DECIMALS)
         .when()
         .get("/tenants/stonefield/wealth")
         .then()
         .statusCode(200)
         .body("clientId", contains("OKAF"))
-        .body("clientId", not(hasItem("HART")));
+        .body("clientId", not(hasItem("HART")))
+        // Okafor's seeded day carries a real reconcile break, unlike Aldergate's clean one above —
+        // proves the detail behind a FALSE verdict actually reaches the API, not just the boolean.
+        .body("[0].booksReconcile", is(false))
+        .body("[0].reconcileBreakAccounts", is(1))
+        .body("[0].reconcileVarianceUsd", comparesEqualTo(new BigDecimal("2480.15")));
   }
 
   @Test

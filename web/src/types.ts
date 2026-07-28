@@ -13,6 +13,8 @@ export interface WealthRow {
     fxRateUsed: number;
     fxRateDate: string;
     booksReconcile: boolean;
+    reconcileBreakAccounts: number;
+    reconcileVarianceUsd: number;
 }
 
 export interface AllocationRow {
@@ -94,6 +96,8 @@ export interface AltsHoldingRow {
     currentNavUsd: number;
     moic: number | null;
     pendingReviewDocuments: number;
+    pendingReviewDocTypes: string | null;
+    pendingReviewLatestPeriod: string | null;
 }
 
 // Everything the dashboard needs for one tenant, fetched together.
