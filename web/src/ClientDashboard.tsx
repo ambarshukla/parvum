@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { TenantData, WealthRow } from "./types";
+import type { ReconciliationExceptionRow, TenantData, WealthRow } from "./types";
 import { money, longDate, monthLabel, multiple, percent } from "./format";
 import { AllocationDonut, IncomeChart, PerformanceChart } from "./components/Charts";
 
@@ -53,6 +53,9 @@ export function ClientDashboard({ data, client, dark }: Props) {
                     breakAccounts={client.reconcileBreakAccounts}
                     varianceUsd={client.reconcileVarianceUsd}
                     totalAccounts={ownedAccounts.length}
+                    exceptions={data.reconciliationExceptions.filter(
+                        (e) => e.clientId === client.clientId,
+                    )}
                 />
             </div>
 
@@ -392,13 +395,11 @@ export function ClientDashboard({ data, client, dark }: Props) {
                                             <span
                                                 className="chip"
                                                 style={{ marginLeft: 8 }}
-                                                title={`Awaiting a human decision: ${r.pendingReviewDocTypes ?? "documents"}. Only confirmed documents are reflected in the figures on this row.`}
+                                                title="A more recent figure is awaiting confirmation. Only confirmed values are reflected in the figures on this row."
                                             >
-                                                {r.pendingReviewDocuments} pending review
-                                                {r.pendingReviewDocTypes &&
-                                                    ` · ${r.pendingReviewDocTypes}`}
-                                                {r.pendingReviewLatestPeriod &&
-                                                    ` · through ${longDate(r.pendingReviewLatestPeriod)}`}
+                                                {r.pendingReviewLatestPeriod
+                                                    ? `Newer figures pending · through ${longDate(r.pendingReviewLatestPeriod)}`
+                                                    : "Newer figures pending"}
                                             </span>
                                         )}
                                     </td>
@@ -445,25 +446,61 @@ function ReconcileBadge({
     breakAccounts,
     varianceUsd,
     totalAccounts,
+    exceptions,
 }: {
     ok: boolean;
     breakAccounts: number;
     varianceUsd: number;
     totalAccounts: number;
+    exceptions: ReconciliationExceptionRow[];
 }) {
+    const [open, setOpen] = useState(false);
+
+    if (ok) {
+        return (
+            <span className="badge ok" title="Positions + cash agree with the custodial books">
+                <span className="dot" />
+                Books reconcile
+            </span>
+        );
+    }
+
+    const plural = totalAccounts === 1 ? "" : "s";
     return (
-        <span
-            className={`badge ${ok ? "ok" : "warn"}`}
-            title={
-                ok
-                    ? "Positions + cash agree with the custodial books"
-                    : `The daily cash-ledger check (opening + movements = closing) is failing on ${breakAccounts} of ${totalAccounts} account${totalAccounts === 1 ? "" : "s"}, a ${money(varianceUsd)} gap. This flags a feed problem — it does not mean the total wealth figure above is wrong.`
-            }
-        >
-            <span className="dot" />
-            {ok
-                ? "Books reconcile"
-                : `Reconciliation variance · ${breakAccounts} of ${totalAccounts} account${totalAccounts === 1 ? "" : "s"} · ${money(varianceUsd)}`}
-        </span>
+        <div className="reconcile-wrap">
+            <button
+                type="button"
+                className="badge warn clickable"
+                aria-expanded={open}
+                onClick={() => setOpen((o) => !o)}
+                title={`The daily cash-ledger check (opening + movements = closing) is failing on ${breakAccounts} of ${totalAccounts} account${plural}, a ${money(varianceUsd)} gap. This flags a feed problem — it does not mean the total wealth figure above is wrong. Click for the account(s).`}
+            >
+                <span className="dot" />
+                {`Reconciliation variance · ${breakAccounts} of ${totalAccounts} account${plural} · ${money(varianceUsd)}`}
+            </button>
+            {open && (
+                <div className="reconcile-panel">
+                    <div className="label">Accounts behind this variance</div>
+                    <table>
+                        <tbody>
+                            {exceptions.map((e) => (
+                                <tr key={e.accountId}>
+                                    <td className="mono">{e.accountId}</td>
+                                    <td className="num">
+                                        {money(e.deltaUsd)}
+                                        {e.currency !== "USD" && (
+                                            <span className="muted">
+                                                {" "}
+                                                ({e.deltaNative.toFixed(2)} {e.currency})
+                                            </span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
     );
 }

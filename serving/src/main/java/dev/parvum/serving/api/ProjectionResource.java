@@ -7,6 +7,7 @@ import static dev.parvum.serving.jooq.Tables.INCOME;
 import static dev.parvum.serving.jooq.Tables.OWNERSHIP;
 import static dev.parvum.serving.jooq.Tables.PERFORMANCE;
 import static dev.parvum.serving.jooq.Tables.PERFORMANCE_SUMMARY;
+import static dev.parvum.serving.jooq.Tables.RECONCILIATION_EXCEPTIONS;
 import static dev.parvum.serving.jooq.Tables.TOP_HOLDINGS;
 import static org.jooq.impl.DSL.max;
 
@@ -236,8 +237,35 @@ public class ProjectionResource {
                             r.getCurrentNavUsd(),
                             r.getMoic(),
                             r.getPendingReviewDocuments(),
-                            r.getPendingReviewDocTypes(),
                             r.getPendingReviewLatestPeriod())));
+  }
+
+  /**
+   * The accounts behind a FALSE {@code booksReconcile} (D-064 follow-up) — {@code
+   * client_wealth.reconcileBreakAccounts}/{@code reconcileVarianceUsd} answer "how many, how much";
+   * this answers "which one(s)". Latest date only, like {@link #altsHoldings}: a client with a
+   * clean day gets an empty list, not a 404.
+   */
+  @GET
+  @Path("/reconciliation-exceptions")
+  public List<ReconciliationExceptionRow> reconciliationExceptions(
+      @PathParam("tenantId") String tenantId) {
+    return tenantQuery.inTenant(
+        tenantId,
+        dsl ->
+            dsl.selectFrom(RECONCILIATION_EXCEPTIONS)
+                .orderBy(
+                    RECONCILIATION_EXCEPTIONS.CLIENT_NAME, RECONCILIATION_EXCEPTIONS.ACCOUNT_ID)
+                .fetch(
+                    r ->
+                        new ReconciliationExceptionRow(
+                            r.getClientId(),
+                            r.getClientName(),
+                            r.getAccountId(),
+                            r.getAsOf(),
+                            r.getCurrency(),
+                            r.getDeltaNative(),
+                            r.getDeltaUsd())));
   }
 
   public record WealthRow(
@@ -327,6 +355,14 @@ public class ProjectionResource {
       BigDecimal currentNavUsd,
       BigDecimal moic,
       int pendingReviewDocuments,
-      String pendingReviewDocTypes,
       LocalDate pendingReviewLatestPeriod) {}
+
+  public record ReconciliationExceptionRow(
+      String clientId,
+      String clientName,
+      String accountId,
+      LocalDate asOf,
+      String currency,
+      BigDecimal deltaNative,
+      BigDecimal deltaUsd) {}
 }

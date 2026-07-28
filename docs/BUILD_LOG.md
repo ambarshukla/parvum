@@ -879,3 +879,21 @@ User manually dispatched `export-gold.yml` (today's scheduled run predated the n
 - `GET /tenants/aldergate/alts-holdings` → Wraithmoor Endowment Partners III carries `pendingReviewDocuments: 7, pendingReviewDocTypes: "capital_account_statement, capital_call, distribution", pendingReviewLatestPeriod: "2025-12-31"` — matches the lakehouse exactly.
 
 The whole D-064 slice — user complaint → gold columns → serving/export/web → merge → live production — is now closed with real numbers behind both dashboard spots, not just the synthetic ones used to visually verify the UI pre-merge.
+
+## 2026-07-28 — The per-account drill-down D-064 deferred, and dropping the doc-type taxonomy from the client view (D-065)
+
+Live within hours of D-064 shipping, the user pushed back on both spots it had just fixed: the reconcile badge's "1 of 3 accounts · $23" didn't say *which* account, and the alts chip's "7 pending review · capital_account_statement, capital_call · through 31 Mar 2026" exposed this project's internal document taxonomy to a wealth client who has no reason to know it.
+
+**Done:**
+- `spark/gold_reports.py`: new table `gold_reconciliation_exceptions` — one row per (client, account) currently failing the conformed cash check, latest date only (baked in, same pattern as `gold_top_holdings`), with a *signed* USD/native delta. Removed `gold_alts_holdings.pending_review_doc_types` entirely (added in D-064, dead once the client chip stops showing it).
+- `serving/.../V8__reconciliation_exceptions.sql`: new `reconciliation_exceptions` table; drops `alts_holdings.pending_review_doc_types`. New `/tenants/{id}/reconciliation-exceptions` endpoint + `ReconciliationExceptionRow` DTO; `AltsHoldingRow` loses `pendingReviewDocTypes`.
+- `export`: `gold_reconciliation_exceptions` added to `GOLD_TABLES`/`PROJECTION_TABLES` — the one place in this slice that needed real code (unlike D-064's additive columns, a brand-new table isn't absorbed for free by the column-name-driven loader).
+- `web/src/ClientDashboard.tsx`: `ReconcileBadge` is now a real `<button>` (fixes the "tooltip only fires on the dot" report as a side effect — the whole pill is one hoverable/clickable target) that toggles an inline panel listing each broken account and its signed delta. The "ok" state stays a plain `<span>` — nothing to click into. The alts chip drops doc-type enumeration for plain language: "Newer figures pending · through 31 Mar 2026."
+- `docs/DECISIONS.md`: D-065 (records the reversal of D-064's own "defer this to the internal app" call, honestly — the assumption behind that deferral didn't survive contact with a real user reacting to the shipped feature).
+
+**Verified:**
+- `mvn verify` 32/32 (new test: `GET /tenants/{id}/reconciliation-exceptions` names the account and signed delta behind a real seeded break; an empty tenant returns `[]`, not 404).
+- `export` 42/42 (new test round-trips a *negative* signed delta through real Postgres, proving the column isn't silently assumed unsigned; `empty_other_tables()`'s existing tail-slice convention for new tables — insert early, never append at the end — followed for the new table too).
+- `web` 12/12 (new test: the account panel is absent until the badge is clicked, present with the right account id and dollar amount after; the pending-review test now asserts the doc-type string is *absent*, not just that the date is present). `tsc --noEmit`, `vite build`, `prettier --check` all clean.
+- **Visually confirmed in a real browser**, same technique as D-064 (synthetic rows seeded into local Postgres via `docker exec ... psql`, since gold doesn't have this table's real data pre-merge; throwaway Playwright install in the scratchpad; reverted after): clicking "Reconciliation variance · 1 of 2 accounts · $1,875" reveals a panel reading "Accounts behind this variance / X4478210 · $1,875" — no tooltip precision needed. The alts chip renders "Newer figures pending · through 30 Sept 2026" with no document-type text anywhere on the page. Zero console errors on either screenshot.
+- Real production numbers for the new table are owed post-merge, the same structural gap (`git_source` pulls `main`) recorded on every prior gold-layer change in this project.

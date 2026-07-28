@@ -25,6 +25,7 @@ PROJECTION_TABLES = {
     "gold_performance": "performance",
     "gold_performance_summary": "performance_summary",
     "gold_alts_holdings": "alts_holdings",
+    "gold_reconciliation_exceptions": "reconciliation_exceptions",
     "dq_metrics": "dq_metrics",
 }
 

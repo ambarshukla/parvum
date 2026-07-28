@@ -70,7 +70,7 @@ class ProjectionEndpointsTest {
           ('HART','Hartwell','2026-05-15','2026-06-30', 1000000.00, 41091835.83, 500000.00, 0.02500000, 0.02480000, 0.15000000, now());
         insert into alts_holdings values
           ('HART','Hartwell','FUND-VC01','Bramwell Ventures Fund II','ACC-HART',
-           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now(), 'USD', null, null);
+           '2024-03-31','2026-06-30', 2000000.00, 900000.00, 100000.00, 1100000.00, 1200000.00, 1.44, 0, now(), 'USD', null);
         """);
 
     // Stonefield: Okafor and Reyes. Wealth proves cross-tenant isolation; the ownership rows carry
@@ -88,6 +88,8 @@ class ProjectionEndpointsTest {
         insert into ownership values
           ('ACC-SHARED','REYES','Reyes', 0.600000, 2, true, now()),
           ('ACC-SHARED','OKAF','Okafor', 0.400000, 2, true, now());
+        insert into reconciliation_exceptions values
+          ('OKAF','Okafor','ACC-SHARED','2026-06-30','USD', 2480.15, 2480.15, now());
         """);
   }
 
@@ -126,13 +128,36 @@ class ProjectionEndpointsTest {
         .body("[0].currentNavUsd", comparesEqualTo(new BigDecimal("1200000.00")))
         .body("[0].moic", comparesEqualTo(new BigDecimal("1.44")))
         .body("[0].pendingReviewDocuments", is(0))
-        .body("[0].pendingReviewDocTypes", is(nullValue()))
         .body("[0].pendingReviewLatestPeriod", is(nullValue()));
 
     // Stonefield seeded no alts rows this test — proves an empty tenant returns [], not 404.
     given()
         .when()
         .get("/tenants/stonefield/alts-holdings")
+        .then()
+        .statusCode(200)
+        .body("size()", is(0));
+  }
+
+  @Test
+  void reconciliationExceptionsNamesTheAccountBehindABreak() {
+    given()
+        .config(BIG_DECIMALS)
+        .when()
+        .get("/tenants/stonefield/reconciliation-exceptions")
+        .then()
+        .statusCode(200)
+        .body("size()", is(1))
+        .body("[0].clientId", is("OKAF"))
+        .body("[0].accountId", is("ACC-SHARED"))
+        .body("[0].currency", is("USD"))
+        .body("[0].deltaNative", comparesEqualTo(new BigDecimal("2480.15")))
+        .body("[0].deltaUsd", comparesEqualTo(new BigDecimal("2480.15")));
+
+    // Aldergate/Hartwell's seeded day reconciles cleanly — no rows, not a 404.
+    given()
+        .when()
+        .get("/tenants/aldergate/reconciliation-exceptions")
         .then()
         .statusCode(200)
         .body("size()", is(0));
@@ -275,7 +300,8 @@ class ProjectionEndpointsTest {
     exec(
         schema,
         "truncate table client_wealth, asset_allocation, income, top_holdings, ownership, "
-            + "performance, performance_summary, dq_metrics, alts_holdings");
+            + "performance, performance_summary, dq_metrics, alts_holdings, "
+            + "reconciliation_exceptions");
   }
 
   /** Runs semicolon-separated statements inside {@code schema} via a temporary search_path. */

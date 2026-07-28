@@ -108,7 +108,6 @@ const data: TenantData = {
             currentNavUsd: 1900000,
             moic: 1.17,
             pendingReviewDocuments: 1,
-            pendingReviewDocTypes: "capital_account_statement",
             pendingReviewLatestPeriod: "2026-09-30",
         },
         {
@@ -127,8 +126,18 @@ const data: TenantData = {
             currentNavUsd: 380000,
             moic: 1.08,
             pendingReviewDocuments: 0,
-            pendingReviewDocTypes: null,
             pendingReviewLatestPeriod: null,
+        },
+    ],
+    reconciliationExceptions: [
+        {
+            clientId: "CLI-REYES",
+            clientName: "Reyes Family",
+            accountId: "ACC-SHARED",
+            asOf: "2026-07-17",
+            currency: "USD",
+            deltaNative: 2480.15,
+            deltaUsd: 2480.15,
         },
     ],
 };
@@ -146,6 +155,18 @@ describe("ClientDashboard", () => {
         expect(
             screen.getByText(/Reconciliation variance · 1 of 1 account · \$2,480/),
         ).toBeInTheDocument();
+    });
+
+    it("clicking the reconcile badge reveals which account and how much", () => {
+        render(<ClientDashboard data={data} client={reyesUnreconciled} dark={false} />);
+
+        // Not shown until clicked.
+        expect(screen.queryByText("ACC-SHARED")).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: /Reconciliation variance/ }));
+
+        const row = screen.getByText("ACC-SHARED").closest("tr");
+        expect(row).toHaveTextContent("$2,480");
     });
 
     it("surfaces the shared account and its co-owner on the ownership tab", () => {
@@ -175,12 +196,11 @@ describe("ClientDashboard", () => {
 
         expect(screen.getByText("Meridian Capital Partners IV")).toBeInTheDocument();
         expect(screen.getByText("1.17x")).toBeInTheDocument();
-        // Not just a bare count: what's pending and through what period.
+        // Plain language, not the internal document-type taxonomy.
         expect(
-            screen.getByText(
-                /1 pending review · capital_account_statement · through 30 Sept? 2026/,
-            ),
+            screen.getByText(/Newer figures pending · through 30 Sept? 2026/),
         ).toBeInTheDocument();
+        expect(screen.queryByText(/capital_account_statement/)).not.toBeInTheDocument();
     });
 
     it("annotates a non-USD fund but not a USD one on the alternatives tab", () => {

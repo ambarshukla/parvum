@@ -6,6 +6,7 @@ import type {
     OwnershipRow,
     PerformanceRow,
     PerformanceSummaryRow,
+    ReconciliationExceptionRow,
     TenantData,
     WealthRow,
 } from "./types";
@@ -36,6 +37,7 @@ export async function fetchTenant(tenantId: string): Promise<TenantData> {
         performance,
         performanceSummary,
         altsHoldings,
+        reconciliationExceptions,
     ] = await Promise.all([
         getJson<WealthRow[]>(`${base}/wealth`),
         getJson<AllocationRow[]>(`${base}/allocation`),
@@ -45,6 +47,7 @@ export async function fetchTenant(tenantId: string): Promise<TenantData> {
         getJson<PerformanceRow[]>(`${base}/performance`),
         getJson<PerformanceSummaryRow[]>(`${base}/performance-summary`),
         getJson<AltsHoldingRow[]>(`${base}/alts-holdings`),
+        getJson<ReconciliationExceptionRow[]>(`${base}/reconciliation-exceptions`),
     ]);
     return {
         wealth,
@@ -55,5 +58,6 @@ export async function fetchTenant(tenantId: string): Promise<TenantData> {
         performance,
         performanceSummary,
         altsHoldings,
+        reconciliationExceptions,
     };
 }
