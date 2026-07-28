@@ -137,12 +137,24 @@ _alts_confirmed = spark.sql(  # noqa: F821
     FROM {SCHEMA}.silver_alts_documents WHERE confirmed_fields_json IS NOT NULL"""
 ).collect()
 
-_alts_pending = {
-    row.fund_id: row.pending
-    for row in spark.sql(  # noqa: F821
-        f"""SELECT fund_id, COUNT(*) AS pending FROM {SCHEMA}.silver_alts_documents
-        WHERE routing = 'needs_review' AND reviewed_status IS NULL GROUP BY fund_id"""
-    ).collect()
+_pending_docs_by_fund: dict[str, list] = {}
+for _row in spark.sql(  # noqa: F821
+    f"""SELECT fund_id, doc_type, period_end FROM {SCHEMA}.silver_alts_documents
+    WHERE routing = 'needs_review' AND reviewed_status IS NULL"""
+).collect():
+    _pending_docs_by_fund.setdefault(_row.fund_id, []).append(_row)
+
+_alts_pending = {fid: len(rows) for fid, rows in _pending_docs_by_fund.items()}
+# What's actually waiting, not just how many -- the doc types explain *why*
+# a figure hasn't moved (e.g. a statement, not just a call notice), and the
+# latest pending statement period lets the UI compare against `as_of` to
+# show how far behind the confirmed NAV is.
+_alts_pending_doc_types = {
+    fid: ", ".join(sorted({r.doc_type for r in rows})) for fid, rows in _pending_docs_by_fund.items()
+}
+_alts_pending_latest_period = {
+    fid: max((date.fromisoformat(r.period_end) for r in rows if r.period_end), default=None)
+    for fid, rows in _pending_docs_by_fund.items()
 }
 
 _calls: dict[str, list[dict]] = {}
@@ -225,6 +237,8 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
             "current_nav_native": _nav,
             "moic_str": str(_moic) if _moic is not None else None,
             "pending_review_documents": int(_alts_pending.get(_fid, 0)),
+            "pending_review_doc_types": _alts_pending_doc_types.get(_fid),
+            "pending_review_latest_period": _alts_pending_latest_period.get(_fid),
         }
     )
     for _stmt in _fund_stmts:
@@ -248,7 +262,8 @@ spark.createDataFrame(  # noqa: F821
     "inception_date DATE, as_of DATE, total_commitment_native DECIMAL(24,2), "
     "called_to_date_native DECIMAL(24,2), distributed_to_date_native DECIMAL(24,2), "
     "unfunded_commitment_native DECIMAL(24,2), current_nav_native DECIMAL(24,2), "
-    "moic_str STRING, pending_review_documents INT",
+    "moic_str STRING, pending_review_documents INT, pending_review_doc_types STRING, "
+    "pending_review_latest_period DATE",
 ).createOrReplaceTempView("alts_fund_raw")
 
 spark.createDataFrame(  # noqa: F821
@@ -291,7 +306,7 @@ spark.sql(  # noqa: F821
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_alts_holdings
-    COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC, converted to USD at the rate for each figure''s own as-of date. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents counts what is deliberately left out.'
+    COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC, converted to USD at the rate for each figure''s own as-of date. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents/_doc_types/_latest_period describe what is deliberately left out.'
     AS
     WITH rated AS (
         -- One rate per fund: the latest confirmed statement's date, or (no
@@ -331,6 +346,8 @@ spark.sql(  # noqa: F821
         -- (both sides of distributed+nav / called scale by the same rate).
         CAST(r.moic_str AS DECIMAL(14,6))                                  AS moic,
         r.pending_review_documents,
+        r.pending_review_doc_types,
+        r.pending_review_latest_period,
         current_timestamp()                                                AS rebuilt_at
     FROM rated r
     JOIN {SCHEMA}.silver_account_owners o USING (account_id)"""
@@ -423,7 +440,7 @@ if unknown:
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_client_wealth
-    COMMENT 'Per client per day: total wealth in USD (positions + closing cash + forward-filled alts NAV, converted at that day''s ECB reference rate). books_reconcile is the DQ layer''s cash verdict across the client''s accounts.'
+    COMMENT 'Per client per day: total wealth in USD (positions + closing cash + forward-filled alts NAV, converted at that day''s ECB reference rate). books_reconcile is the DQ layer''s cash verdict across the client''s accounts; reconcile_break_accounts/_variance_usd give the detail behind a FALSE.'
     AS
     WITH pos AS (
         SELECT p.as_of, p.client_id, p.client_name,
@@ -444,10 +461,22 @@ spark.sql(  # noqa: F821
     ),
     quality AS (
         -- every() over the client's accounts: one broken account-day marks
-        -- the client's day unreconciled. Verdicts come from dq_cash_integrity.
-        SELECT d.as_of, o.client_id, every(d.conformed_consistent) AS books_reconcile
+        -- the client's day unreconciled. Verdicts come from dq_cash_integrity;
+        -- reconcile_break_accounts/_variance_usd are this client's prorated
+        -- share of the broken accounts' own arithmetic gap (|delta_conformed|,
+        -- converted to USD at the day's rate) -- so a FALSE verdict can say
+        -- how many accounts and how much, not just yes/no.
+        SELECT d.as_of, o.client_id,
+               every(d.conformed_consistent)                                AS books_reconcile,
+               SUM(CASE WHEN NOT d.conformed_consistent THEN 1 ELSE 0 END)  AS reconcile_break_accounts,
+               SUM(CASE WHEN NOT d.conformed_consistent
+                        THEN ABS(d.delta_conformed)
+                             * (CASE WHEN d.currency = 'USD' THEN 1 ELSE f.eur_usd END)
+                             * o.ownership_pct
+                        ELSE 0 END)                                         AS reconcile_variance_usd
         FROM {SCHEMA}.dq_cash_integrity d
         JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+        JOIN fx f USING (as_of)
         GROUP BY d.as_of, o.client_id
     )
     SELECT
@@ -462,6 +491,8 @@ spark.sql(  # noqa: F821
         f.eur_usd                                                    AS fx_rate_used,
         f.fx_rate_date,
         COALESCE(q.books_reconcile, TRUE)                            AS books_reconcile,
+        COALESCE(q.reconcile_break_accounts, 0)                      AS reconcile_break_accounts,
+        CAST(COALESCE(q.reconcile_variance_usd, 0) AS DECIMAL(24,2)) AS reconcile_variance_usd,
         current_timestamp()                                          AS rebuilt_at
     FROM pos p
     LEFT JOIN cash c     USING (as_of, client_id)
@@ -886,6 +917,8 @@ COLUMN_COMMENTS = {
         "fx_rate_used": "EUR→USD ECB reference rate applied to this date's EUR amounts",
         "fx_rate_date": "The day fx_rate_used was published; earlier than as_of means carried forward (weekend/holiday) — labelled, not hidden",
         "books_reconcile": "TRUE when the DQ layer's conformed cash check passes for every account this client owns on this date",
+        "reconcile_break_accounts": "Count of this client's accounts where the conformed cash check fails on this date; 0 when books_reconcile is TRUE",
+        "reconcile_variance_usd": "This client's prorated share of the broken accounts' own arithmetic gap (opening + movements vs. closing), summed in USD; 0 when books_reconcile is TRUE",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "gold_asset_allocation": {
@@ -967,6 +1000,8 @@ COLUMN_COMMENTS = {
         "current_nav_usd": "Owner-prorated ending balance from the latest confirmed capital account statement, in USD; 0 if none confirmed yet",
         "moic": "(distributed_to_date_usd + current_nav_usd) / called_to_date_usd — multiple on invested capital, unprorated (a ratio is owner-invariant); NULL if nothing has been called yet",
         "pending_review_documents": "Count of this fund's documents still awaiting a human decision (routing = needs_review, reviewed_status NULL) — not reflected in any figure above",
+        "pending_review_doc_types": "Distinct doc_types among the pending documents (comma-separated, e.g. 'capital_account_statement, distribution'); NULL if none pending",
+        "pending_review_latest_period": "Latest period_end among pending capital_account_statement documents; NULL if no statement is pending. Compare against as_of to see how far behind the confirmed NAV is",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
 }
@@ -988,7 +1023,8 @@ print(f"column comments applied to {len(COLUMN_COMMENTS)} gold tables")
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT client_name, total_wealth_usd, positions_usd, cash_usd, alts_usd,
-               fx_rate_used, fx_rate_date, books_reconcile
+               fx_rate_used, fx_rate_date, books_reconcile, reconcile_break_accounts,
+               reconcile_variance_usd
         FROM {SCHEMA}.gold_client_wealth
         WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_client_wealth)
         ORDER BY total_wealth_usd DESC"""
@@ -1001,7 +1037,7 @@ display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT client_name, fund_name, total_commitment_usd, called_to_date_usd,
                distributed_to_date_usd, unfunded_commitment_usd, current_nav_usd, moic,
-               pending_review_documents
+               pending_review_documents, pending_review_doc_types, pending_review_latest_period
         FROM {SCHEMA}.gold_alts_holdings
         ORDER BY client_name, fund_name"""
     )
