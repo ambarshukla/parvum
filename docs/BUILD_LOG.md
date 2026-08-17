@@ -906,3 +906,14 @@ User dispatched `export-gold.yml`. Confirmed against the live production API:
 - `GET /tenants/aldergate/alts-holdings` → no `pendingReviewDocTypes` field in the response; `pendingReviewLatestPeriod: "2025-12-31"` intact.
 
 D-065's own live-verification gap is closed. The whole arc for this slice — same-day user feedback on D-064 → gold table → serving/export/web → merge → live production — took under 24 hours end to end.
+
+## 2026-08-17 — Daily CI break: a new Berkshire 13F position outgrew the share divisor (D-066)
+
+The scheduled daily GitHub Action failed at `make generate`: `D R HORTON INC (3564 shares) scales to zero at a divisor of 10000 — choose a divisor that fits account 60011234's filer`. Berkshire's 2026-Q2 13F (period 2026-06-30, filed 2026-08-14) opened a 3,564-share D.R. Horton stake — smaller than NVR's 11,112 shares, the constraint D-015 originally calibrated both Berkshire accounts' divisors against. `_seed_position` raised exactly as designed rather than silently dropping the position.
+
+`reference/src/parvum_reference/accounts.py`: `60011234` (Growth Portfolio) `10,000 → 2,000`; `60018852` (Retirement) `20,000 → 4,000` — same 1:2 ratio as before, with more rounding margin against D.R. Horton than the old pair had against NVR. Module docstring updated to point at this decision instead of the now-superseded NVR-at-~22k example. Stale `10k vs 20k` comment in `ingest/tests/test_book.py::test_same_filer_two_accounts_differ_only_in_scale` corrected to `2k vs 4k` (the assertion itself, `r[isin] <= g[isin]`, only depends on relative ordering and needed no change).
+
+**Verified:**
+- `make generate` (the exact failing step) reran clean against the full 90-day/64-business-day window, which now spans the new filing regime.
+- `ingest` 118/118, `reference` 31/31 (+1 skip). `make fmt` then `make lint` clean across `ingest`/`reference`/`export`/`alts-hitl`.
+- Confirmed via the real cached 13F XML (`make fetch-13f` pulled the new filing locally) that D.R. Horton is genuinely the new smallest position (3,564 shares, ahead of NVR's unchanged 11,112) and that no other Berkshire holding is smaller across any of the five cached filing periods.
