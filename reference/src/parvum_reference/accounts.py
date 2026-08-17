@@ -17,8 +17,12 @@ Each account's book is seeded from a different real 13F filer and scale, so
 the five books are genuinely distinct portfolios with different
 concentration profiles — not five copies of one book. Divisors are
 calibrated per filer so no position scales to zero (`_seed_position`
-refuses); the smallest real positions are the binding constraint (e.g.
-Berkshire's 11,112 NVR shares cap its divisor at ~22k).
+refuses); the smallest real positions are the binding constraint. Both
+Berkshire accounts were recalibrated in D-066 (2026-08-17) when Berkshire's
+2026-Q2 13F opened a 3,564-share D.R. Horton stake, well under the previous
+divisors (10k/20k, set when NVR's 11,112 shares — D-015 — was the binding
+constraint at ~22k); the new divisors (2k/4k) keep the same 1:2 ratio between
+the two accounts with real margin against further trims.
 """
 
 from decimal import Decimal
@@ -48,7 +52,7 @@ class AccountSpec(NamedTuple):
 
 
 UNIVERSE: tuple[AccountSpec, ...] = (
-    AccountSpec("60011234", "Growth Portfolio", "USD", BERKSHIRE_CIK, Decimal(10_000), Decimal(1)),
+    AccountSpec("60011234", "Growth Portfolio", "USD", BERKSHIRE_CIK, Decimal(2_000), Decimal(1)),
     AccountSpec(
         "FQ5521", "Income Reserve", "EUR", GATES_TRUST_CIK, Decimal(20_000), Decimal("2.5")
     ),
@@ -60,7 +64,7 @@ UNIVERSE: tuple[AccountSpec, ...] = (
         Decimal(5_000),
         Decimal("1.5"),
     ),
-    AccountSpec("60018852", "Retirement", "USD", BERKSHIRE_CIK, Decimal(20_000), Decimal("0.5")),
+    AccountSpec("60018852", "Retirement", "USD", BERKSHIRE_CIK, Decimal(4_000), Decimal("0.5")),
     AccountSpec("FQ9007", "Foundation Legacy", "USD", GATES_TRUST_CIK, Decimal(10_000), Decimal(1)),
 )
 

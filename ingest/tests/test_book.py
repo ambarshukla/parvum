@@ -115,7 +115,7 @@ def test_same_filer_two_accounts_differ_only_in_scale() -> None:
     }
     g = {p.security.value: p.quantity for p in growth.positions}
     r = {p.security.value: p.quantity for p in retirement.positions}
-    # Divisors 10k vs 20k: the retirement account holds about half throughout.
+    # Divisors 2k vs 4k: the retirement account holds about half throughout.
     assert all(r[isin] <= g[isin] for isin in g)
 
 
