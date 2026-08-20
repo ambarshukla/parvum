@@ -1,0 +1,772 @@
+# Critical Data Element register.
+#
+# One entry for every column this platform publishes, saying who owns it and
+# how critical it is; and, for the critical ones, what it means in business
+# terms, what service level it is held to, and which control tests it — or,
+# honestly, that none does yet.
+#
+# `parvum-check-governance` reconciles this file against the `COLUMN_COMMENTS`
+# dicts in `spark/*.py` on every pull request, so it cannot drift from what
+# the platform actually publishes: a new column fails the build until it is
+# classified here, and an entry for a dropped column fails it too.
+#
+# Tiers, and what each obliges its publisher to supply (the obligations
+# themselves live in `registry.py`, not here — a register that could relax
+# its own rules would not be a control):
+#
+#   critical     A value the business consumes directly — what a client sees
+#                on a statement, or what a decision is taken on — where a
+#                wrong figure causes material harm and would not be obvious.
+#                Owes: owner, business definition, an SLO, and either the
+#                quality rules that test it or a stated control_gap.
+#   supporting   Feeds or qualifies a critical element, or is needed to
+#                interpret one. Owes: an owner.
+#   operational  Pipeline plumbing — provenance, timestamps, hashes. Owes:
+#                an owner.
+#
+# The critical list is deliberately short (about 8% of columns). Criticality
+# stops at the layer the business consumes: the upstream columns a critical
+# figure is computed from are `supporting`, which is what that tier means. If
+# everything were critical the register would say nothing at all.
+
+version: 1
+
+owners:
+  client-reporting: >-
+    Publishes what a client sees — wealth, allocation, income, performance,
+    and the reconciliation verdict attached to them.
+  reference-data: >-
+    Owns the identifiers, the account universe, the ownership graph and the
+    FX rates every other layer resolves against.
+  custody-ingestion: >-
+    Owns the custodial feeds as received and their conformed silver form —
+    positions, cash balances and cash movements.
+  alts-operations: >-
+    Owns the private-fund document chain end to end: extraction, validation,
+    human review, and the fund figures that come out of it.
+  data-quality: >-
+    Owns the controls themselves — the reconciliation, integrity and
+    continuity checks and the metrics that roll them up.
+  platform-ops: >-
+    Owns the pipeline's own machinery: landing, restatement detection, run
+    provenance and rebuild timestamps.
+
+# Named service levels. `measured_by` must be a metric `dq_metrics` really
+# computes, so an SLO can always be evidenced. These are objectives the
+# estate is held to, not claims about current attainment — measuring
+# attainment against them is the next slice of work.
+slos:
+  feed_completeness:
+    objective: Every expected custodial file for a business day lands and parses.
+    measured_by: files_landed_rate
+    target: 100% of expected files on every business day
+  gold_freshness:
+    objective: Client-facing figures reflect the most recent custodial feeds.
+    measured_by: bronze_days_behind
+    target: no more than 2 days behind on any business day
+  holdings_agreement:
+    objective: Positions agree across the two custodial holdings formats.
+    measured_by: holdings_cross_format_match_rate
+    target: 99% of account-days or better
+  cash_ledger_integrity:
+    objective: Each account's cash ledger adds up — opening plus movements equals closing.
+    measured_by: cash_conformed_consistency_rate
+    target: 99% of account-days or better
+  cash_continuity:
+    objective: Each account's closing balance carries into the next day's opening.
+    measured_by: cash_day_over_day_continuity_rate
+    target: 100% of account-days
+
+# Column names that mean the same thing wherever they appear, declared once.
+# A table may still override any of them for a column that genuinely differs
+# (see dq_metrics.as_of, which is a fact about now rather than a business
+# date). Resolution order is table defaults, then this block, then the
+# column's own entry.
+common_columns:
+  client_id:
+    tier: supporting
+    owner: reference-data
+    definition: >-
+      The family or relationship a row belongs to; the grain every client-facing report rolls
+      up to.
+  client_name:
+    tier: supporting
+    owner: reference-data
+  account_id:
+    tier: supporting
+    owner: reference-data
+  ownership_pct:
+    tier: critical
+    owner: reference-data
+    definition: >-
+      A client's effective fraction of an account, resolved through the ownership graph. Every
+      prorated figure in the estate is multiplied by this, so an error here misstates one
+      client's wealth and another's in opposite directions while both still reconcile to the
+      custodian.
+    slo: gold_freshness
+    control_gap: >-
+      The ownership graph proves itself acyclic and fully allocated when it is built, and a
+      unit test holds a shared account to reassembling at 100%, but neither assertion reaches
+      dq_metrics — so there is no daily measured signal. Closing it needs an ownership
+      dimension in the DQ rollup.
+  as_of:
+    tier: supporting
+    owner: custody-ingestion
+  currency:
+    tier: supporting
+    owner: reference-data
+  security_scheme:
+    tier: supporting
+    owner: reference-data
+  security_id:
+    tier: supporting
+    owner: reference-data
+  security_name:
+    tier: supporting
+    owner: reference-data
+  fund_id:
+    tier: supporting
+    owner: alts-operations
+  doc_type:
+    tier: supporting
+    owner: alts-operations
+  rebuilt_at:
+    tier: operational
+    owner: platform-ops
+  ingested_at:
+    tier: operational
+    owner: platform-ops
+  source_file:
+    tier: operational
+    owner: platform-ops
+  file_path:
+    tier: operational
+    owner: platform-ops
+  sha256:
+    tier: supporting
+    owner: platform-ops
+    definition: >-
+      Content hash of the landed file; restatement is detected by this, not by path.
+
+tables:
+  bronze_alts_documents:
+    owner: alts-operations
+    default_tier: supporting
+    columns:
+      file_path:
+      file_name:
+      fund_id:
+      doc_type:
+      size_bytes:
+      sha256:
+      status:
+      ingested_at:
+  bronze_alts_extractions:
+    owner: alts-operations
+    default_tier: supporting
+    columns:
+      file_path:
+      source_pdf:
+      fund_id:
+      document:
+      doc_type:
+      model:
+      prompt_version:
+      fields_json:
+      self_reported_confidence:
+      self_consistent:
+      confidence:
+      sha256:
+      ingested_at:
+  bronze_alts_review_decisions:
+    owner: alts-operations
+    default_tier: supporting
+    columns:
+      file_path:
+      fund_id:
+      document:
+      doc_type:
+      sequence_number:
+      period_end:
+      status:
+      final_fields_json:
+      decided_at:
+      sha256:
+      ingested_at:
+  bronze_cash_balances:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      file_path:
+      statement_id:
+      as_of:
+      account_id:
+      balance_type:
+      amount:
+      currency:
+      ingested_at:
+  bronze_cash_entries:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      file_path:
+      statement_id:
+      as_of:
+      account_id:
+      transaction_id:
+      type:
+      trade_date:
+      settlement_date:
+      amount:
+      currency:
+      description:
+      ingested_at:
+  bronze_file_registry:
+    owner: platform-ops
+    default_tier: operational
+    columns:
+      file_path:
+      file_name:
+      format:
+      statement_date:
+      size_bytes:
+      sha256:
+      status:
+      error:
+      ingested_at:
+  bronze_holdings:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      file_path:
+      statement_id:
+      source_format:
+      as_of:
+      account_id:
+      security_scheme:
+      security_id:
+      security_name:
+      quantity:
+      price_amount:
+      price_currency:
+      price_as_of:
+      market_value:
+      market_value_ccy:
+      cost_basis:
+      cost_basis_ccy:
+      ingested_at:
+  dq_cash_continuity:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      opening:
+      prev_closing:
+      delta:
+      continuous:
+      currency:
+      rebuilt_at:
+  dq_cash_integrity:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      opening:
+      closing:
+      movements_raw:
+      movements_conformed:
+      delta_raw:
+      delta_conformed:
+      raw_consistent:
+      conformed_consistent:
+      currency:
+      rebuilt_at:
+  dq_holdings_recon:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      security_scheme:
+      security_id:
+      finding:
+      field:
+      semt002_value:
+      mt535_value:
+      rebuilt_at:
+  dq_metrics:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+        tier: supporting
+        owner: data-quality
+      dimension:
+      metric:
+      value:
+        tier: supporting
+        owner: data-quality
+      passed:
+        tier: supporting
+        owner: data-quality
+      detail:
+      rebuilt_at:
+  gold_alts_holdings:
+    owner: alts-operations
+    default_tier: supporting
+    columns:
+      client_id:
+      client_name:
+      fund_id:
+      fund_name:
+      account_id:
+      currency:
+      inception_date:
+      as_of:
+      total_commitment_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated total capital committed to a fund, in USD — the denominator of every
+          alts ratio and the basis of an unfunded-commitment liability.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      called_to_date_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated cumulative capital called by the fund, in USD, as extracted from
+          capital call notices and confirmed by review.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      distributed_to_date_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated cumulative capital distributed by the fund, in USD.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      unfunded_commitment_usd:
+        tier: critical
+        definition: >-
+          Commitment not yet called, owner-prorated and in USD — a forward liquidity obligation
+          the client must be able to meet, so understating it is a planning failure, not a
+          reporting one.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      current_nav_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated ending balance from the latest confirmed capital account statement, in
+          USD.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      moic:
+        tier: critical
+        definition: >-
+          Multiple on invested capital: distributions plus current NAV over capital called. The
+          headline fund performance figure, and owner-invariant because it is a ratio.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      pending_review_documents:
+      pending_review_latest_period:
+      rebuilt_at:
+  gold_asset_allocation:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      as_of:
+      client_id:
+      client_name:
+      asset_class:
+      value_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated USD value of one asset class for a client on a date — the basis of
+          every allocation decision taken off this platform.
+        slo: holdings_agreement
+        quality_rules:
+          - holdings_cross_format_match_rate
+      weight:
+        tier: critical
+        definition: >-
+          This asset class as a fraction of the client's total wealth; weights per client and
+          date sum to one. Drives rebalancing conversations.
+        slo: holdings_agreement
+        quality_rules:
+          - holdings_cross_format_match_rate
+      rebuilt_at:
+  gold_client_wealth:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      as_of:
+      client_id:
+      client_name:
+      positions_usd:
+        tier: critical
+        definition: >-
+          The client's owner-prorated securities value in USD — the largest component of the
+          headline wealth figure a client sees.
+        slo: holdings_agreement
+        quality_rules:
+          - holdings_cross_format_match_rate
+          - files_landed_rate
+      cash_usd:
+        tier: critical
+        definition: >-
+          The client's owner-prorated closing cash in USD, as reported on the client's
+          statement.
+        slo: cash_ledger_integrity
+        quality_rules:
+          - cash_conformed_consistency_rate
+          - cash_day_over_day_continuity_rate
+      alts_usd:
+        tier: critical
+        definition: >-
+          The client's owner-prorated private-fund NAV in USD, forward-filled from the most
+          recent confirmed capital account statement.
+        slo: gold_freshness
+        control_gap: >-
+          The alts chain is validated document-to-document in silver (commitment continuity,
+          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          there is no measured accuracy rate for fund figures the way there is for holdings and
+          cash. Closing it needs an alts dimension in the DQ rollup.
+      total_wealth_usd:
+        tier: critical
+        definition: >-
+          The headline number: positions plus cash plus alternatives, owner-prorated and in
+          USD. The figure the client reads first and the one every conversation starts from.
+        slo: gold_freshness
+        quality_rules:
+          - files_landed_rate
+          - holdings_cross_format_match_rate
+          - cash_conformed_consistency_rate
+      fx_rate_used:
+        tier: critical
+        definition: >-
+          The EUR to USD ECB reference rate applied to this date's EUR amounts. Wrong here and
+          every non-USD figure in the report is wrong by the same proportion.
+        slo: gold_freshness
+        control_gap: >-
+          Nothing re-checks a landed ECB rate against its source or against a plausibility band
+          once it is in the lakehouse. A wrong or silently stale rate would misstate every
+          EUR-denominated figure while every other control still passed. Closing it needs a
+          reference-data check in dq_metrics comparing fx_rates.json against a second source.
+      fx_rate_date:
+      books_reconcile:
+        tier: critical
+        definition: >-
+          The quality verdict shown to the client: true when the conformed cash check passes
+          for every account they own on this date. An assertion about the platform's own
+          trustworthiness, so a wrong value is worse than a missing one.
+        slo: cash_ledger_integrity
+        quality_rules:
+          - cash_conformed_consistency_rate
+          - cash_integrity_breaks_count
+      reconcile_break_accounts:
+      reconcile_variance_usd:
+      rebuilt_at:
+  gold_income:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      client_id:
+      client_name:
+      month:
+      type:
+      income_usd:
+        tier: critical
+        definition: >-
+          Owner-prorated dividend and interest income in USD for a client and month — a figure
+          clients reconcile against their own records and their tax position.
+        slo: cash_ledger_integrity
+        quality_rules:
+          - cash_conformed_consistency_rate
+          - cash_integrity_breaks_count
+      movements:
+      rebuilt_at:
+  gold_ownership:
+    owner: reference-data
+    default_tier: supporting
+    columns:
+      account_id:
+      client_id:
+      client_name:
+      ownership_pct:
+      owner_count:
+      is_shared:
+      rebuilt_at:
+  gold_performance:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      as_of:
+      client_id:
+      client_name:
+      total_wealth_usd:
+      external_flow_usd:
+        tier: critical
+        definition: >-
+          Net client contribution or withdrawal in USD on a date. Misclassifying a flow as
+          market movement (or the reverse) corrupts every return figure downstream of it.
+        slo: cash_ledger_integrity
+        quality_rules:
+          - cash_conformed_consistency_rate
+      daily_twr_return:
+        tier: critical
+        definition: >-
+          The day's time-weighted return, with the client's own flows removed — the building
+          block every reported return is chained from.
+        slo: gold_freshness
+        control_gap: >-
+          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
+          methodology changes; nothing recomputes them independently on a schedule, so a silent
+          regression in the chaining or flow handling would not raise a metric. Closing it
+          needs a performance dimension in dq_metrics that re-derives the index from silver.
+      twr_index_since_inception:
+        tier: critical
+        definition: >-
+          Chain-linked growth-of-one-dollar index from the client's first date; the series the
+          performance chart draws.
+        slo: gold_freshness
+        control_gap: >-
+          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
+          methodology changes; nothing recomputes them independently on a schedule, so a silent
+          regression in the chaining or flow handling would not raise a metric. Closing it
+          needs a performance dimension in dq_metrics that re-derives the index from silver.
+      rebuilt_at:
+  gold_performance_summary:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      client_id:
+      client_name:
+      inception_date:
+      as_of:
+      wealth_begin_usd:
+      wealth_end_usd:
+      net_external_flow_usd:
+      twr_since_inception:
+        tier: critical
+        definition: >-
+          Since-inception time-weighted return — the headline performance figure, and the one
+          comparable to a benchmark because the client's own flows are removed.
+        slo: gold_freshness
+        control_gap: >-
+          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
+          methodology changes; nothing recomputes them independently on a schedule, so a silent
+          regression in the chaining or flow handling would not raise a metric. Closing it
+          needs a performance dimension in dq_metrics that re-derives the index from silver.
+      dietz_since_inception:
+        tier: critical
+        definition: >-
+          Modified Dietz return over the same window, published beside TWR so the methodology
+          difference is visible rather than hidden.
+        slo: gold_freshness
+        control_gap: >-
+          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
+          methodology changes; nothing recomputes them independently on a schedule, so a silent
+          regression in the chaining or flow handling would not raise a metric. Closing it
+          needs a performance dimension in dq_metrics that re-derives the index from silver.
+      irr_since_inception_annualized:
+        tier: critical
+        definition: >-
+          Money-weighted (annualized IRR) return over the same cash flows — what the client
+          actually earned given when they added and withdrew money.
+        slo: gold_freshness
+        control_gap: >-
+          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
+          methodology changes; nothing recomputes them independently on a schedule, so a silent
+          regression in the chaining or flow handling would not raise a metric. Closing it
+          needs a performance dimension in dq_metrics that re-derives the index from silver.
+      rebuilt_at:
+  gold_reconciliation_exceptions:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      client_id:
+      client_name:
+      account_id:
+      as_of:
+      currency:
+      delta_native:
+      delta_usd:
+        tier: critical
+        definition: >-
+          The client's prorated share of a broken account's arithmetic gap, in USD and signed —
+          the number shown when a client asks what the reconciliation badge means.
+        slo: cash_ledger_integrity
+        quality_rules:
+          - cash_integrity_breaks_count
+          - cash_conformed_consistency_rate
+      rebuilt_at:
+  gold_top_holdings:
+    owner: client-reporting
+    default_tier: supporting
+    columns:
+      as_of:
+      client_id:
+      client_name:
+      rank:
+      security_name:
+      security_scheme:
+      security_id:
+      asset_class:
+      owned_usd:
+        tier: critical
+        definition: >-
+          The client's owner-prorated USD value in one instrument, summed across their accounts
+          — the concentration figure a suitability conversation turns on.
+        slo: holdings_agreement
+        quality_rules:
+          - holdings_cross_format_match_rate
+      weight:
+      rebuilt_at:
+  silver_account_owners:
+    owner: reference-data
+    default_tier: supporting
+    columns:
+      account_id:
+      client_id:
+      client_name:
+      ownership_pct:
+  silver_alts_documents:
+    owner: alts-operations
+    default_tier: supporting
+    columns:
+      fund_id:
+      account_id:
+      currency:
+      document:
+      doc_type:
+      sequence_number:
+      period_end:
+      confidence:
+      self_consistent:
+      cross_document_valid:
+      validation_notes:
+      routing:
+      reviewed_status:
+      final_fields_json:
+      reviewed_at:
+      confirmed_fields_json:
+  silver_cash_balance_owners:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      balance_type:
+      client_id:
+      client_name:
+      ownership_pct:
+      owned_amount:
+      currency:
+      rebuilt_at:
+  silver_cash_balances:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      balance_type:
+      amount:
+      currency:
+      source_file:
+      rebuilt_at:
+  silver_cash_transaction_owners:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      transaction_id:
+      type:
+      client_id:
+      client_name:
+      ownership_pct:
+      owned_amount:
+      currency:
+      rebuilt_at:
+  silver_cash_transactions:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      transaction_id:
+      type:
+      trade_date:
+      settlement_date:
+      amount:
+      signed_amount:
+      currency:
+      description:
+      source_row_count:
+      source_disagrees:
+      source_file:
+      rebuilt_at:
+  silver_position_owners:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      security_scheme:
+      security_id:
+      security_name:
+      client_id:
+      client_name:
+      ownership_pct:
+      owned_value:
+      market_value_ccy:
+      rebuilt_at:
+  silver_positions:
+    owner: custody-ingestion
+    default_tier: supporting
+    columns:
+      as_of:
+      account_id:
+      security_scheme:
+      security_id:
+      security_name:
+      feed_security_name:
+      figi:
+      security_type:
+      asset_class:
+      ticker:
+      instrument_status:
+      quantity:
+      price_amount:
+      price_currency:
+      market_value:
+      market_value_ccy:
+      cost_basis:
+      cost_basis_ccy:
+      source_format:
+      source_file:
+      rebuilt_at:

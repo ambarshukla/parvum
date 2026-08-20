@@ -102,6 +102,30 @@ Postgres is a **durable, continuously updated projection of the gold layer**
   land contract, reversed), not a direct write from the live service —
   Delta stays the system of record even for this one write-bearing table.
 
+## Governance — a control beside the pipeline, not inside it
+
+`governance/` holds the Critical Data Element register and the gate that
+enforces it (D-067). It sits deliberately outside the dependency graph the
+pipeline packages form: nothing in the workspace imports it, and it imports
+nothing from the workspace. It *reads* `spark/*.py` and judges what it finds
+there, which is the only relationship that lets a control stay independent of
+the thing it controls.
+
+The register covers every column the platform publishes — a tier and an owner
+for each, and for the `critical` minority a business definition, a named SLO
+and either the quality rules that test it or an explicitly stated gap. Its
+authority comes from where it runs: `parvum-check-governance` is a CI status
+check on every pull request, so a new column that nobody has classified stops
+the merge, and an entry describing a column that no longer exists stops it
+too. The register cannot drift from the schema because the build will not let
+it.
+
+The inventory it checks against is read out of the jobs, not out of Unity
+Catalog. The jobs' `COLUMN_COMMENTS` dicts are what *sets* the catalog
+comments, so they are the upstream truth, and they are readable in a pull
+request before anything is deployed — which is the only point at which a gate
+can still prevent something.
+
 ## Current state (end of Phase 4)
 
 The lakehouse side is complete and unattended: a daily GitHub Action fetches

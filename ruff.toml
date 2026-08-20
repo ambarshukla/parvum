@@ -14,6 +14,8 @@ src = [
     "export/tests",
     "alts-hitl/src",
     "alts-hitl/tests",
+    "governance/src",
+    "governance/tests",
 ]
 
 [lint]

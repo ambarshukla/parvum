@@ -917,3 +917,31 @@ The scheduled daily GitHub Action failed at `make generate`: `D R HORTON INC (35
 - `make generate` (the exact failing step) reran clean against the full 90-day/64-business-day window, which now spans the new filing regime.
 - `ingest` 118/118, `reference` 31/31 (+1 skip). `make fmt` then `make lint` clean across `ingest`/`reference`/`export`/`alts-hitl`.
 - Confirmed via the real cached 13F XML (`make fetch-13f` pulled the new filing locally) that D.R. Horton is genuinely the new smallest position (3,564 shares, ahead of NVR's unchanged 11,112) and that no other Berkshire holding is smaller across any of the five cached filing periods.
+
+## 2026-08-20 — A Critical Data Element register, and a CI gate that keeps it honest (D-067)
+
+The platform could say whether a number was right; it could not say who was accountable for it. `governance/` is a fifth uv workspace member (`parvum-governance`) holding the register and the gate — a package rather than a folder because a control should not live inside the thing it controls, and because it earns its own CI status check.
+
+`governance/cde_registry.yml` classifies **all 295 published columns** across the 28 tables the Spark jobs write. Every column carries a tier and an owner; `critical` also owes a business definition, a named SLO, and either the quality rules that test it or an explicit `control_gap`. Six owner roles (`client-reporting`, `reference-data`, `custody-ingestion`, `alts-operations`, `data-quality`, `platform-ops`) and five SLOs, each of which must be `measured_by` a metric `dq_metrics` really computes. Repeated column names (`rebuilt_at`, `client_id`, `ownership_pct`) are declared once under `common_columns` and inherited, so a name that means the same thing everywhere is defined in one place.
+
+`parvum-check-governance` (also `make check-governance`, also a `governance` CI job) reconciles the register against reality on every pull request. Five rules fail the build: `unclassified` (a column reached the catalog with no entry — the rule that makes the register keep up with the code), `orphan` (an entry for a column no job publishes any more), `missing_description`, `incomplete_obligation` (a critical element with no owner, definition, SLO, or statement about controls), and `invalid_reference` (an unknown owner, tier or SLO, or a quality rule the DQ layer does not compute — a control you cannot execute reads as covered, which is worse than an admitted gap).
+
+The inventory is read out of the jobs themselves rather than from Unity Catalog: `schema_scan.py` parses each `spark/*.py` with `ast.literal_eval` to lift its `COLUMN_COMMENTS` dict, and pulls the `dq_metrics` metric names out of the SQL that builds them. Parsing rather than importing, because these notebooks call `spark.sql` at module scope and cannot be imported off-cluster — and because a gate that needed a live warehouse would fail whenever the network did. A guard (`_MIN_DQ_METRICS`) turns "the SQL was restructured and we now match nothing" into a loud failure instead of a gate that silently rejects every rule the register cites.
+
+**First run, and the honest number it produced:**
+
+```
+columns published        295
+classified in register   295 (100.0%)
+  critical               28
+  operational            42
+  supporting             225
+critical with a control  10/28 (35.7%)
+critical with a known gap 18
+```
+
+The critical list stops at the layer the business consumes — `gold_client_wealth.total_wealth_usd` is critical, the `silver_positions.market_value` behind it is `supporting`. `ownership_pct` is the one cross-cutting exception, critical in all five tables it appears in, because every prorated figure in the estate is multiplied by it.
+
+The 18 control gaps are the point, not an embarrassment. Four are real findings this exercise surfaced: nothing re-checks a landed ECB FX rate against its source or a plausibility band (a wrong rate would misstate every EUR-denominated figure while every other control still passed); the alts chain is validated document-to-document in silver but none of it rolls up into `dq_metrics`; nothing recomputes TWR/Dietz/IRR independently on a schedule; and the ownership graph's acyclic-and-fully-allocated invariants are proven at build time but never surface as a daily signal.
+
+**Verified:** `governance` 36/36 tests, including one that runs the real gate against the real repository so `make test` catches a broken register too, and one that asserts the critical list stays under 15% of published columns. `make fmt` then `make lint` clean across all five workspace packages. `uv.lock` regenerated for the new member (one new dependency, `pyyaml`).
