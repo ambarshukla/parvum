@@ -34,6 +34,10 @@ LAYER_PREFIXES = {
     "silver_": "silver",
     "dq_": "dq",
     "gold_": "gold",
+    # Governance publishes a table too — the register itself. It is subject
+    # to its own rule: the columns below have to be classified in the very
+    # file they describe, or the gate blocks the merge.
+    "governance_": "governance",
 }
 
 

@@ -27,6 +27,7 @@ PROJECTION_TABLES = {
     "gold_alts_holdings": "alts_holdings",
     "gold_reconciliation_exceptions": "reconciliation_exceptions",
     "dq_metrics": "dq_metrics",
+    "governance_cde_registry": "cde_registry",
 }
 
 

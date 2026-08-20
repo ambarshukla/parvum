@@ -2,7 +2,7 @@
 // (dev.parvum.serving.internal.InternalProjectionResource). Money and
 // weights arrive as JSON numbers; formatted at the edge.
 
-export type DqDimension = "freshness" | "completeness" | "accuracy" | "exceptions";
+export type DqDimension = "freshness" | "completeness" | "accuracy" | "exceptions" | "governance";
 
 export interface DqMetricRow {
     asOf: string;
@@ -11,6 +11,26 @@ export interface DqMetricRow {
     value: number;
     passed: boolean | null;
     detail: string;
+}
+
+// dev.parvum.serving.internal.InternalProjectionResource.CdeRegistryRow.
+// One row per column the platform publishes. tier/owner are nullable because
+// the register covers published columns, not just classified ones -- an
+// unclassified column is what columns_classified_rate measures.
+export interface CdeRegistryRow {
+    tableName: string;
+    columnName: string;
+    layer: string;
+    description: string;
+    tier: "critical" | "supporting" | "operational" | null;
+    owner: string | null;
+    definition: string | null;
+    qualityRules: string | null;
+    qualityRuleCount: number;
+    controlGap: string | null;
+    slo: string | null;
+    sloMeasuredBy: string | null;
+    sloTarget: string | null;
 }
 
 export type QueueStatus = "pending" | "approved" | "corrected";

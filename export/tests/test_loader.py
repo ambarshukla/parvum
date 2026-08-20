@@ -257,6 +257,28 @@ def dq_metrics_table(*rows: tuple) -> GoldTable:
     return GoldTable(name="dq_metrics", columns=DQ_METRICS_COLUMNS, rows=rows)
 
 
+CDE_REGISTRY_COLUMNS = (
+    "table_name",
+    "column_name",
+    "layer",
+    "description",
+    "tier",
+    "owner",
+    "definition",
+    "quality_rules",
+    "quality_rule_count",
+    "control_gap",
+    "slo",
+    "slo_measured_by",
+    "slo_target",
+    "rebuilt_at",
+)
+
+
+def cde_registry_table(*rows: tuple) -> GoldTable:
+    return GoldTable(name="governance_cde_registry", columns=CDE_REGISTRY_COLUMNS, rows=rows)
+
+
 def empty_other_tables() -> list[GoldTable]:
     income_columns = (
         "client_id",
@@ -544,4 +566,101 @@ def test_dq_metrics_loads_unfiltered_with_null_passed_intact(connection, tenant_
     assert stored == [
         ("completeness", Decimal("1.000000"), True),
         ("exceptions", Decimal("3.000000"), None),
+    ]
+
+
+def test_the_governance_dimension_is_accepted_by_the_extended_check(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # V4 pinned dimension to four values; V9 extends it to five. Postgres is
+    # the only place that drop-and-recreate can be proven, because jOOQ's H2
+    # simulation never named the V4 constraint in the first place. A row that
+    # inserts here is the proof the migration did what it says.
+    metrics = dq_metrics_table(
+        dq_metric_row(date(2026, 8, 20), "governance", "columns_classified_rate", "1.000000", True),
+        dq_metric_row(
+            date(2026, 8, 20),
+            "governance",
+            "critical_control_coverage_rate",
+            "0.357143",
+            False,
+        ),
+    )
+    counts = load_tenant(
+        connection,
+        schema,
+        [
+            wealth_table(),
+            *empty_other_tables()[:-4],
+            metrics,
+            performance_table(),
+            performance_summary_table(),
+            ownership_table(),
+        ],
+    )
+    assert counts["dq_metrics"] == 2
+    stored = connection.execute(
+        f'SELECT metric, value, passed FROM "{schema}".dq_metrics '
+        "WHERE dimension = 'governance' ORDER BY metric"
+    ).fetchall()
+    assert stored == [
+        ("columns_classified_rate", Decimal("1.000000"), True),
+        ("critical_control_coverage_rate", Decimal("0.357143"), False),
+    ]
+
+
+def test_cde_registry_loads_unscoped_with_an_unclassified_column_intact(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # The register covers every column the platform *publishes*, so a column
+    # with no classification has to survive the round trip as NULLs rather
+    # than being dropped -- that row is exactly what columns_classified_rate
+    # measures.
+    registry = cde_registry_table(
+        (
+            "gold_client_wealth",
+            "fx_rate_used",
+            "gold",
+            "EUR to USD ECB reference rate",
+            "critical",
+            "reference-data",
+            "The rate applied to this date's EUR amounts.",
+            "",
+            0,
+            "Nothing re-checks a landed rate against its source.",
+            "gold_freshness",
+            "bronze_days_behind",
+            "no more than 2 days behind",
+            REBUILT,
+        ),
+        (
+            "gold_client_wealth",
+            "unclassified_column",
+            "gold",
+            "Published but not yet in the register",
+            None,
+            None,
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            REBUILT,
+        ),
+    )
+    counts = load_tenant(connection, schema, [registry])
+    assert counts["cde_registry"] == 2
+    stored = connection.execute(
+        f"SELECT column_name, tier, owner, quality_rule_count, control_gap "
+        f'FROM "{schema}".cde_registry ORDER BY column_name'
+    ).fetchall()
+    assert stored == [
+        (
+            "fx_rate_used",
+            "critical",
+            "reference-data",
+            0,
+            "Nothing re-checks a landed rate against its source.",
+        ),
+        ("unclassified_column", None, None, 0, None),
     ]

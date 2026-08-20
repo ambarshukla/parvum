@@ -1,4 +1,4 @@
-import type { DqMetricRow, QueueItem, QueueStatus } from "./types";
+import type { CdeRegistryRow, DqMetricRow, QueueItem, QueueStatus } from "./types";
 
 // Same-origin by default (empty base), split-deployment override via
 // VITE_API_BASE — same story as web/api.ts. Unlike the public dashboard,
@@ -73,6 +73,12 @@ const OPS_TENANT = "aldergate";
 export async function fetchDqMetrics(): Promise<DqMetricRow[]> {
     const response = await request(`/internal/tenants/${OPS_TENANT}/dq-metrics`);
     return (await response.json()) as DqMetricRow[];
+}
+
+/** The CDE register (D-068) — unscoped like the DQ metrics above. */
+export async function fetchCdeRegistry(): Promise<CdeRegistryRow[]> {
+    const response = await request(`/internal/tenants/${OPS_TENANT}/cde-registry`);
+    return (await response.json()) as CdeRegistryRow[];
 }
 
 export async function fetchQueue(status?: QueueStatus): Promise<QueueItem[]> {

@@ -120,6 +120,16 @@ the merge, and an entry describing a column that no longer exists stops it
 too. The register cannot drift from the schema because the build will not let
 it.
 
+A resolved snapshot of the register also lands in the volume beside the FX
+rates and the securities master, where `spark/dq_recon.py` reads it into
+`governance_cde_registry` and rolls coverage into `dq_metrics` under a
+`governance` dimension (D-068). The YAML stays the source of truth — the
+lakehouse holds a copy, not the original — so an ownership change is still a
+reviewable diff rather than an `UPDATE` nobody sees. The snapshot carries
+every column the platform publishes, including any that are unclassified, so
+the coverage metric is computed from rows rather than asserted by the
+producer.
+
 The inventory it checks against is read out of the jobs, not out of Unity
 Catalog. The jobs' `COLUMN_COMMENTS` dicts are what *sets* the catalog
 comments, so they are the upstream truth, and they are readable in a pull

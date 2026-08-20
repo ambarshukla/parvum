@@ -107,6 +107,20 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: make land-fx
 
+      # The CDE register changes only when someone edits the YAML, so landing
+      # it daily is mostly a no-op — which is the point: one path, always in
+      # step, nothing to remember after a governance change merges. Overwriting
+      # a reference file deliberately does not fire the file-arrival trigger
+      # (D-018), so the new snapshot is picked up by the next scheduled run
+      # rather than starting one of its own. Non-fatal for the same reason as
+      # the FX landing: the previous snapshot is still a usable register.
+      - name: Land the CDE register snapshot
+        continue-on-error: true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: make land-registry
+
       # The CLI reads DATABRICKS_HOST/DATABRICKS_TOKEN straight from the
       # environment, so `make land` is unchanged from its local form (where the
       # same variables come from .env plus a cached OAuth login).

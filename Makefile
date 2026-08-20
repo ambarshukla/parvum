@@ -47,7 +47,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness check-governance publish-registry land-registry serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -105,6 +105,20 @@ fmt: ## auto-format and auto-fix lint findings, all workspace packages
 # local run answers "will this PR be blocked?" without pushing.
 check-governance: ## reconcile the CDE register against the published columns
 	cd governance && uv run parvum-check-governance
+
+# The register is YAML in the repo (reviewable diffs) but the lakehouse
+# needs a queryable copy, so a resolved snapshot lands in the volume next to
+# the FX rates and the securities master — the same pull-not-push contract
+# every other reference feed uses. Publishing refuses to run if the gate
+# fails: a snapshot of a broken register would put wrong ownership on a
+# screen, which is worse than publishing nothing.
+publish-registry: ## write data/reference/cde_registry.json from the CDE register
+	cd governance && uv run parvum-publish-registry --repo-root ..
+
+land-registry: publish-registry ## upload the CDE register snapshot to the landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
+	databricks fs cp data/reference/cde_registry.json dbfs:/Volumes/workspace/parvum/landing/reference/cde_registry.json --overwrite
 
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
