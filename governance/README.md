@@ -15,7 +15,12 @@ plus the gate that keeps the register honest.
 - `registry.py` — loads the register and holds the tier obligations.
 - `check.py` — the five gate rules that reconcile the two.
 - `cli.py` — `parvum-check-governance`, run by CI and by `make
-  check-governance`.
+  check-governance`; and `parvum-publish-registry`, which writes the
+  landable snapshot.
+- `publish.py` — resolves the register against the live column scan into
+  JSON Lines for the lakehouse (`make land-registry`). One record per
+  column the platform *publishes*, so coverage can be computed from the
+  rows rather than asserted. Refuses to write if the gate fails.
 
 ## Why this is a package and not a folder
 
@@ -42,3 +47,15 @@ the YAML: a register able to relax its own rules would not be a control.
 
 Adding a column is always allowed. Declining to say who owns it, and how
 much it matters, is not.
+
+## Where it shows up downstream
+
+`spark/dq_recon.py` reads the landed snapshot into `governance_cde_registry`
+and rolls four metrics into `dq_metrics` under a `governance` dimension:
+`columns_classified_rate`, `critical_control_coverage_rate` (against a stated
+80% target the estate does not currently meet), `critical_element_count` and
+`control_gap_count`. See D-068.
+
+Note the recursion: `governance_cde_registry` is a published table, so the
+register has to classify its own columns. The gate enforces that like any
+other table.

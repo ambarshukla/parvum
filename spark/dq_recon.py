@@ -31,6 +31,8 @@
 
 # COMMAND ----------
 
+from pyspark.sql.types import LongType, StringType, StructField, StructType
+
 SCHEMA = "workspace.parvum"
 
 spark.sql(  # noqa: F821
@@ -212,6 +214,86 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
+# MAGIC %md ## `governance_cde_registry` — the register, queryable
+# MAGIC
+# MAGIC The Critical Data Element register (D-067) lives in the repo as YAML,
+# MAGIC because an ownership change should be a reviewable diff rather than an
+# MAGIC `UPDATE` nobody sees. But a register nobody can query is a register
+# MAGIC nobody consults, so a resolved snapshot lands in the volume alongside
+# MAGIC the FX rates and the securities master — the same pull-not-push
+# MAGIC contract every other reference feed uses (D-006) — and this cell turns
+# MAGIC it into a table.
+# MAGIC
+# MAGIC One row per column the platform **publishes**, not per column the
+# MAGIC register *claims*. That difference is what lets the coverage metric
+# MAGIC below be computed from the rows rather than asserted: an unclassified
+# MAGIC column would arrive here with a NULL tier and drag the rate down. The
+# MAGIC CI gate is what keeps it at 100%; this measures it independently.
+# MAGIC
+# MAGIC It lives in the `governance_` layer rather than under `dq_` because it
+# MAGIC is not a check — it is the statement of accountability the checks are
+# MAGIC measured against. It is built here only because `dq_metrics`, two
+# MAGIC cells down, is the natural consumer.
+
+# COMMAND ----------
+
+REGISTRY_PATH = "/Volumes/workspace/parvum/landing/reference/cde_registry.json"
+
+# Explicit rather than inferred: the landed file is a contract, and a schema
+# written down is a contract that fails loudly when the producer changes
+# shape. Inference would also silently retype a column that happened to be
+# all-NULL on one particular day.
+REGISTRY_SCHEMA = StructType(
+    [
+        StructField("table_name", StringType(), nullable=False),
+        StructField("column_name", StringType(), nullable=False),
+        StructField("layer", StringType(), nullable=False),
+        StructField("description", StringType(), nullable=False),
+        StructField("tier", StringType(), nullable=True),
+        StructField("owner", StringType(), nullable=True),
+        StructField("definition", StringType(), nullable=True),
+        StructField("quality_rules", StringType(), nullable=True),
+        StructField("quality_rule_count", LongType(), nullable=False),
+        StructField("control_gap", StringType(), nullable=True),
+        StructField("slo", StringType(), nullable=True),
+        StructField("slo_measured_by", StringType(), nullable=True),
+        StructField("slo_target", StringType(), nullable=True),
+    ]
+)
+
+spark.read.schema(REGISTRY_SCHEMA).json(REGISTRY_PATH).createOrReplaceTempView(  # noqa: F821
+    "cde_registry_landed"
+)
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.governance_cde_registry
+    COMMENT 'The Critical Data Element register, resolved: one row per column the platform publishes, with its tier, owner, business definition, service level, and either the quality rules that test it or a stated control gap. Source of truth is governance/cde_registry.yml in the repo; this is a landed snapshot of it.'
+    AS
+    SELECT
+        table_name,
+        column_name,
+        layer,
+        description,
+        tier,
+        owner,
+        definition,
+        quality_rules,
+        quality_rule_count,
+        control_gap,
+        slo,
+        slo_measured_by,
+        slo_target,
+        current_timestamp() AS rebuilt_at
+    FROM cde_registry_landed"""
+)
+
+print(
+    "governance_cde_registry rows:",
+    spark.table(f"{SCHEMA}.governance_cde_registry").count(),  # noqa: F821
+)
+
+# COMMAND ----------
+
 # MAGIC %md ## `dq_metrics` — the whole quality layer, one declarative table
 # MAGIC
 # MAGIC Every check above lives in its own table, at its own grain, because
@@ -223,7 +305,7 @@ spark.sql(  # noqa: F821
 # MAGIC declarative in the sense that adding a new check later means adding
 # MAGIC one more `SELECT` to the `UNION ALL`, never a schema change.
 # MAGIC
-# MAGIC Four dimensions:
+# MAGIC Five dimensions:
 # MAGIC - **freshness** — one row per rebuild (not per historical date; staleness
 # MAGIC   is inherently "how current is the pipeline right now", not a fact
 # MAGIC   about a past day), dated at the rebuild's own run date. How many
@@ -240,6 +322,10 @@ spark.sql(  # noqa: F821
 # MAGIC - **exceptions** — per business day, the raw counts behind the three
 # MAGIC   accuracy rates above, for trend and aging charts (a rate alone
 # MAGIC   hides whether a bad day was one big break or many small ones).
+# MAGIC - **governance** — one row per rebuild, like freshness, because the
+# MAGIC   register describes the estate as it is now rather than as it was on
+# MAGIC   some past business day. How much of what we publish is classified,
+# MAGIC   and how much of what we call critical is actually tested.
 # MAGIC
 # MAGIC `passed` carries a threshold verdict only where one honestly applies
 # MAGIC (a rate against a target); exception counts are trend data, not a
@@ -249,7 +335,7 @@ spark.sql(  # noqa: F821
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_metrics
-    COMMENT 'Declarative DQ rollup: one row per (date, dimension, metric). freshness/completeness/accuracy/exceptions, aggregated from the detail tables above plus bronze_file_registry. passed is NULL where no fixed threshold applies (exception counts).'
+    COMMENT 'Declarative DQ rollup: one row per (date, dimension, metric). freshness/completeness/accuracy/exceptions/governance, aggregated from the detail tables above plus bronze_file_registry. passed is NULL where no fixed threshold applies (exception counts).'
     AS
     WITH days AS (
         SELECT DISTINCT statement_date AS as_of FROM {SCHEMA}.bronze_file_registry
@@ -349,6 +435,50 @@ spark.sql(  # noqa: F821
                DATEDIFF(CURRENT_DATE(), MAX(statement_date)) <= 3 AS passed,
                CONCAT('bronze last landed ', CAST(MAX(statement_date) AS STRING)) AS detail
         FROM {SCHEMA}.bronze_file_registry
+    ),
+    -- Governance: facts about the register, not about a business day, so
+    -- dated at the rebuild's own run date exactly like freshness above.
+    governance_counts AS (
+        SELECT COUNT(*) AS published,
+               SUM(CASE WHEN tier IS NOT NULL THEN 1 ELSE 0 END) AS classified,
+               SUM(CASE WHEN tier = 'critical' THEN 1 ELSE 0 END) AS critical,
+               SUM(CASE WHEN tier = 'critical' AND quality_rule_count > 0 THEN 1 ELSE 0 END) AS controlled,
+               SUM(CASE WHEN tier = 'critical' AND quality_rule_count = 0
+                             AND control_gap IS NOT NULL THEN 1 ELSE 0 END) AS gapped
+        FROM {SCHEMA}.governance_cde_registry
+    ),
+    governance_classified AS (
+        SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'columns_classified_rate' AS metric,
+               CAST(classified / NULLIF(published, 0) AS DECIMAL(14,6)) AS value,
+               classified = published AS passed,
+               CONCAT(CAST(classified AS STRING), ' of ', CAST(published AS STRING),
+                      ' published columns classified in the register') AS detail
+        FROM governance_counts
+    ),
+    governance_control AS (
+        -- 0.8 is a stated target the estate does not currently meet, and
+        -- saying so is the point: an admitted control gap is manageable, a
+        -- target quietly set to today's number is not.
+        SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'critical_control_coverage_rate' AS metric,
+               CAST(controlled / NULLIF(critical, 0) AS DECIMAL(14,6)) AS value,
+               controlled >= 0.8 * critical AS passed,
+               CONCAT(CAST(controlled AS STRING), ' of ', CAST(critical AS STRING),
+                      ' critical elements have a quality rule; target 80%') AS detail
+        FROM governance_counts
+    ),
+    governance_critical AS (
+        SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'critical_element_count' AS metric,
+               CAST(critical AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+               CONCAT(CAST(critical AS STRING), ' of ', CAST(published AS STRING),
+                      ' published columns are classified critical') AS detail
+        FROM governance_counts
+    ),
+    governance_gaps AS (
+        SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'control_gap_count' AS metric,
+               CAST(gapped AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+               CONCAT(CAST(gapped AS STRING),
+                      ' critical elements have a stated control gap and no automated rule') AS detail
+        FROM governance_counts
     )
     SELECT *, current_timestamp() AS rebuilt_at FROM completeness
     UNION ALL SELECT *, current_timestamp() FROM accuracy_holdings
@@ -357,7 +487,11 @@ spark.sql(  # noqa: F821
     UNION ALL SELECT *, current_timestamp() FROM exceptions_holdings
     UNION ALL SELECT *, current_timestamp() FROM exceptions_cash
     UNION ALL SELECT *, current_timestamp() FROM exceptions_continuity
-    UNION ALL SELECT *, current_timestamp() FROM freshness"""
+    UNION ALL SELECT *, current_timestamp() FROM freshness
+    UNION ALL SELECT *, current_timestamp() FROM governance_classified
+    UNION ALL SELECT *, current_timestamp() FROM governance_control
+    UNION ALL SELECT *, current_timestamp() FROM governance_critical
+    UNION ALL SELECT *, current_timestamp() FROM governance_gaps"""
 )
 
 # COMMAND ----------
@@ -401,6 +535,22 @@ COLUMN_COMMENTS = {
         "continuous": "TRUE when opening = prev_closing; FALSE means a delivered file broke the chain; NULL on the first date (nothing to compare)",
         "currency": "Native currency of the balances",
         "rebuilt_at": "When this reconciliation rebuild ran (UTC)",
+    },
+    "governance_cde_registry": {
+        "table_name": "The table this column belongs to. Grain: one row per (table, column) the platform publishes",
+        "column_name": "The column being classified",
+        "layer": "Medallion layer, derived from the table-name prefix (bronze/silver/dq/gold/governance)",
+        "description": "The catalog description the publishing Spark job applies to this column",
+        "tier": "critical (the business consumes it directly), supporting (feeds or qualifies a critical element), or operational (pipeline plumbing). NULL means published but unclassified — the CI gate blocks that, so it should never appear here",
+        "owner": "The role accountable for this column's meaning and quality — a role, never a person, so ownership survives people changing jobs",
+        "definition": "What this element means in business terms and why a wrong value matters. Required for critical, optional below it",
+        "quality_rules": "Comma-separated dq_metrics metric names that test this element; empty when none does",
+        "quality_rule_count": "How many quality rules cite this element — carried separately so counting needs no string parsing",
+        "control_gap": "For a critical element with no quality rule: what is missing and what would close it. The register requires one or the other, never silence",
+        "slo": "Name of the service level this element is held to (see slo_measured_by / slo_target)",
+        "slo_measured_by": "The dq_metrics metric that evidences that service level",
+        "slo_target": "The service level's stated objective — what the estate is held to, not a claim about current attainment",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "dq_metrics": {
         "as_of": "The business day this metric covers; for dimension='freshness' this is instead the rebuild's own run date, since staleness is a fact about now",

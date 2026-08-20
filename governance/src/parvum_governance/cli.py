@@ -14,6 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from parvum_governance.check import GateResult, check_repo, find_repo_root
+from parvum_governance.publish import write_snapshot
 
 
 def format_report(result: GateResult) -> str:
@@ -61,6 +62,32 @@ def main(argv: list[str] | None = None) -> int:
     result = check_repo(root)
     print(format_report(result))
     return 0 if result.passed else 1
+
+
+def publish(argv: list[str] | None = None) -> int:
+    """`parvum-publish-registry` — write the landable snapshot of the register.
+
+    Refuses to publish a register the gate rejects. A snapshot of a broken
+    register would put wrong ownership into the lakehouse and onto a screen,
+    which is worse than publishing nothing.
+    """
+    parser = argparse.ArgumentParser(description=publish.__doc__.splitlines()[0])
+    parser.add_argument("--repo-root", type=Path, default=None)
+    parser.add_argument(
+        "--out", type=Path, default=None, help="destination file (default: data/reference/)"
+    )
+    args = parser.parse_args(argv)
+
+    root = args.repo_root or find_repo_root()
+    result = check_repo(root)
+    if not result.passed:
+        print(format_report(result))
+        print("refusing to publish a register that does not reconcile", file=sys.stderr)
+        return 1
+
+    path, count = write_snapshot(root, args.out)
+    print(f"wrote {count} column records to {path}")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

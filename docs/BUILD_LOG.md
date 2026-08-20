@@ -949,3 +949,28 @@ The critical list stops at the layer the business consumes — `gold_client_weal
 The 18 control gaps are the point, not an embarrassment. Four are real findings this exercise surfaced: nothing re-checks a landed ECB FX rate against its source or a plausibility band (a wrong rate would misstate every EUR-denominated figure while every other control still passed); the alts chain is validated document-to-document in silver but none of it rolls up into `dq_metrics`; nothing recomputes TWR/Dietz/IRR independently on a schedule; and the ownership graph's acyclic-and-fully-allocated invariants are proven at build time but never surface as a daily signal.
 
 **Verified:** `governance` 36/36 tests, including one that runs the real gate against the real repository so `make test` catches a broken register too, and one that asserts the critical list stays under 15% of published columns. `make fmt` then `make lint` clean across all five workspace packages. `uv.lock` regenerated for the new member (one new dependency, `pyyaml`).
+
+## 2026-08-20 — The register lands in the lakehouse and gets a `governance` dimension (D-068)
+
+D-067's register was enforced in CI and invisible everywhere else. This makes it queryable without giving up the property that made it worth building: the YAML in the repo is still the source of truth, and an ownership change is still a reviewable diff.
+
+`parvum-publish-registry` resolves the register against the live column scan and writes JSON Lines to `data/reference/cde_registry.json` — **one row per column the platform publishes, not per column the register claims**, so the lakehouse computes classification coverage from the rows rather than being told a number. It refuses to write at all if the gate fails: a snapshot of a broken register would put wrong ownership on a screen. `make land-registry` uploads it next to `fx_rates.json`, and the daily Action lands it beside the FX rates (`continue-on-error`, same reasoning — the previous snapshot is still a usable register). Overwriting a reference file deliberately does not fire the file-arrival trigger (D-018), so a governance change is picked up by the next scheduled run rather than starting one of its own.
+
+`spark/dq_recon.py` gains one cell that reads the snapshot under an **explicit `StructType`** (a landed file is a contract; inference would silently retype an all-NULL column) into `governance_cde_registry` — 14 columns, one row per published column, with tier, owner, business definition, flattened SLO, and either the quality rules that test it or the stated control gap.
+
+Then `dq_metrics` gains a fifth dimension, **`governance`**, dated at the rebuild's own run date like freshness because the register describes the estate as it is now:
+
+| metric | passed |
+| --- | --- |
+| `columns_classified_rate` | true when every published column is classified |
+| `critical_control_coverage_rate` | against a stated 80% target — currently **false** at 35.7% |
+| `critical_element_count` | NULL (trend) |
+| `control_gap_count` | NULL (trend) |
+
+A target set to today's number is not a target, so this ships red on purpose.
+
+**The recursion, which is the nicest part.** `governance_` is a new layer prefix, because the register is not a check and should not be named like one. The moment `governance_cde_registry` got its `COLUMN_COMMENTS`, the gate failed with 14 `unclassified` findings — the register was refusing to publish a table it had not classified, in the very file that describes it. Classifying those 14 columns (and adding a `data-governance` owner role for them) fixed it. The control is subject to itself.
+
+The cell lives in `dq_recon.py` rather than a new notebook on purpose: a new notebook means a new bundle task, and a task pointing at a notebook that is not yet on `main` fails the whole job if a trigger fires before merge — a rule this project has learned twice. Folding it into an existing task removes the hazard, and `dq_metrics` is the natural consumer two cells down.
+
+**Verified:** `governance` 43/43 tests (7 new, including one that asserts the register classifies its own table and one that proves publishing is refused on a failing gate). Gate re-run after the change: **309 published columns, 309 classified (100%), 28 critical, 10 with a control (35.7%), 18 with a stated gap.** `make fmt` then `make lint` clean; `spark/dq_recon.py` syntax-checked. Not yet run against the live lakehouse — that happens after merge, since the job runs `main`.

@@ -26,6 +26,7 @@ dev = [
 
 [project.scripts]
 parvum-check-governance = "parvum_governance.cli:main"
+parvum-publish-registry = "parvum_governance.cli:publish"
 
 # Ruff config is shared across the workspace: see <repo>/ruff.toml.
 

@@ -47,6 +47,9 @@ owners:
   data-quality: >-
     Owns the controls themselves — the reconciliation, integrity and
     continuity checks and the metrics that roll them up.
+  data-governance: >-
+    Owns the register itself — the tier definitions, the ownership
+    assignments, and the gate that keeps them honest.
   platform-ops: >-
     Owns the pipeline's own machinery: landing, restatement detection, run
     provenance and rebuild timestamps.
@@ -645,6 +648,24 @@ tables:
         quality_rules:
           - holdings_cross_format_match_rate
       weight:
+      rebuilt_at:
+  governance_cde_registry:
+    owner: data-governance
+    default_tier: supporting
+    columns:
+      table_name:
+      column_name:
+      layer:
+      description:
+      tier:
+      owner:
+      definition:
+      quality_rules:
+      quality_rule_count:
+      control_gap:
+      slo:
+      slo_measured_by:
+      slo_target:
       rebuilt_at:
   silver_account_owners:
     owner: reference-data
