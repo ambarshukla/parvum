@@ -34,7 +34,7 @@ GOLD_TABLES = (
 # never filtered by tenant: export_gold.py loads the same rows into every
 # tenant schema (see V4__dq_metrics.sql for why that's the deliberate
 # tradeoff, not an oversight).
-UNSCOPED_TABLES = ("dq_metrics",)
+UNSCOPED_TABLES = ("dq_metrics", "governance_cde_registry")
 
 SOURCE_TABLES = GOLD_TABLES + UNSCOPED_TABLES
 

@@ -54,6 +54,10 @@ const DQ_METRIC_LABELS: Record<string, string> = {
     cash_integrity_breaks_count: "Cash integrity breaks",
     cash_continuity_breaks_count: "Continuity breaks",
     bronze_days_behind: "Bronze days behind",
+    columns_classified_rate: "Register coverage",
+    critical_control_coverage_rate: "Critical elements tested",
+    critical_element_count: "Critical elements",
+    control_gap_count: "Stated control gaps",
 };
 
 /** A dq_metrics `metric` identifier → its display label. */
