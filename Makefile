@@ -84,18 +84,27 @@ test: ## run Python tests, all workspace packages (mirrors CI; export DB tests n
 	cd reference && uv run pytest
 	cd export && uv run pytest
 	cd alts-hitl && uv run pytest
+	cd governance && uv run pytest
 
 lint: ## lint + format check, all workspace packages (mirrors CI)
 	cd ingest && uv run ruff format --check . && uv run ruff check .
 	cd reference && uv run ruff format --check . && uv run ruff check .
 	cd export && uv run ruff format --check . && uv run ruff check .
 	cd alts-hitl && uv run ruff format --check . && uv run ruff check .
+	cd governance && uv run ruff format --check . && uv run ruff check .
 
 fmt: ## auto-format and auto-fix lint findings, all workspace packages
 	cd ingest && uv run ruff format . && uv run ruff check --fix .
 	cd reference && uv run ruff format . && uv run ruff check --fix .
 	cd export && uv run ruff format . && uv run ruff check --fix .
 	cd alts-hitl && uv run ruff format . && uv run ruff check --fix .
+	cd governance && uv run ruff format . && uv run ruff check --fix .
+
+# The governance gate: reconciles governance/cde_registry.yml against the
+# columns the Spark jobs actually publish. CI runs the same command, so a
+# local run answers "will this PR be blocked?" without pushing.
+check-governance: ## reconcile the CDE register against the published columns
+	cd governance && uv run parvum-check-governance
 
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the

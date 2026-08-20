@@ -145,6 +145,43 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  # The governance gate. Its own job, and so its own status check, because
+  # "the register is complete" is a different question from "the code is
+  # correct" and deserves to fail visibly on its own line. The gate runs as
+  # a command as well as inside pytest: the command's report is what a
+  # publisher reads when the build stops them.
+  governance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: governance
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.29"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest
+
+      # Reconciles the CDE register against the columns spark/*.py really
+      # publishes: an unclassified new column, an orphaned entry, a critical
+      # element with no owner/definition/SLO/control statement, or a quality
+      # rule the DQ layer does not compute all stop the pull request here.
+      - name: Publisher-obligation gate
+        run: uv run parvum-check-governance
+
   alts-hitl:
     runs-on: ubuntu-latest
     defaults:

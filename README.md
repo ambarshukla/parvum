@@ -91,6 +91,7 @@ own tests and CI.
 | Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
 | Alts documents & HITL review | **Python**, **reportlab**, **LLM extraction (Anthropic Claude / OpenRouter)** — swappable behind one interface — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
+| Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column | [`governance/`](governance/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
@@ -142,6 +143,7 @@ approve / save-correction actions that write an append-only audit row:
 | 6 | Alternatives HITL pipeline | ✅ done |
 | 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
 | 8 | Observability stack — metrics, dashboards, paging | ⬜ |
+| 9 | Data governance — Critical Data Element register, publisher-obligation gate, lineage and a semantic layer | 🔶 in progress |
 
 Failure and data-freshness alerting already run on the daily pipeline (a
 job-failure email, a long-run warning, and a freshness gate that fails the
@@ -218,5 +220,6 @@ each step does, and a troubleshooting table.
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `internal/` | Auth-gated internal app — data ops scorecard, alts review queue, source PDF viewer (Vite + TypeScript) | 6 |
 | `alts-hitl/` | Synthetic private-fund document generator, LLM extraction, cross-document validation | 6 |
+| `governance/` | Critical Data Element register + the publisher-obligation CI gate | 9 |
 | `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5, 7 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |

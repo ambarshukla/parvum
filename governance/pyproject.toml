@@ -1,0 +1,40 @@
+# Python project definition for the governance layer (PEP 621).
+# A separate package from the pipeline packages on purpose: governance is a
+# function, not a subfolder of one. It depends on nothing else in the
+# workspace and nothing in the workspace depends on it — it *reads* the
+# Spark jobs and the register and judges them, which is exactly the
+# relationship a control should have to the thing it controls.
+
+[project]
+name = "parvum-governance"
+version = "0.1.0"
+description = "Critical Data Element register and the publisher-obligation gate for Parvum"
+requires-python = ">=3.12"
+dependencies = [
+    # The register is YAML because that is the shape this domain already
+    # speaks (dbt schema files, Soda checks, data contracts) — a governance
+    # register a data person cannot read and edit by hand is not one. That
+    # is worth one small dependency; nothing else here needs a library.
+    "pyyaml>=6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+parvum-check-governance = "parvum_governance.cli:main"
+
+# Ruff config is shared across the workspace: see <repo>/ruff.toml.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/parvum_governance"]
