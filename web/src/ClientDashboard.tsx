@@ -319,7 +319,6 @@ export function ClientDashboard({ data, client, dark }: Props) {
                             {performanceSummary
                                 ? `${longDate(performanceSummary.inceptionDate)} – ${longDate(performanceSummary.asOf)}`
                                 : "No performance history recorded."}
-                            {" — see docs/PERFORMANCE_METHODOLOGY.md for why these differ."}
                         </p>
                         {performanceSummary && (
                             <div className="grid tiles">

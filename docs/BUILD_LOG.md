@@ -1115,3 +1115,16 @@ The idempotency guard was checked rather than assumed: no `(as_of, metric)` pair
 **Governance moved, and stayed honest.** With the refreshed register landed: `governance_cde_registry` 324 rows, `columns_classified_rate` 1.000000 passing, `critical_element_count` 32, `control_gap_count` 13, and `critical_control_coverage_rate` **0.593750 — still `passed = false`** against the stated 80% target, reading "19 of 32 critical elements have a quality rule". Coverage rose from 35.7% because five performance columns gained a real control and four new critical columns arrived with one; the target did not move to meet it.
 
 **Still outstanding:** the production RDS reload (`export-gold.yml`, manual dispatch) and visual confirmation on the live dashboard. Until that runs, the lakehouse is correct and the served figures are not.
+
+## 2026-08-23 — A repo path was being shown to clients
+
+The Performance tab's subheading ended with "— see docs/PERFORMANCE_METHODOLOGY.md for why these differ." That sentence is written for someone with a checkout. On a client dashboard it points at a file the reader cannot open, in a repository they have never heard of, to explain a difference the three tiles already explain in their own subtitles ("Manager's return, flow timing excluded", "Flow-weighted approximation of TWR", "Investor's return, annualized").
+
+Removed. The date range stays, which is what that line was actually for.
+
+The identical reference in `web/src/components/Charts.tsx` is a source comment, not rendered copy, and stays — a developer reading the chart code is exactly who it is for.
+
+A scan of the rest of the client app for internal vocabulary in rendered strings (decision references, layer-prefixed table names, pipeline nouns) turned up two more candidates, both left alone deliberately and recorded here so the judgement is visible rather than silent:
+
+- **The "13F filing" boundary markers on the performance chart** are load-bearing. They exist because the chart otherwise reads as broken: 13F data is a quarterly snapshot, so prices are static within a filing regime and the series is flat between steps. The label is the difference between "this chart is stale" and "this is when new holdings were published". It is public SEC vocabulary rather than internal jargon, and removing it would regress a deliberate earlier fix.
+- **The restatement tile's hover text** carries `restatement_detail` verbatim — "60011234: divisor 10000 -> 2000 (D-066)". That *is* internal: an account number, a modelling parameter, and a decision-log reference, on a client-facing surface. It is the same defect class as the line removed here, and it is not a copy tweak to fix — the string is produced in the gold job, so changing what a client sees means either changing the column or translating it in the web layer, and D-071 chose that text precisely for its provenance value. Flagged, not fixed, pending a decision on what a client should see instead.
