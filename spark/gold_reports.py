@@ -181,19 +181,48 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
     _fund_stmts = sorted(_stmts.get(_fid, []), key=lambda f: f["period_end"])
     _any_doc = (_fund_stmts or _fund_calls or _fund_dists)[0]
 
-    _called = parse_decimal(_fund_calls[-1]["cumulative_called"]) if _fund_calls else Decimal(0)
-    _distributed = (
-        parse_decimal(_fund_dists[-1]["cumulative_distributed"]) if _fund_dists else Decimal(0)
-    )
-
     if _fund_stmts:
+        # One document, one moment (D-072). Every term of MOIC comes from the
+        # latest confirmed capital account statement, because that statement
+        # reports the fund as it actually stands — it already embeds every call
+        # the fund ever made, whether or not our review queue has processed the
+        # matching call notice.
+        #
+        # Deriving `called` from the confirmed *call notices* instead mixes two
+        # states of the world: a fully-loaded NAV over a partially-confirmed
+        # denominator. It inflated MOIC to 4.1-4.65x, and made the multiple move
+        # with review progress rather than fund performance — approving a
+        # pending call would push MOIC *down*. It also left
+        # called + unfunded != commitment, visible in gold and unnoticed.
         _latest = _fund_stmts[-1]
         _nav = parse_decimal(_latest["ending_balance"])
         _unfunded = parse_decimal(_latest["unfunded_commitment"])
         _commitment = parse_decimal(_latest["total_commitment"])
         _stmt_as_of = date.fromisoformat(_latest["period_end"])
+        _called = _commitment - _unfunded
+
+        # Distributions belong in the numerator, but only those that had already
+        # left the fund by the NAV's own date. A distribution *after* the
+        # statement reduces NAV in reality while our carried-forward NAV still
+        # predates it, so adding it counts the same money twice.
+        _dists_by_then = [
+            f
+            for f in _fund_dists
+            if date.fromisoformat(f["distribution_date"]) <= _stmt_as_of
+        ]
+        _distributed = (
+            parse_decimal(_dists_by_then[-1]["cumulative_distributed"])
+            if _dists_by_then
+            else Decimal(0)
+        )
     else:
-        # No confirmed statement yet — fall back to what the calls imply.
+        # No confirmed statement yet — fall back to what the calls imply. Here
+        # the notices are the only account of the fund that exists, so they are
+        # the consistent source rather than a mismatched one.
+        _called = parse_decimal(_fund_calls[-1]["cumulative_called"]) if _fund_calls else Decimal(0)
+        _distributed = (
+            parse_decimal(_fund_dists[-1]["cumulative_distributed"]) if _fund_dists else Decimal(0)
+        )
         _nav = Decimal(0)
         _commitment = _called + (
             parse_decimal(_fund_calls[-1]["remaining_commitment"]) if _fund_calls else Decimal(0)
@@ -1311,11 +1340,11 @@ COLUMN_COMMENTS = {
         "inception_date": "Earliest confirmed document date for this fund (call, distribution, or statement)",
         "as_of": "Period end of the latest confirmed capital account statement; NULL if none confirmed yet",
         "total_commitment_usd": "Owner-prorated total commitment in USD, converted at the rate for as_of (or inception_date if no statement is confirmed yet)",
-        "called_to_date_usd": "Owner-prorated cumulative capital called in USD, converted the same way",
-        "distributed_to_date_usd": "Owner-prorated cumulative capital distributed in USD, converted the same way",
+        "called_to_date_usd": "Owner-prorated cumulative capital called in USD, converted the same way. Derived from the latest confirmed capital account statement as total_commitment - unfunded_commitment, NOT by summing confirmed call notices — the statement reports the fund as it stands, so this counts every call the fund made rather than only the notices a reviewer has processed (D-072). Falls back to the notices only when no statement is confirmed yet",
+        "distributed_to_date_usd": "Owner-prorated cumulative capital distributed in USD, converted the same way. Counts only distributions dated on or before the statement's period_end: a distribution after the NAV snapshot has not yet been deducted from that NAV, so including it would count the same money twice (D-072)",
         "unfunded_commitment_usd": "Owner-prorated (total_commitment - called_to_date) in USD, converted the same way",
         "current_nav_usd": "Owner-prorated ending balance from the latest confirmed capital account statement, in USD; 0 if none confirmed yet",
-        "moic": "(distributed_to_date_usd + current_nav_usd) / called_to_date_usd — multiple on invested capital, unprorated (a ratio is owner-invariant); NULL if nothing has been called yet",
+        "moic": "(distributed_to_date_usd + current_nav_usd) / called_to_date_usd — multiple on invested capital, unprorated (a ratio is owner-invariant); NULL if nothing has been called yet. Every term comes from the same confirmed statement and the same moment (D-072), so the multiple moves with fund performance rather than with how much of the review queue has been worked through",
         "pending_review_documents": "Count of this fund's documents still awaiting a human decision (routing = needs_review, reviewed_status NULL) — not reflected in any figure above",
         "pending_review_latest_period": "Latest period_end among pending capital_account_statement documents; NULL if no statement is pending. Compare against as_of to see how far behind the confirmed NAV is",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
