@@ -161,18 +161,39 @@ def _duplicate_keys(columns: list[PublishedColumn]) -> list[str]:
 # to ask it. A regex over the SQL is the honest tool here; `_MIN_DQ_METRICS`
 # below turns "the SQL got restructured and we now match nothing" from a
 # silently-passing gate into a loud failure.
+#
+# More than one job contributes: `dq_recon` builds the table, and `gold_reports`
+# appends the rows only it can compute, because gold runs after dq_recon and a
+# metric derived from gold would otherwise report the previous run's numbers
+# (D-070). Every contributing file must yield at least one name, so a job that
+# stops publishing metrics fails loudly here rather than quietly shrinking the
+# vocabulary the register is checked against.
 _METRIC_PATTERN = re.compile(r"'([a-z0-9_]+)'\s+AS\s+metric", re.IGNORECASE)
 _MIN_DQ_METRICS = 4
 
 
-def scan_dq_metric_names(dq_job: Path) -> set[str]:
-    """Every metric name `dq_metrics` publishes, read from the job that builds it."""
-    names = set(_METRIC_PATTERN.findall(dq_job.read_text(encoding="utf-8")))
+def scan_dq_metric_names(*dq_jobs: Path) -> set[str]:
+    """Every metric name `dq_metrics` publishes, read from the jobs that write it."""
+    if not dq_jobs:
+        raise SchemaScanError("no metric-publishing jobs given to scan")
+
+    names: set[str] = set()
+    for job in dq_jobs:
+        found = set(_METRIC_PATTERN.findall(job.read_text(encoding="utf-8")))
+        if not found:
+            raise SchemaScanError(
+                f"{job.name}: publishes no `'<name>' AS metric` rows — either it "
+                f"stopped writing dq_metrics or the shape this scan depends on "
+                f"changed; both need a look before the gate is trusted"
+            )
+        names |= found
+
     if len(names) < _MIN_DQ_METRICS:
         raise SchemaScanError(
-            f"{dq_job.name}: found only {len(names)} metric names "
-            f"({sorted(names)}) — the `'<name>' AS metric` shape this scan "
-            f"depends on has probably changed, and the gate would wrongly "
-            f"reject every quality rule the register cites"
+            f"found only {len(names)} metric names across "
+            f"{[job.name for job in dq_jobs]} ({sorted(names)}) — the "
+            f"`'<name>' AS metric` shape this scan depends on has probably "
+            f"changed, and the gate would wrongly reject every quality rule "
+            f"the register cites"
         )
     return names

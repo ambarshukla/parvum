@@ -37,7 +37,13 @@ than at the boundaries.
 
 ## The pipeline's actual figures
 
-From the live `gold_performance_summary` table (D-040's cash-continuity fix
+**These figures are a fixed historical snapshot, not the current numbers.**
+The window below is frozen at 2026-07-17 because the walk-through depends on
+those exact values; the book has since been restated (see "Restatements"
+below) and every figure here has moved. Read the live API before quoting any
+headline number.
+
+From the `gold_performance_summary` table (D-040's cash-continuity fix
 and D-041's holdings-dedupe fix both applied, materialized), for the
 ~three-month window 2026-04-20 → 2026-07-17:
 
@@ -113,6 +119,97 @@ both follow the identical rule (`WHERE as_of > inception_date`), so a flow
 that happened to land on inception day is never counted twice — once inside
 `wealth_begin` and again as a separate flow — across any of the three
 methods.
+
+## Restatements: when a value change is not a return at all
+
+Every method above splits a value change two ways — the market's doing, or
+the client's money moving. On 2026-08-17 this pipeline found a third
+category it had no name for, and got the answer badly wrong as a result.
+
+Each account here is a scale model of a real 13F filer's portfolio: the
+filer's share counts divided by that account's `share_divisor`. D-066
+recalibrated both Berkshire divisors fivefold (10,000 → 2,000 and
+20,000 → 4,000) so a newly-filed 3,564-share position would not round to
+zero. Same holdings, same prices, a different ruler — and the chain, which
+knows only "wealth yesterday, wealth today, flow between", reported a
+**+414.12% daily return** and a **+392.70% since-inception TWR** on a book
+that had earned nothing. Every figure was arithmetically correct. All of
+them were false.
+
+**A restatement is therefore declared, never inferred.** `parvum_reference.restatements`
+records each one — effective date, account, divisor before and after, reason,
+and the decision that authorised it — and the gold job reads it. Inferring
+restatements from the numbers instead ("any suspiciously large move must be
+one") would swallow the *legitimate* quarterly step: 13F data is a quarterly
+snapshot, so a whole quarter of movement lands on the day a new filing
+regime takes effect. On 2026-05-15 that moved all three families 4–6% on
+zero flow, and that is real return. The two events are identical in shape
+and opposite in meaning; only the book can tell them apart.
+
+How each method treats a declared restatement:
+
+- **TWR** breaks the chain. `daily_twr_return` is `NULL` for exactly the
+  reason it is NULL at inception — there is no comparable prior day, because
+  the two days are denominated in different rulers — and
+  `twr_index_since_inception` links straight through, unchanged.
+- **Modified Dietz** weights it exactly like a flow: subtracted from the
+  numerator, day-weighted in the denominator. Arithmetically a restatement
+  plays the identical role to a contribution — value that entered the
+  account without the market putting it there, which has to leave the
+  numerator or the return absorbs it.
+- **IRR** takes it as a cash flow at its effective date, same reasoning.
+
+But it is reported in its own column (`restatement_adjustment_usd`, in both
+`gold_performance` and `gold_performance_summary`) rather than folded into
+`net_external_flow_usd`, because semantically it is the opposite of a flow:
+it is not the client's money, and a client reconciling reported flows against
+their own records must not find $178M they never sent.
+
+**The whole non-flow move goes to the restatement, and that deliberately
+overstates it.** 2026-08-17 was also a filing-regime boundary, so part of
+Hartwell's step was genuine return — Okafor, who owns no Berkshire account,
+moved +2.13% that day on the same boundary and keeps it. Splitting
+Hartwell's step into "restatement" and "real return" would mean guessing at
+a ratio, and a client-facing performance figure is the wrong place to guess.
+Real books exclude a restated period and disclose it rather than partially
+crediting it; forfeiting one day's genuine return is the cheaper error.
+
+**Declaration is only half a control.** A book able to label any
+inconvenient number a restatement, with nothing arguing back, is worse than
+no mechanism at all. `dq_return_plausibility` is the other half: it
+recomputes the raw non-flow move for every client-day **from the wealth
+series rather than from the published return** — so a restatement cannot
+hide inside the NULL it causes — and flags anything outside a stated 25%
+band that has no declaration on file, rolling up into `dq_metrics` as
+`daily_return_plausibility_rate`.
+
+### What the restatement did to the reported figures
+
+The same window as the table above, before and after this treatment:
+
+| Client   | TWR before | TWR after | Dietz before | Dietz after | IRR before | IRR after |
+|----------|-----------:|----------:|-------------:|------------:|-----------:|----------:|
+| Hartwell | +392.70%   | −4.17%    | +393.41%     | −3.69%      | *(no root)* | −10.54% |
+| Okafor   | −2.57%     | −2.57%    | −2.53%       | −2.53%      | −7.32%     | −7.32%   |
+| Reyes    | −4.85%     | −4.85%    | −4.86%       | −4.86%      | −13.73%    | −13.73%  |
+
+Okafor and Reyes are untouched, as they must be: neither owns a Berkshire
+account, so neither has a restatement to declare.
+
+Hartwell's IRR had no root at all before. A +392% three-month return
+annualises well past the solver's +1000% bracket, so `_xirr` correctly
+returned `None` and the dashboard showed a blank — a second visible symptom
+of the same cause.
+
+**And note the TWR/Dietz gap.** Hartwell's two figures now differ by 48bp,
+where Okafor's and Reyes' agree to within 4bp. That is this document's
+earlier claim coming true on real data: Modified Dietz's linear day-weighting
+approximates chain-linked TWR well only while adjustments are small relative
+to the portfolio, and a $178M adjustment against a $45M opening balance is as
+far from that regime as this book gets. The gap *is* Dietz's approximation
+error, and watching it widen with adjustment size is the methodology lesson
+made visible — which is the whole reason three methods are published instead
+of one.
 
 ## Why this data needed two upstream fixes first
 

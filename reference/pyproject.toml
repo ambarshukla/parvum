@@ -25,6 +25,7 @@ dev = [
 
 [project.scripts]
 parvum-fetch-fx = "parvum_reference.fetch_fx:main"
+parvum-publish-restatements = "parvum_reference.publish_restatements:main"
 
 # Ruff config is shared across the workspace: see <repo>/ruff.toml.
 

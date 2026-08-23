@@ -47,7 +47,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness check-governance publish-registry land-registry serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness check-governance publish-registry land-registry publish-restatements land-restatements serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -119,6 +119,18 @@ land-registry: publish-registry ## upload the CDE register snapshot to the landi
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
 	databricks fs cp data/reference/cde_registry.json dbfs:/Volumes/workspace/parvum/landing/reference/cde_registry.json --overwrite
+
+# The declared book restatements (D-070) — value changes that are not returns.
+# Published from reference/, not governance/, because the declaration lives
+# next to the divisors it describes. Refuses to publish if accounts.py carries
+# a divisor the register has not recorded.
+publish-restatements: ## write data/reference/book_restatements.json from the declared restatements
+	cd reference && uv run parvum-publish-restatements --out ../data/reference/book_restatements.json
+
+land-restatements: publish-restatements ## upload the book-restatement register to the landing volume (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
+	databricks fs cp data/reference/book_restatements.json dbfs:/Volumes/workspace/parvum/landing/reference/book_restatements.json --overwrite
 
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the

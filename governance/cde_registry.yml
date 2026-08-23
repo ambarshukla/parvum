@@ -79,6 +79,13 @@ slos:
     objective: Each account's closing balance carries into the next day's opening.
     measured_by: cash_day_over_day_continuity_rate
     target: 100% of account-days
+  return_plausibility:
+    objective: >-
+      Every reported day-over-day move in client wealth is either small enough to be a
+      market move or backed by a declared book restatement. Nothing reaches a client
+      report as performance that the market did not produce.
+    measured_by: daily_return_plausibility_rate
+    target: 100% of client-days
 
 # Column names that mean the same thing wherever they appear, declared once.
 # A table may still override any of them for a column that genuinely differs
@@ -269,6 +276,39 @@ tables:
       delta:
       continuous:
       currency:
+      rebuilt_at:
+  dq_return_plausibility:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+      client_id:
+      client_name:
+      total_wealth_usd:
+      prev_wealth_usd:
+      external_flow_usd:
+      non_flow_move_rate:
+        tier: critical
+        definition: >-
+          The day-over-day move in client wealth with the client's own flows removed, computed
+          from the raw wealth series rather than from the published return — so a restatement
+          cannot hide inside the NULL it causes there. This is the number the plausibility
+          bound is applied to.
+        slo: return_plausibility
+        quality_rules:
+          - daily_return_plausibility_rate
+      band:
+      restatement_declared:
+      restatement_detail:
+      plausible:
+        tier: critical
+        definition: >-
+          Whether the day's move is either inside the band or accounted for by a declared
+          restatement. FALSE is not a bad day in the markets — it is a number nobody has
+          explained, on a figure a client reads.
+        slo: return_plausibility
+        quality_rules:
+          - daily_return_plausibility_rate
       rebuilt_at:
   dq_cash_integrity:
     owner: data-quality
@@ -539,28 +579,57 @@ tables:
         slo: cash_ledger_integrity
         quality_rules:
           - cash_conformed_consistency_rate
+      restatement_adjustment_usd:
+        tier: critical
+        definition: >-
+          Value change on a declared book-restatement day that the market did not produce.
+          Removed from all three return methodologies and disclosed separately: it is neither
+          the client's money nor the manager's doing, and letting it stay in either bucket is
+          exactly the error of 2026-08-17.
+        slo: return_plausibility
+        quality_rules:
+          - daily_return_plausibility_rate
+      restatement_detail:
+        tier: supporting
+        owner: client-reporting
       daily_twr_return:
         tier: critical
         definition: >-
           The day's time-weighted return, with the client's own flows removed — the building
           block every reported return is chained from.
         slo: gold_freshness
+        quality_rules:
+          - daily_return_plausibility_rate
         control_gap: >-
-          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
-          methodology changes; nothing recomputes them independently on a schedule, so a silent
-          regression in the chaining or flow handling would not raise a metric. Closing it
-          needs a performance dimension in dq_metrics that re-derives the index from silver.
+          Narrowed, not closed (D-070). The original wording here proposed recomputing the
+          returns independently — and that would not have caught the failure that actually
+          happened on 2026-08-17, because the formula was never wrong: a book restatement
+          changed what an input meant and a second implementation would have reproduced the
+          same +414% faithfully. daily_return_plausibility_rate closes that case by bounding
+          the day-over-day move and requiring a declared restatement for anything outside it.
+          What remains uncovered is the small silent regression: an off-by-one in the chaining
+          window or a mis-signed flow moves the figure by less than the band and still passes.
+          Closing that needs the independent re-derivation from silver, which is now a
+          second-order gap rather than the only line of defence.
       twr_index_since_inception:
         tier: critical
         definition: >-
           Chain-linked growth-of-one-dollar index from the client's first date; the series the
           performance chart draws.
         slo: gold_freshness
+        quality_rules:
+          - daily_return_plausibility_rate
         control_gap: >-
-          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
-          methodology changes; nothing recomputes them independently on a schedule, so a silent
-          regression in the chaining or flow handling would not raise a metric. Closing it
-          needs a performance dimension in dq_metrics that re-derives the index from silver.
+          Narrowed, not closed (D-070). The original wording here proposed recomputing the
+          returns independently — and that would not have caught the failure that actually
+          happened on 2026-08-17, because the formula was never wrong: a book restatement
+          changed what an input meant and a second implementation would have reproduced the
+          same +414% faithfully. daily_return_plausibility_rate closes that case by bounding
+          the day-over-day move and requiring a declared restatement for anything outside it.
+          What remains uncovered is the small silent regression: an off-by-one in the chaining
+          window or a mis-signed flow moves the figure by less than the band and still passes.
+          Closing that needs the independent re-derivation from silver, which is now a
+          second-order gap rather than the only line of defence.
       rebuilt_at:
   gold_performance_summary:
     owner: client-reporting
@@ -573,39 +642,72 @@ tables:
       wealth_begin_usd:
       wealth_end_usd:
       net_external_flow_usd:
+      restatement_adjustment_usd:
+        tier: critical
+        definition: >-
+          Total value change from declared book restatements over the reported window, removed
+          from TWR, Dietz and IRR alike and shown beside them so the reader can see what was
+          taken out rather than having to trust that something was.
+        slo: return_plausibility
+        quality_rules:
+          - daily_return_plausibility_rate
       twr_since_inception:
         tier: critical
         definition: >-
           Since-inception time-weighted return — the headline performance figure, and the one
           comparable to a benchmark because the client's own flows are removed.
         slo: gold_freshness
+        quality_rules:
+          - daily_return_plausibility_rate
         control_gap: >-
-          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
-          methodology changes; nothing recomputes them independently on a schedule, so a silent
-          regression in the chaining or flow handling would not raise a metric. Closing it
-          needs a performance dimension in dq_metrics that re-derives the index from silver.
+          Narrowed, not closed (D-070). The original wording here proposed recomputing the
+          returns independently — and that would not have caught the failure that actually
+          happened on 2026-08-17, because the formula was never wrong: a book restatement
+          changed what an input meant and a second implementation would have reproduced the
+          same +414% faithfully. daily_return_plausibility_rate closes that case by bounding
+          the day-over-day move and requiring a declared restatement for anything outside it.
+          What remains uncovered is the small silent regression: an off-by-one in the chaining
+          window or a mis-signed flow moves the figure by less than the band and still passes.
+          Closing that needs the independent re-derivation from silver, which is now a
+          second-order gap rather than the only line of defence.
       dietz_since_inception:
         tier: critical
         definition: >-
           Modified Dietz return over the same window, published beside TWR so the methodology
           difference is visible rather than hidden.
         slo: gold_freshness
+        quality_rules:
+          - daily_return_plausibility_rate
         control_gap: >-
-          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
-          methodology changes; nothing recomputes them independently on a schedule, so a silent
-          regression in the chaining or flow handling would not raise a metric. Closing it
-          needs a performance dimension in dq_metrics that re-derives the index from silver.
+          Narrowed, not closed (D-070). The original wording here proposed recomputing the
+          returns independently — and that would not have caught the failure that actually
+          happened on 2026-08-17, because the formula was never wrong: a book restatement
+          changed what an input meant and a second implementation would have reproduced the
+          same +414% faithfully. daily_return_plausibility_rate closes that case by bounding
+          the day-over-day move and requiring a declared restatement for anything outside it.
+          What remains uncovered is the small silent regression: an off-by-one in the chaining
+          window or a mis-signed flow moves the figure by less than the band and still passes.
+          Closing that needs the independent re-derivation from silver, which is now a
+          second-order gap rather than the only line of defence.
       irr_since_inception_annualized:
         tier: critical
         definition: >-
           Money-weighted (annualized IRR) return over the same cash flows — what the client
           actually earned given when they added and withdrew money.
         slo: gold_freshness
+        quality_rules:
+          - daily_return_plausibility_rate
         control_gap: >-
-          Return figures are checked against docs/PERFORMANCE_METHODOLOGY.md by hand when the
-          methodology changes; nothing recomputes them independently on a schedule, so a silent
-          regression in the chaining or flow handling would not raise a metric. Closing it
-          needs a performance dimension in dq_metrics that re-derives the index from silver.
+          Narrowed, not closed (D-070). The original wording here proposed recomputing the
+          returns independently — and that would not have caught the failure that actually
+          happened on 2026-08-17, because the formula was never wrong: a book restatement
+          changed what an input meant and a second implementation would have reproduced the
+          same +414% faithfully. daily_return_plausibility_rate closes that case by bounding
+          the day-over-day move and requiring a declared restatement for anything outside it.
+          What remains uncovered is the small silent regression: an off-by-one in the chaining
+          window or a mis-signed flow moves the figure by less than the band and still passes.
+          Closing that needs the independent re-derivation from silver, which is now a
+          second-order gap rather than the only line of defence.
       rebuilt_at:
   gold_reconciliation_exceptions:
     owner: client-reporting
