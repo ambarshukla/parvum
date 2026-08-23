@@ -121,6 +121,19 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: make land-registry
 
+      # The book-restatement register (D-070): the declarations that let the
+      # performance chain tell a change of ruler from a change in value. Lands
+      # on the same daily no-op cadence as the CDE register, and stays
+      # non-fatal for the same reason — the previous snapshot still describes
+      # every restatement up to yesterday, and an undeclared one is caught
+      # independently by dq_return_plausibility rather than by this step.
+      - name: Land the book-restatement register
+        continue-on-error: true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: make land-restatements
+
       # The CLI reads DATABRICKS_HOST/DATABRICKS_TOKEN straight from the
       # environment, so `make land` is unchanged from its local form (where the
       # same variables come from .env plus a cached OAuth login).

@@ -41,6 +41,8 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "ingest", "src")
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "reference", "src")))
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "alts-hitl", "src")))
 
+from pyspark.sql.types import StringType, StructField, StructType
+
 from parvum_alts_hitl.parsing import parse_decimal
 from parvum_reference.ecb import fill_forward, load_rates
 
@@ -621,6 +623,72 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
+# MAGIC %md ## Declared book restatements — value changes that are not returns
+# MAGIC
+# MAGIC Every account here is a scale model of a real 13F filer: the filer's
+# MAGIC share counts divided by that account's `share_divisor`. The divisor is a
+# MAGIC modelling parameter, not a market fact, so when it changes the account's
+# MAGIC wealth changes with it — same holdings, same prices, a different ruler.
+# MAGIC
+# MAGIC A return chain cannot see the difference. It reads yesterday's wealth,
+# MAGIC today's wealth and no cash flow between them, and concludes the manager
+# MAGIC earned the gap. On 2026-08-17 that produced a **+414% one-day return**
+# MAGIC on a book that had earned nothing (D-066 rescaled both Berkshire
+# MAGIC divisors fivefold so a new 3,564-share position would not round to
+# MAGIC zero). Arithmetically correct, completely false — and the third time
+# MAGIC this project has met the same bug class: D-016 fixed restatement
+# MAGIC handling at bronze, D-018 found it again at the file-arrival trigger,
+# MAGIC and here it is a third time at gold. Fixing a bug class at one layer
+# MAGIC still says nothing about the others.
+# MAGIC
+# MAGIC **Declared, never inferred.** "Any suspiciously large move is a
+# MAGIC restatement" would also swallow the legitimate quarterly step a new 13F
+# MAGIC filing regime produces — a real return arriving all at once, not a fake
+# MAGIC one (2026-05-15 moved all three clients 4–6% on zero flow, and that one
+# MAGIC is genuine). The two are identical in shape and opposite in meaning, so
+# MAGIC only the book can say which is which. `parvum_reference.restatements`
+# MAGIC is where it says so, landed here on the same pull-not-push contract as
+# MAGIC the FX rates and the CDE register (D-006, D-070).
+# MAGIC
+# MAGIC Reading it is deliberately strict: a missing snapshot fails the job
+# MAGIC rather than defaulting to "nothing was ever restated", because that
+# MAGIC default is precisely the wrong number wearing a confident face.
+
+# COMMAND ----------
+
+RESTATEMENTS_PATH = "/Volumes/workspace/parvum/landing/reference/book_restatements.json"
+
+# Explicit rather than inferred, for the same reason the CDE register's schema
+# is: the landed file is a contract, and divisors travel as strings so no JSON
+# float can round one into something that no longer reconciles to accounts.py.
+RESTATEMENT_SCHEMA = StructType(
+    [
+        StructField("effective_date", StringType(), nullable=False),
+        StructField("account_id", StringType(), nullable=False),
+        StructField("divisor_before", StringType(), nullable=False),
+        StructField("divisor_after", StringType(), nullable=False),
+        StructField("reason", StringType(), nullable=False),
+        StructField("decision_ref", StringType(), nullable=False),
+    ]
+)
+
+spark.read.schema(RESTATEMENT_SCHEMA).json(RESTATEMENTS_PATH).createOrReplaceTempView(  # noqa: F821
+    "book_restatements_raw"
+)
+spark.sql(  # noqa: F821
+    """CREATE OR REPLACE TEMP VIEW book_restatements AS
+    SELECT CAST(effective_date AS DATE) AS effective_date, account_id,
+           CAST(divisor_before AS DECIMAL(18,4)) AS divisor_before,
+           CAST(divisor_after AS DECIMAL(18,4)) AS divisor_after,
+           reason, decision_ref
+    FROM book_restatements_raw"""
+)
+print(
+    f"book restatements declared: {spark.sql('SELECT COUNT(*) c FROM book_restatements').first().c}"  # noqa: F821
+)
+
+# COMMAND ----------
+
 # MAGIC %md ## `gold_performance` — the daily return chain
 # MAGIC
 # MAGIC Grain: one row per (client, date). Separates market return from the
@@ -635,6 +703,24 @@ spark.sql(  # noqa: F821
 # MAGIC client's first date in `gold_client_wealth`, so `daily_twr_return` is
 # MAGIC NULL and the index is exactly 1.0 on that first row — there is no prior
 # MAGIC day to measure a return against.
+# MAGIC
+# MAGIC **A declared restatement breaks the chain rather than entering it.** On
+# MAGIC such a day `daily_twr_return` is NULL for exactly the same reason it is
+# MAGIC NULL at inception — there is no comparable prior day, because the two
+# MAGIC days are denominated in different rulers — and the index links straight
+# MAGIC through, unchanged. The whole non-flow move is booked to
+# MAGIC `restatement_adjustment_usd` instead, and `restatement_detail` names the
+# MAGIC account, the divisors and the decision behind it, so the step is
+# MAGIC explainable from the row rather than only from a commit message.
+# MAGIC
+# MAGIC Booking the *entire* non-flow change to the restatement forfeits
+# MAGIC whatever genuine market return also happened that day (2026-08-17 was
+# MAGIC also a filing-regime boundary, so some of that step was real — Okafor,
+# MAGIC unaffected by the divisor change, moved +2.1%). That is the deliberate
+# MAGIC trade: on a restated day the honest options are "measure nothing" or
+# MAGIC "guess at a split", and a performance figure is the wrong place to
+# MAGIC guess. Real books treat a restated period the same way — excluded and
+# MAGIC disclosed, not partially credited.
 
 # COMMAND ----------
 
@@ -651,17 +737,44 @@ spark.sql(  # noqa: F821
         WHERE t.type IN ('TRANSFER_IN', 'TRANSFER_OUT')
         GROUP BY t.as_of, t.client_id
     ),
+    restated_clients AS (
+        -- Restatements are declared per account because that is where a
+        -- divisor lives; performance is measured per client, so a declaration
+        -- reaches every client with a stake in the restated account.
+        SELECT r.effective_date AS as_of, o.client_id,
+               CONCAT_WS(' | ', SORT_ARRAY(COLLECT_SET(
+                   CONCAT(r.account_id, ': divisor ',
+                          CAST(CAST(r.divisor_before AS DECIMAL(18,0)) AS STRING), ' -> ',
+                          CAST(CAST(r.divisor_after AS DECIMAL(18,0)) AS STRING),
+                          ' (', r.decision_ref, ')')))) AS restatement_detail
+        FROM book_restatements r
+        JOIN {SCHEMA}.silver_account_owners o ON o.account_id = r.account_id
+        GROUP BY r.effective_date, o.client_id
+    ),
     joined AS (
         SELECT w.as_of, w.client_id, w.client_name, w.total_wealth_usd,
                COALESCE(fl.flow_usd, 0) AS external_flow_usd,
+               rc.restatement_detail,
                LAG(w.total_wealth_usd) OVER (
                    PARTITION BY w.client_id ORDER BY w.as_of) AS prev_wealth_usd
         FROM {SCHEMA}.gold_client_wealth w
         LEFT JOIN flows fl USING (as_of, client_id)
+        LEFT JOIN restated_clients rc USING (as_of, client_id)
     ),
     returns AS (
         SELECT *,
+               -- The whole non-flow move on a declared restatement day is the
+               -- restatement's, not the market's. Zero on every other day, so
+               -- the column is safe to sum blindly downstream.
+               CASE WHEN prev_wealth_usd IS NULL THEN 0
+                    WHEN restatement_detail IS NULL THEN 0
+                    ELSE total_wealth_usd - prev_wealth_usd - external_flow_usd
+               END AS restatement_adjustment_usd,
+               -- NULL on a restatement day for the same reason as at
+               -- inception: no comparable prior day. The index's COALESCE
+               -- below then links straight through it.
                CASE WHEN prev_wealth_usd IS NULL THEN NULL
+                    WHEN restatement_detail IS NOT NULL THEN NULL
                     ELSE (total_wealth_usd - external_flow_usd) / prev_wealth_usd - 1
                END AS daily_twr_return
         FROM joined
@@ -672,6 +785,8 @@ spark.sql(  # noqa: F821
         client_name,
         CAST(total_wealth_usd AS DECIMAL(24,2))                        AS total_wealth_usd,
         CAST(external_flow_usd AS DECIMAL(24,2))                       AS external_flow_usd,
+        CAST(restatement_adjustment_usd AS DECIMAL(24,2))              AS restatement_adjustment_usd,
+        restatement_detail,
         CAST(daily_twr_return AS DECIMAL(14,8))                        AS daily_twr_return,
         CAST(EXP(SUM(LN(1 + COALESCE(daily_twr_return, 0))) OVER (
             PARTITION BY client_id ORDER BY as_of
@@ -752,32 +867,36 @@ def _xirr(cashflows: list[tuple]) -> float | None:
     return (lo + hi) / 2
 
 
-_perf_rows = (
-    spark.sql(  # noqa: F821
-        f"SELECT as_of, client_id, total_wealth_usd, external_flow_usd "
-        f"FROM {SCHEMA}.gold_performance ORDER BY client_id, as_of"
-    )
-    .collect()
-)
+_perf_rows = spark.sql(  # noqa: F821
+    f"SELECT as_of, client_id, total_wealth_usd, external_flow_usd, "
+    f"restatement_adjustment_usd "
+    f"FROM {SCHEMA}.gold_performance ORDER BY client_id, as_of"
+).collect()
 _by_client: dict[str, list] = {}
 for _row in _perf_rows:
     _by_client.setdefault(_row.client_id, []).append(
-        (_row.as_of, _row.total_wealth_usd, _row.external_flow_usd)
+        (_row.as_of, _row.total_wealth_usd, _row.external_flow_usd, _row.restatement_adjustment_usd)
     )
 
 _irr_rows = []
 for _client_id, _series in _by_client.items():
-    _d0, _v0, _ = _series[0]
-    _dn, _vn, _ = _series[-1]
+    _d0, _v0, _, _ = _series[0]
+    _dn, _vn, _, _ = _series[-1]
     # The inception day's own flow is already reflected in v0 (a statement
     # balance is always ex-flow, i.e. after that day's activity settled), so
     # it must not also appear as a separate investor cash flow — the same
     # boundary convention gold_performance's daily chain uses (its first
     # daily_twr_return is NULL for the identical reason).
     _cfs: list[tuple] = [(_d0, -float(_v0))]
-    for _d, _, _flow in _series[1:]:
-        if _flow != 0:
-            _cfs.append((_d, -float(_flow)))
+    for _d, _, _flow, _restatement in _series[1:]:
+        # A restatement enters the series exactly where a contribution does,
+        # and for the same arithmetic reason: it is value that appeared in the
+        # account without the market putting it there, so IRR must not pay the
+        # manager for it. It is reported on its own column rather than folded
+        # into net flow because it is emphatically not the client's money.
+        _non_market = float(_flow) + float(_restatement)
+        if _non_market != 0:
+            _cfs.append((_d, -_non_market))
     _cfs.append((_dn, float(_vn)))
     _irr = _xirr(_cfs)
     _irr_rows.append((_client_id, str(_irr) if _irr is not None else None))
@@ -809,11 +928,20 @@ spark.sql(  # noqa: F821
         -- it was invested — a flow on the last day carries weight 0, a flow
         -- on the first day (excluded here — already inside wealth_begin,
         -- same boundary rule as the chain above) would carry weight 1.
+        --
+        -- A restatement is weighted identically, because in this formula it
+        -- plays an identical role: value that entered the account without the
+        -- market's help has to leave the numerator, or the return absorbs it.
+        -- It is summed separately so the disclosure survives to the report.
         SELECT p.client_id,
                SUM(p.external_flow_usd) AS net_flow_since_inception,
+               SUM(p.restatement_adjustment_usd) AS net_restatement_since_inception,
                SUM(p.external_flow_usd
                    * (DATEDIFF(e.as_of, p.as_of) / DATEDIFF(e.as_of, e.inception_date)))
-                   AS dietz_weighted_flow
+                   AS dietz_weighted_flow,
+               SUM(p.restatement_adjustment_usd
+                   * (DATEDIFF(e.as_of, p.as_of) / DATEDIFF(e.as_of, e.inception_date)))
+                   AS dietz_weighted_restatement
         FROM {SCHEMA}.gold_performance p
         JOIN endpoints e USING (client_id)
         WHERE p.as_of > e.inception_date
@@ -827,15 +955,144 @@ spark.sql(  # noqa: F821
         CAST(e.wealth_begin_usd AS DECIMAL(24,2))                        AS wealth_begin_usd,
         CAST(e.wealth_end_usd AS DECIMAL(24,2))                          AS wealth_end_usd,
         CAST(COALESCE(f.net_flow_since_inception, 0) AS DECIMAL(24,2))   AS net_external_flow_usd,
+        CAST(COALESCE(f.net_restatement_since_inception, 0) AS DECIMAL(24,2))
+                                                                         AS restatement_adjustment_usd,
         CAST(e.twr_since_inception AS DECIMAL(14,8))                     AS twr_since_inception,
-        CAST((e.wealth_end_usd - e.wealth_begin_usd - COALESCE(f.net_flow_since_inception, 0))
-             / (e.wealth_begin_usd + COALESCE(f.dietz_weighted_flow, 0))
+        CAST((e.wealth_end_usd - e.wealth_begin_usd - COALESCE(f.net_flow_since_inception, 0)
+              - COALESCE(f.net_restatement_since_inception, 0))
+             / (e.wealth_begin_usd + COALESCE(f.dietz_weighted_flow, 0)
+                + COALESCE(f.dietz_weighted_restatement, 0))
              AS DECIMAL(14,8))                                           AS dietz_since_inception,
         CAST(i.irr_str AS DECIMAL(14,8))                                 AS irr_since_inception_annualized,
         current_timestamp()                                              AS rebuilt_at
     FROM endpoints e
     LEFT JOIN flows f USING (client_id)
     LEFT JOIN irr_raw i USING (client_id)"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ## `dq_return_plausibility` — the half that does not trust the register
+# MAGIC
+# MAGIC A declaration mechanism on its own is a licence: anything inconvenient
+# MAGIC can be labelled a restatement after the fact, and nothing argues back.
+# MAGIC So the declaration is only one side of this control. This table is the
+# MAGIC other, and it deliberately does not consult the register when deciding
+# MAGIC what looks wrong — only when deciding whether someone already owned it.
+# MAGIC
+# MAGIC For every client-day with a prior day it recomputes the raw non-flow
+# MAGIC move, `(wealth − prev_wealth − flow) / prev_wealth`, and asks whether it
+# MAGIC sits inside a stated band. Outside the band **and** undeclared is an
+# MAGIC exception: a divisor changed in `accounts.py` with no matching entry in
+# MAGIC `parvum_reference.restatements` surfaces here as a break instead of
+# MAGIC reaching the client dashboard dressed as performance.
+# MAGIC
+# MAGIC Note what this is *not*. Recomputing the returns independently — the
+# MAGIC obvious reading of the control gap the CDE register recorded against
+# MAGIC these columns — would not have caught 2026-08-17 at all: the formula
+# MAGIC was never wrong, so a second implementation reproduces +414.123%
+# MAGIC faithfully. What failed was the *meaning* of an input, and only a
+# MAGIC plausibility bound catches that. The register named the right area and
+# MAGIC the wrong remedy, which is worth saying out loud (D-070) rather than
+# MAGIC quietly closing the gap and claiming a prediction.
+# MAGIC
+# MAGIC **The band is 25%, and it is a judgement.** The largest legitimate
+# MAGIC one-day move this book has ever produced is 5.8% — a quarterly 13F
+# MAGIC filing regime landing a whole quarter of movement on one date, which is
+# MAGIC real return, not an artefact, and must not trip the check. 25% clears
+# MAGIC that with room for a genuinely violent quarter while still catching a
+# MAGIC structural break, which arrives one to three orders of magnitude out
+# MAGIC (+414%), never at 26%. A tighter band would be a daily false alarm; a
+# MAGIC looser one would have let this through.
+
+# COMMAND ----------
+
+# Wide on purpose: this is a bound on the absurd, not a market-risk limit.
+PLAUSIBILITY_BAND = 0.25
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_return_plausibility
+    COMMENT 'Per client per day: does the day-over-day wealth move, net of external flows, sit inside the stated plausibility band -- and if not, is there a declared book restatement that accounts for it? An implausible, undeclared move is a break. Computed from the raw wealth series rather than from daily_twr_return, so a restatement cannot hide inside its own NULL.'
+    AS
+    WITH moves AS (
+        SELECT as_of, client_id, client_name, total_wealth_usd, external_flow_usd,
+               restatement_detail,
+               LAG(total_wealth_usd) OVER (
+                   PARTITION BY client_id ORDER BY as_of) AS prev_wealth_usd
+        FROM {SCHEMA}.gold_performance
+    )
+    SELECT
+        as_of,
+        client_id,
+        client_name,
+        CAST(total_wealth_usd AS DECIMAL(24,2))   AS total_wealth_usd,
+        CAST(prev_wealth_usd AS DECIMAL(24,2))    AS prev_wealth_usd,
+        CAST(external_flow_usd AS DECIMAL(24,2))  AS external_flow_usd,
+        CAST((total_wealth_usd - prev_wealth_usd - external_flow_usd)
+             / NULLIF(prev_wealth_usd, 0) AS DECIMAL(14,8)) AS non_flow_move_rate,
+        {PLAUSIBILITY_BAND}                       AS band,
+        restatement_detail IS NOT NULL            AS restatement_declared,
+        restatement_detail,
+        -- Declared or small enough: plausible. NULL on a client's first date,
+        -- where there is nothing to compare -- the same convention
+        -- dq_cash_continuity uses, so "no prior day" never reads as "clean".
+        CASE WHEN prev_wealth_usd IS NULL THEN NULL
+             WHEN restatement_detail IS NOT NULL THEN TRUE
+             ELSE ABS((total_wealth_usd - prev_wealth_usd - external_flow_usd)
+                      / NULLIF(prev_wealth_usd, 0)) <= {PLAUSIBILITY_BAND}
+        END                                       AS plausible,
+        current_timestamp()                       AS rebuilt_at
+    FROM moves"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ## Feeding the plausibility check back into `dq_metrics`
+# MAGIC
+# MAGIC `dq_metrics` is built in `dq_recon`, which runs *before* this job — so a
+# MAGIC metric derived from gold cannot be computed there without reading the
+# MAGIC previous run's numbers and reporting them as today's. Rather than add a
+# MAGIC sixth task to the bundle for two rows, gold appends the rows it alone
+# MAGIC can compute (D-070). The `DELETE` first makes the cell idempotent: gold
+# MAGIC re-run on its own must not double-count.
+# MAGIC
+# MAGIC This is what closes the register's control gap on the performance
+# MAGIC columns: a wrong return figure now moves a number a person watches,
+# MAGIC instead of waiting for someone to notice a chart looked odd.
+
+# COMMAND ----------
+
+_PLAUSIBILITY_METRICS = ("daily_return_plausibility_rate", "return_plausibility_breaks_count")
+
+spark.sql(  # noqa: F821
+    f"""DELETE FROM {SCHEMA}.dq_metrics
+    WHERE metric IN {_PLAUSIBILITY_METRICS}"""
+)
+
+spark.sql(  # noqa: F821
+    f"""INSERT INTO {SCHEMA}.dq_metrics
+    WITH counts AS (
+        SELECT as_of, COUNT(*) AS checked,
+               SUM(CASE WHEN plausible THEN 1 ELSE 0 END) AS ok,
+               SUM(CASE WHEN plausible = FALSE THEN 1 ELSE 0 END) AS breaks
+        FROM {SCHEMA}.dq_return_plausibility
+        WHERE plausible IS NOT NULL
+        GROUP BY as_of
+    )
+    SELECT as_of, 'accuracy' AS dimension, 'daily_return_plausibility_rate' AS metric,
+           CAST(ok / NULLIF(checked, 0) AS DECIMAL(14,6)) AS value,
+           breaks = 0 AS passed,
+           CONCAT(CAST(ok AS STRING), ' of ', CAST(checked AS STRING),
+                  ' client-days moved plausibly or were declared restatements') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts
+    UNION ALL
+    SELECT as_of, 'exceptions' AS dimension, 'return_plausibility_breaks_count' AS metric,
+           CAST(breaks AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+           CONCAT(CAST(breaks AS STRING),
+                  ' client-days moved implausibly with no declared restatement') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts"""
 )
 
 # COMMAND ----------
@@ -988,8 +1245,10 @@ COLUMN_COMMENTS = {
         "client_name": "Display name of the client",
         "total_wealth_usd": "Same figure as gold_client_wealth.total_wealth_usd, carried for self-contained querying",
         "external_flow_usd": "Net client contribution (positive) or withdrawal (negative) in USD that day; 0 on days with no flow",
-        "daily_twr_return": "(total_wealth_usd − external_flow_usd) / previous day's total_wealth_usd − 1; NULL on the client's first date (no prior day to compare)",
-        "twr_index_since_inception": "Chain-linked growth-of-$1 index from the client's first date (1.0 there); > 1.0 means the market grew the account net of the client's own flows",
+        "restatement_adjustment_usd": "Value change on a declared book-restatement day that the market did not produce — the day's whole non-flow move, booked here instead of to return. 0 on every other day, so the column is safe to sum",
+        "restatement_detail": "Which account was restated, from which divisor to which, and the decision that authorised it; NULL on days with no declared restatement",
+        "daily_twr_return": "(total_wealth_usd − external_flow_usd) / previous day's total_wealth_usd − 1; NULL on the client's first date (no prior day to compare) and on a declared restatement day (the two days are denominated in different rulers, so there is no comparable prior day either)",
+        "twr_index_since_inception": "Chain-linked growth-of-$1 index from the client's first date (1.0 there); > 1.0 means the market grew the account net of the client's own flows. Links straight through a restatement day rather than compounding it",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "gold_performance_summary": {
@@ -1000,9 +1259,24 @@ COLUMN_COMMENTS = {
         "wealth_begin_usd": "total_wealth_usd on inception_date",
         "wealth_end_usd": "total_wealth_usd on as_of",
         "net_external_flow_usd": "Sum of external_flow_usd strictly after inception_date (inception day's flow is already inside wealth_begin_usd)",
+        "restatement_adjustment_usd": "Sum of restatement_adjustment_usd over the window — total value change from declared book restatements, removed from all three return figures and disclosed separately because it is not the client's money and not the market's doing",
         "twr_since_inception": "Time-weighted return over the window: gold_performance's chained index minus 1. Not annualized (GIPS convention for sub-annual periods)",
-        "dietz_since_inception": "Modified Dietz return over the same window: (end − begin − net flow) / (begin + day-weighted flow). Not annualized; tracks TWR closely when flows are small relative to wealth",
+        "dietz_since_inception": "Modified Dietz return over the same window: (end − begin − net flow − restatement adjustment) / (begin + day-weighted flow + day-weighted restatement). Not annualized; tracks TWR closely when flows are small relative to wealth",
         "irr_since_inception_annualized": "Money-weighted return (XIRR) over the same cash flows, solved by bisection and reported ANNUALIZED (the standard IRR convention) — diverges from the two return-based figures above on a short period by construction, not by error. NULL when no root exists in [-99.99%, +1000%]",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
+    "dq_return_plausibility": {
+        "as_of": "Valuation date being checked. Grain: one row per (client, date)",
+        "client_id": "The family/relationship whose wealth series is being checked",
+        "client_name": "Display name of the client",
+        "total_wealth_usd": "This day's total wealth in USD",
+        "prev_wealth_usd": "The previous day's total wealth in USD; NULL on the client's first date",
+        "external_flow_usd": "Net client contribution or withdrawal that day, removed before judging the move",
+        "non_flow_move_rate": "(total_wealth_usd − prev_wealth_usd − external_flow_usd) / prev_wealth_usd — the day's move with the client's own money taken out. Computed from the raw wealth series, not from daily_twr_return, so a restatement cannot hide inside its own NULL",
+        "band": "The plausibility bound in force (0.25). A judgement, not a market-risk limit: wide enough that a real quarterly filing regime step never trips it, tight enough that a structural break always does",
+        "restatement_declared": "TRUE when a book restatement was declared for this client-day in parvum_reference.restatements",
+        "restatement_detail": "The declaration that accounts for the move, when there is one; NULL otherwise",
+        "plausible": "TRUE when the move is inside the band or a declared restatement explains it; FALSE means an implausible, undeclared move — a wrong number, not a bad day; NULL on the client's first date (nothing to compare)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "gold_top_holdings": {

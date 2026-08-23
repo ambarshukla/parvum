@@ -106,5 +106,54 @@ def test_a_restructured_dq_job_fails_loudly_instead_of_matching_nothing(tmp_path
     # rule the register cites — a confusing failure a long way from its cause.
     job = tmp_path / "dq_recon.py"
     job.write_text("SELECT 1 AS something_else\n", encoding="utf-8")
-    with pytest.raises(SchemaScanError, match="has probably changed"):
+    with pytest.raises(SchemaScanError, match="publishes no"):
         scan_dq_metric_names(job)
+
+
+def test_metric_names_are_unioned_across_every_publishing_job(tmp_path):
+    # dq_metrics is written by two jobs (D-070): dq_recon builds it, gold
+    # appends the rows only it can compute. A rule citing either must resolve.
+    recon = tmp_path / "dq_recon.py"
+    recon.write_text(
+        "'a_rate' AS metric, 'b_rate' AS metric, 'c_rate' AS metric, 'd_rate' AS metric\n",
+        encoding="utf-8",
+    )
+    gold = tmp_path / "gold_reports.py"
+    gold.write_text("'e_rate' AS metric\n", encoding="utf-8")
+
+    assert scan_dq_metric_names(recon, gold) == {
+        "a_rate",
+        "b_rate",
+        "c_rate",
+        "d_rate",
+        "e_rate",
+    }
+
+
+def test_a_job_that_stops_publishing_metrics_fails_even_if_the_others_cover_it(tmp_path):
+    # The union would still clear _MIN_DQ_METRICS on dq_recon alone, which is
+    # exactly how a silently-stopped gold append would go unnoticed.
+    recon = tmp_path / "dq_recon.py"
+    recon.write_text(
+        "'a_rate' AS metric, 'b_rate' AS metric, 'c_rate' AS metric, 'd_rate' AS metric\n",
+        encoding="utf-8",
+    )
+    gold = tmp_path / "gold_reports.py"
+    gold.write_text("nothing here publishes a metric\n", encoding="utf-8")
+
+    with pytest.raises(SchemaScanError, match=r"gold_reports\.py: publishes no"):
+        scan_dq_metric_names(recon, gold)
+
+
+def test_scanning_no_jobs_at_all_is_refused():
+    with pytest.raises(SchemaScanError, match="no metric-publishing jobs"):
+        scan_dq_metric_names()
+
+
+def test_the_plausibility_metric_is_discoverable_from_the_gold_job():
+    # The register cites daily_return_plausibility_rate; if the gold job's SQL
+    # shape drifts, that citation should fail here rather than in the gate.
+    root = find_repo_root()
+    names = scan_dq_metric_names(root / "spark" / "dq_recon.py", root / "spark" / "gold_reports.py")
+    assert "daily_return_plausibility_rate" in names
+    assert "return_plausibility_breaks_count" in names

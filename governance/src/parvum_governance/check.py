@@ -229,7 +229,9 @@ def check_repo(repo_root: Path) -> GateResult:
     return check(
         columns=scan_spark_jobs(spark_dir),
         registry=load_registry(registry_path),
-        dq_metric_names=scan_dq_metric_names(spark_dir / "dq_recon.py"),
+        dq_metric_names=scan_dq_metric_names(
+            spark_dir / "dq_recon.py", spark_dir / "gold_reports.py"
+        ),
     )
 
 
