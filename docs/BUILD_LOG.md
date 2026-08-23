@@ -1035,3 +1035,47 @@ The tile is conditional — it renders only when the adjustment is non-zero, whi
 **No `internal/` change was needed and none was made.** The Ops page derives its accuracy metrics generically from whatever `dq_metrics` contains, and `dq_metrics` already loads unscoped into every tenant schema (D-044), so `daily_return_plausibility_rate` and `return_plausibility_breaks_count` will appear there on their own once the data flows. `dq_return_plausibility`'s per-client detail table is deliberately left unprojected — the rollup is what a Data Operations reader consumes, and the detail stays queryable in the lakehouse.
 
 **Verified:** `web` 14/14 (2 new — the tile appears with the right figure, sentence and hover provenance when restated, and is absent when not), typecheck, prettier and production build clean. `export` 18 passed / 27 skipped locally, one more skip than before because the new restatement round-trip test needs Postgres and runs in CI; its fixtures now carry the new columns so every existing performance test exercises the real row shape. Serving `mvn verify -DskipTests` and spotless clean, with jOOQ codegen regenerated — the generated getters compiling is itself the proof that V10 replayed correctly through the in-memory H2. Docker was unavailable this session, so the full serving suite and the export DB tests run first in CI.
+
+## 2026-08-23 — V10 exposed a latent ordering bug in the export test fixture
+
+CI's `export` job failed on the D-071 branch with twelve errors, all
+`UndefinedTable: relation "performance" does not exist`. The cause was not V10
+itself but how the loader tests build their throwaway schemas:
+
+```python
+migrations = sorted(_MIGRATIONS.glob("V*.sql"))
+```
+
+Flyway orders migrations by parsed version **number**. A filename sort orders
+them as strings. Those agree only while every version is a single digit — so
+`V1 … V9` never exposed the difference, and `V10` sorted directly after `V1`,
+running its `alter table performance` three migrations before `V3` created the
+table.
+
+**Production was never at risk, and that is worth stating rather than
+assuming.** Real Flyway parses the version, so the serving app has always
+applied these correctly — confirmed by running the full serving suite once
+Docker was available: 32/32, which boots the app and migrates every tenant
+schema for real. The divergence was entirely in the fixture, which makes it
+precisely the bug these tests exist to prevent: they are the "one schema, both
+sides" guarantee (D-029), and a fixture that applies the same files in a
+different order than Flyway quietly stops being evidence of anything.
+
+Fixed by parsing the version the way Flyway does, in both the projection and
+internal fixtures, with an unparseable filename raising rather than sorting
+somewhere arbitrary — silently ordering a file the fixture cannot understand
+would reintroduce the same class of bug in a new shape.
+
+`export/tests/test_migration_order.py` pins it, in pure Python so it runs
+everywhere the suite does rather than only where Postgres is reachable: that
+double-digit versions sort after single-digit ones, that both real migration
+directories are version-ordered, that the projection series is gapless, that
+whichever migration creates `performance` precedes any that alters it (the
+exact invariant CI caught), and that an unversioned filename fails loudly.
+
+**Verified with Docker up, so nothing was left to CI this time:** `export`
+**50 passed, 0 skipped** — the twelve previously-erroring tests now pass, the
+new restatement round-trip test runs against real Postgres rather than being
+skipped, and the five ordering guards are green. Serving `mvn verify` 32/32 and
+spotless clean. `ingest` 118, `reference` 40 (+1 skip), `alts-hitl` 65,
+`governance` 47; gate unchanged and passing.
