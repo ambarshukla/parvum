@@ -92,19 +92,30 @@ PERFORMANCE_COLUMNS = (
     "client_name",
     "total_wealth_usd",
     "external_flow_usd",
+    "restatement_adjustment_usd",
+    "restatement_detail",
     "daily_twr_return",
     "twr_index_since_inception",
     "rebuilt_at",
 )
 
 
-def performance_row(client_id: str, day: date, twr_return: str | None, index: str) -> tuple:
+def performance_row(
+    client_id: str,
+    day: date,
+    twr_return: str | None,
+    index: str,
+    restatement: str = "0.00",
+    detail: str | None = None,
+) -> tuple:
     return (
         day,
         client_id,
         f"{client_id} name",
         Decimal("1000000.00"),
         Decimal("0.00"),
+        Decimal(restatement),
+        detail,
         Decimal(twr_return) if twr_return is not None else None,
         Decimal(index),
         REBUILT,
@@ -123,6 +134,7 @@ PERFORMANCE_SUMMARY_COLUMNS = (
     "wealth_begin_usd",
     "wealth_end_usd",
     "net_external_flow_usd",
+    "restatement_adjustment_usd",
     "twr_since_inception",
     "dietz_since_inception",
     "irr_since_inception_annualized",
@@ -131,7 +143,13 @@ PERFORMANCE_SUMMARY_COLUMNS = (
 
 
 def performance_summary_row(
-    client_id: str, inception: date, as_of: date, twr: str, dietz: str | None, irr: str | None
+    client_id: str,
+    inception: date,
+    as_of: date,
+    twr: str,
+    dietz: str | None,
+    irr: str | None,
+    restatement: str = "0.00",
 ) -> tuple:
     return (
         client_id,
@@ -141,6 +159,7 @@ def performance_summary_row(
         Decimal("1000000.00"),
         Decimal("1050000.00"),
         Decimal("25000.00"),
+        Decimal(restatement),
         Decimal(twr),
         Decimal(dietz) if dietz is not None else None,
         Decimal(irr) if irr is not None else None,
@@ -536,6 +555,59 @@ def test_performance_series_and_summary_load_with_nulls_intact(connection, tenan
         Decimal("-0.04488757"),
         Decimal("-0.17344373"),
     )
+
+
+def test_restatement_disclosure_round_trips_beside_a_null_return(connection, tenant_schemas):
+    schema, _ = tenant_schemas
+    # D-070: on a declared book-restatement day daily_twr_return is NULL for
+    # the same reason it is NULL at inception, and the day's whole non-flow
+    # move lands in restatement_adjustment_usd instead. Both facts have to
+    # survive the trip, and the detail string is the only thing on the row
+    # that explains an otherwise inexplicable step in reported wealth.
+    detail = "60011234: divisor 10000 -> 2000 (D-066) | 60018852: divisor 20000 -> 4000 (D-066)"
+    series = performance_table(
+        performance_row("CLI-HARTWELL", date(2026, 8, 14), "-0.00001133", "0.95831694"),
+        performance_row(
+            "CLI-HARTWELL",
+            date(2026, 8, 17),
+            None,
+            "0.95831694",
+            restatement="178175109.88",
+            detail=detail,
+        ),
+    )
+    summary = performance_summary_table(
+        performance_summary_row(
+            "CLI-HARTWELL",
+            date(2026, 5, 21),
+            date(2026, 8, 21),
+            "-0.04169151",
+            "-0.03692517",
+            "-0.10542851",
+            restatement="178175109.88",
+        )
+    )
+    counts = load_tenant(
+        connection,
+        schema,
+        [wealth_table(), *empty_other_tables()[:-3], series, summary, ownership_table()],
+    )
+    assert counts["performance"] == 2
+    assert counts["performance_summary"] == 1
+
+    rows = connection.execute(
+        f"SELECT restatement_adjustment_usd, restatement_detail, daily_twr_return "
+        f'FROM "{schema}".performance ORDER BY as_of'
+    ).fetchall()
+    # An ordinary day books nothing and explains nothing.
+    assert rows[0] == (Decimal("0.00"), None, Decimal("-0.00001133"))
+    # The restated day carries the adjustment, the explanation, and no return.
+    assert rows[1] == (Decimal("178175109.88"), detail, None)
+
+    (adjustment,) = connection.execute(
+        f'SELECT restatement_adjustment_usd FROM "{schema}".performance_summary'
+    ).fetchone()
+    assert adjustment == Decimal("178175109.88")
 
 
 def test_dq_metrics_loads_unfiltered_with_null_passed_intact(connection, tenant_schemas):

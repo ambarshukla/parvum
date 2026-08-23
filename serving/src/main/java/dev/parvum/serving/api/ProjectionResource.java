@@ -176,6 +176,8 @@ public class ProjectionResource {
                             r.getClientName(),
                             r.getTotalWealthUsd(),
                             r.getExternalFlowUsd(),
+                            r.getRestatementAdjustmentUsd(),
+                            r.getRestatementDetail(),
                             r.getDailyTwrReturn(),
                             r.getTwrIndexSinceInception())));
   }
@@ -202,6 +204,7 @@ public class ProjectionResource {
                             r.getWealthBeginUsd(),
                             r.getWealthEndUsd(),
                             r.getNetExternalFlowUsd(),
+                            r.getRestatementAdjustmentUsd(),
                             r.getTwrSinceInception(),
                             r.getDietzSinceInception(),
                             r.getIrrSinceInceptionAnnualized())));
@@ -324,6 +327,8 @@ public class ProjectionResource {
       String clientName,
       BigDecimal totalWealthUsd,
       BigDecimal externalFlowUsd,
+      BigDecimal restatementAdjustmentUsd,
+      String restatementDetail,
       BigDecimal dailyTwrReturn,
       BigDecimal twrIndexSinceInception) {}
 
@@ -335,6 +340,7 @@ public class ProjectionResource {
       BigDecimal wealthBeginUsd,
       BigDecimal wealthEndUsd,
       BigDecimal netExternalFlowUsd,
+      BigDecimal restatementAdjustmentUsd,
       BigDecimal twrSinceInception,
       BigDecimal dietzSinceInception,
       BigDecimal irrSinceInceptionAnnualized) {}

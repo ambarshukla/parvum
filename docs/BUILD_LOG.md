@@ -1010,3 +1010,28 @@ Because `dq_recon` runs *before* gold, a metric derived from gold cannot be comp
 A pleasing side effect: Hartwell's TWR and Dietz now differ by 48bp where the other two families agree to within 4bp. `docs/PERFORMANCE_METHODOLOGY.md` predicted exactly that — Dietz's linear day-weighting approximates poorly when a mid-period adjustment is large relative to the portfolio, and $178M against a $45M opening balance is as large as that gets.
 
 **Verified:** `reference` 40 passed / 1 skipped (9 new), `governance` 47 (5 new, including a negative control that a job which stops publishing metrics fails even when the other job covers the minimum), `ingest` 118, `alts-hitl` 65, `export` 18 passed / 26 skipped (DB tests run in CI). `make fmt` then `make lint` clean on all five packages. Gate after the change: **324 published columns, 324 classified (100%), 32 critical, 19 with a control (59.4%, up from 35.7%), 13 with a stated gap** — still short of the 80% target, which remains the honest number.
+
+## 2026-08-23 — The restatement reaches the screen (D-071)
+
+The projection half of D-070. `V10__restatement_disclosure.sql` puts `restatement_adjustment_usd` and `restatement_detail` on `performance` and `restatement_adjustment_usd` on `performance_summary`; both DTOs carry them; the client dashboard's Performance tab gains one conditional tile.
+
+**The migration was mandatory, not cosmetic.** The exporter selects `*` from each gold table and inserts by source column name, and its loader documents that schema drift "fails loudly at INSERT". The moment D-070 merged, `export-gold` was one gold run away from failing — gold and serving have to move together. Worth knowing before scheduling the production rebuild rather than after.
+
+**On whether to disclose at all.** The question came up and deserved a real answer rather than a reflex. It was settled by what the tab already renders: a "Net external flow" tile reading `$44,722,729 → $221,166,594` with `$137,500` of client money, sitting beside a TWR of `−4.17%`. Wealth quintuples, nearly nothing comes in, and the return is negative. Those cannot all be true without a fourth number, so the missing number was *already* generating the question — the tile answers it instead of raising it. With the disclosure the row reconciles exactly:
+
+```
+ 44,722,729  opening
+    +137,500  client flows
++178,175,110  book restatement
+  −1,868,745  market loss (the −4.17%)
+────────────
+ 221,166,594  closing
+```
+
+The tile is conditional — it renders only when the adjustment is non-zero, which is almost never. A disclosure showing `$0` on every ordinary client teaches readers to ignore it, and the one time it mattered they would. Both halves are pinned by tests.
+
+`restatement_detail` lives on the daily series rather than the summary, so the dashboard joins the two and hangs the provenance on the tile as a hover: account, divisors, decision. Not a click-to-expand panel like D-065's reconcile badge — that one revealed a *list* a reader might act on, this is one sentence of provenance.
+
+**No `internal/` change was needed and none was made.** The Ops page derives its accuracy metrics generically from whatever `dq_metrics` contains, and `dq_metrics` already loads unscoped into every tenant schema (D-044), so `daily_return_plausibility_rate` and `return_plausibility_breaks_count` will appear there on their own once the data flows. `dq_return_plausibility`'s per-client detail table is deliberately left unprojected — the rollup is what a Data Operations reader consumes, and the detail stays queryable in the lakehouse.
+
+**Verified:** `web` 14/14 (2 new — the tile appears with the right figure, sentence and hover provenance when restated, and is absent when not), typecheck, prettier and production build clean. `export` 18 passed / 27 skipped locally, one more skip than before because the new restatement round-trip test needs Postgres and runs in CI; its fixtures now carry the new columns so every existing performance test exercises the real row shape. Serving `mvn verify -DskipTests` and spotless clean, with jOOQ codegen regenerated — the generated getters compiling is itself the proof that V10 replayed correctly through the in-memory H2. Docker was unavailable this session, so the full serving suite and the export DB tests run first in CI.

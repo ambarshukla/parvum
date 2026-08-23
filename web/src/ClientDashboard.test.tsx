@@ -64,6 +64,8 @@ const data: TenantData = {
             clientName: "Reyes Family",
             totalWealthUsd: 1897109.79,
             externalFlowUsd: 0,
+            restatementAdjustmentUsd: 0,
+            restatementDetail: null,
             dailyTwrReturn: null,
             twrIndexSinceInception: 1,
         },
@@ -73,6 +75,8 @@ const data: TenantData = {
             clientName: "Reyes Family",
             totalWealthUsd: 1712828.76,
             externalFlowUsd: 0,
+            restatementAdjustmentUsd: 0,
+            restatementDetail: null,
             dailyTwrReturn: -0.013054,
             twrIndexSinceInception: 0.89226698,
         },
@@ -86,6 +90,7 @@ const data: TenantData = {
             wealthBeginUsd: 1897109.79,
             wealthEndUsd: 1712828.76,
             netExternalFlowUsd: 22500,
+            restatementAdjustmentUsd: 0,
             twrSinceInception: -0.10773302,
             dietzSinceInception: -0.10785682,
             irrSinceInceptionAnnualized: -0.37707435,
@@ -188,6 +193,74 @@ describe("ClientDashboard", () => {
         expect(screen.getByText("-10.79%")).toBeInTheDocument(); // Modified Dietz
         expect(screen.getByText("-37.71%")).toBeInTheDocument(); // IRR, annualized
         expect(screen.getByText("$22,500")).toBeInTheDocument(); // net external flow
+    });
+
+    it("says nothing about restatements when the book has not been restated", () => {
+        // The overwhelmingly common case. A disclosure tile that showed $0 on
+        // every ordinary client would train readers to ignore it.
+        render(<ClientDashboard data={data} client={reyes} dark={false} />);
+        fireEvent.click(screen.getByRole("tab", { name: "Performance" }));
+
+        expect(screen.queryByText("Book restatement")).not.toBeInTheDocument();
+    });
+
+    it("discloses a book restatement so the wealth step reconciles (D-070)", () => {
+        // Without this tile the tab shows wealth quintupling, $137,500 of client
+        // money, and a NEGATIVE return -- three figures that cannot all be true
+        // together, which reads as a broken dashboard rather than a restated book.
+        const detail = "60011234: divisor 10000 -> 2000 (D-066)";
+        const restated = {
+            ...data,
+            performance: [
+                {
+                    asOf: "2026-08-14",
+                    clientId: "CLI-REYES",
+                    clientName: "Reyes Family",
+                    totalWealthUsd: 43024684.9,
+                    externalFlowUsd: 0,
+                    restatementAdjustmentUsd: 0,
+                    restatementDetail: null,
+                    dailyTwrReturn: -0.00001133,
+                    twrIndexSinceInception: 0.95831694,
+                },
+                {
+                    asOf: "2026-08-17",
+                    clientId: "CLI-REYES",
+                    clientName: "Reyes Family",
+                    totalWealthUsd: 221199794.78,
+                    externalFlowUsd: 0,
+                    restatementAdjustmentUsd: 178175109.88,
+                    restatementDetail: detail,
+                    dailyTwrReturn: null,
+                    twrIndexSinceInception: 0.95831694,
+                },
+            ],
+            performanceSummary: [
+                {
+                    clientId: "CLI-REYES",
+                    clientName: "Reyes Family",
+                    inceptionDate: "2026-05-21",
+                    asOf: "2026-08-21",
+                    wealthBeginUsd: 44722729.1,
+                    wealthEndUsd: 221166594.3,
+                    netExternalFlowUsd: 137500,
+                    restatementAdjustmentUsd: 178175109.88,
+                    twrSinceInception: -0.04169151,
+                    dietzSinceInception: -0.03692517,
+                    irrSinceInceptionAnnualized: -0.10542851,
+                },
+            ],
+        };
+
+        render(<ClientDashboard data={restated} client={reyes} dark={false} />);
+        fireEvent.click(screen.getByRole("tab", { name: "Performance" }));
+
+        expect(screen.getByText("Book restatement")).toBeInTheDocument();
+        expect(screen.getByText("$178,175,110")).toBeInTheDocument();
+        // The point of the tile is the sentence, not the number.
+        expect(screen.getByText(/Change of scale, not performance/)).toBeInTheDocument();
+        // And the provenance is reachable without a second request.
+        expect(screen.getByTitle(/17 Aug 2026 .* divisor 10000 -> 2000/)).toBeInTheDocument();
     });
 
     it("shows the fund detail and a pending-review badge on the alternatives tab", () => {
