@@ -1079,3 +1079,39 @@ new restatement round-trip test runs against real Postgres rather than being
 skipped, and the five ordering guards are green. Serving `mvn verify` 32/32 and
 spotless clean. `ingest` 118, `reference` 40 (+1 skip), `alts-hitl` 65,
 `governance` 47; gate unchanged and passing.
+
+## 2026-08-23 — D-070/D-071 verified against the live lakehouse
+
+Both halves merged (PRs #101, #102), then run for real: `make land-registry` and `make land-restatements` to refresh the two reference snapshots, then `make run-job` — all five tasks SUCCESS in about nine minutes. No `databricks bundle deploy` was needed; neither change touched the bundle.
+
+Every prediction recorded before the run matched.
+
+**The defect itself, gone.** `gold_performance` for Hartwell across the boundary:
+
+| as_of | wealth | restatement adj. | daily TWR | index |
+|---|---:|---:|---:|---:|
+| 2026-08-14 | 43,024,684.90 | 0.00 | −0.00001100 | 0.95833621 |
+| 2026-08-17 | 221,199,794.78 | **178,175,109.88** | **NULL** | **0.95833621** |
+| 2026-08-18 | 221,168,057.16 | 0.00 | −0.00000200 | 0.95833429 |
+
+The index is identical on 08-14 and 08-17 — the chain links straight through the restatement rather than compounding it. `restatement_detail` reads `60011234: divisor 10000 -> 2000 (D-066) | 60018852: divisor 20000 -> 4000 (D-066)`.
+
+**`gold_performance_summary`**, where the wrong number lived:
+
+| Client | TWR | Dietz | IRR | restatement adj. |
+|---|---:|---:|---:|---:|
+| Hartwell | **−4.167%** | **−3.693%** | **−10.543%** | 178,175,109.88 |
+| Okafor | −2.572% | −2.529% | −7.319% | 0.00 |
+| Reyes | −4.855% | −4.857% | −13.734% | 0.00 |
+
+Hartwell was **+392.70% / +393.41% / NULL** before this. Okafor and Reyes are untouched, which is the control: neither owns a Berkshire account, so neither has a restatement to declare, and Okafor's genuine +2.13% on 2026-08-17 stays in its return.
+
+The 47bp gap between Hartwell's TWR and Dietz — against 4bp and 2bp for the other two families — is Modified Dietz's linear day-weighting approximating poorly against an adjustment four times the opening balance, exactly as `docs/PERFORMANCE_METHODOLOGY.md` predicted before there was anything large enough to show it.
+
+**The detector.** `dq_return_plausibility`: 270 client-days, **0 breaks**, 3 first-date NULLs (one per client, nothing to compare). In `dq_metrics`, `daily_return_plausibility_rate` is 1.000000 and passing on all 89 days, and `return_plausibility_breaks_count` is 0 on all 89. All five dimensions intact (accuracy 358, completeness 90, exceptions 358, freshness 1, governance 4).
+
+The idempotency guard was checked rather than assumed: no `(as_of, metric)` pair appears twice, confirming the `DELETE`-then-`INSERT` in the gold job survives being re-run alongside `dq_recon`'s own full rebuild.
+
+**Governance moved, and stayed honest.** With the refreshed register landed: `governance_cde_registry` 324 rows, `columns_classified_rate` 1.000000 passing, `critical_element_count` 32, `control_gap_count` 13, and `critical_control_coverage_rate` **0.593750 — still `passed = false`** against the stated 80% target, reading "19 of 32 critical elements have a quality rule". Coverage rose from 35.7% because five performance columns gained a real control and four new critical columns arrived with one; the target did not move to meet it.
+
+**Still outstanding:** the production RDS reload (`export-gold.yml`, manual dispatch) and visual confirmation on the live dashboard. Until that runs, the lakehouse is correct and the served figures are not.
