@@ -259,8 +259,10 @@ describe("ClientDashboard", () => {
         expect(screen.getByText("$178,175,110")).toBeInTheDocument();
         // The point of the tile is the sentence, not the number.
         expect(screen.getByText(/Change of scale, not performance/)).toBeInTheDocument();
-        // And the provenance is reachable without a second request.
-        expect(screen.getByTitle(/17 Aug 2026 .* divisor 10000 -> 2000/)).toBeInTheDocument();
+        // The provenance deliberately does NOT reach the client screen: the raw
+        // detail names an account number, a divisor and a decision reference.
+        expect(screen.queryByTitle(/divisor/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/D-066/)).not.toBeInTheDocument();
     });
 
     it("shows the fund detail and a pending-review badge on the alternatives tab", () => {
