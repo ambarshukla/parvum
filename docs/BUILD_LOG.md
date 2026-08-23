@@ -1161,3 +1161,25 @@ Fixed by sourcing every term from the same statement: `called = total_commitment
 No new quality rule was added, deliberately: the obvious one — "called + unfunded must equal commitment" — is now true by construction, and a control that cannot fail is not a control. The useful check is cross-document (statement-derived called versus notice-derived called), which is precisely the register's existing control gap on the alts chain and belongs to that slice.
 
 **No schema change**, so no migration and no exporter change: same column names, same types, correct values. `gold_reports.py` compiles; the governance gate still passes at 324/324 with coverage 59.4%.
+
+## 2026-08-23 — Asserting the additions, and catching the register grading itself (D-073)
+
+Two defects in one week (D-070, D-072) were both found by a person looking at a screen, not by a control, and they share a shape: **every figure individually correct, two figures disagreeing about what happened.** Every existing check validates a number against its own source. None compared two published numbers to each other.
+
+`dq_cross_field_invariants` does that. Seven identities, one row per (date, invariant, scope), each carrying both sides, the delta, and its own tolerance — money to the cent, fractions to an epsilon, because a sum of rounded divisions has no obligation to land exactly on 1. Rolled into `dq_metrics` as `cross_field_invariant_rate` and `cross_field_invariant_breaks_count`.
+
+The rate counts **invariants, not rows**: `position_owner_proration_sums` is 10,210 of 11,033 rows, and row-weighting would let it swallow a total failure of anything else without moving the number.
+
+**Which of the seven are real, stated rather than implied.** `account_ownership_totals_one` and `allocation_value_matches_wealth` are genuine — the latter is the best of them, because `gold_asset_allocation` and `gold_client_wealth` aggregate the same silver at different grains, so agreement is two independent paths agreeing. `position_owner_proration_sums` catches a dropped owner row; `reconcile_variance_matches_exceptions` ties the dashboard badge to its own drill-down. But `wealth_components_sum` and `allocation_weights_sum_one` are near-tautological — `total_wealth_usd` *is* the sum of its parts, so only independent rounding can break it — and `alts_commitment_splits` became tautological the moment D-072 fixed it, kept as a regression guard. Cheap rounding guards are worth having. They are not worth claiming.
+
+**And that distinction caught a real mistake, in this commit, by the person who wrote the register's rules.** Citing the new metric against every column carrying the alts control gap took coverage from 59.4% to **97.0%** and gaps from 13 to 1. That number felt wrong and was: the invariant does not touch `distributed_to_date_usd`, `current_nav_usd`, `moic`, or `gold_client_wealth.alts_usd`. Four of ten citations were loosely-related metrics wearing the costume of controls — the exact failure D-067 wrote itself a warning about. Walked back. **Honest coverage: 28 of 33, 84.8%, five gaps stated.**
+
+The defence that worked, worth reusing: for every citation, ask *which specific row of this check fails if that column is wrong?* Four of them had no answer.
+
+**The ownership gap closes outright.** It has said since D-067 that the graph proves itself at build time but "neither assertion reaches `dq_metrics` — so there is no daily measured signal. Closing it needs an ownership dimension in the DQ rollup." That signal now exists, daily, so the gap is removed rather than narrowed.
+
+**Coverage crosses 80% for the first time**, against 35.7% at D-067 — and the target has not moved since it was set. `critical_control_coverage_rate` flips to `passed = true`, the first green that tile has shown.
+
+**Verified before merge** by running the table's own SQL against the live lakehouse: **11,033 rows, 7 invariants, 0 breaks**, worst delta 0.000001 and inside its stated epsilon. Every candidate was probed against live data before being written, which is how one got corrected during design — `allocation_value_matches_wealth` was first drafted against `positions + alts` and failed on all 270 rows, because allocation carries Cash as an asset class and reconstructs total wealth instead. The probe was wrong, not the data.
+
+Checks: ingest 118, reference 40 (+1 skip), export 50, alts-hitl 65, governance 47; ruff clean on all five; gate PASS at 333/333 classified.

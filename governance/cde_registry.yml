@@ -79,6 +79,12 @@ slos:
     objective: Each account's closing balance carries into the next day's opening.
     measured_by: cash_day_over_day_continuity_rate
     target: 100% of account-days
+  cross_field_consistency:
+    objective: >-
+      Published figures that describe the same fact agree with each other. Where an aggregate
+      is accompanied by the parts that compose it, the parts reconstruct the aggregate.
+    measured_by: cross_field_invariant_rate
+    target: 100% of invariants, every day
   return_plausibility:
     objective: >-
       Every reported day-over-day move in client wealth is either small enough to be a
@@ -113,12 +119,9 @@ common_columns:
       prorated figure in the estate is multiplied by this, so an error here misstates one
       client's wealth and another's in opposite directions while both still reconcile to the
       custodian.
-    slo: gold_freshness
-    control_gap: >-
-      The ownership graph proves itself acyclic and fully allocated when it is built, and a
-      unit test holds a shared account to reassembling at 100%, but neither assertion reaches
-      dq_metrics — so there is no daily measured signal. Closing it needs an ownership
-      dimension in the DQ rollup.
+    slo: cross_field_consistency
+    quality_rules:
+      - cross_field_invariant_rate
   as_of:
     tier: supporting
     owner: custody-ingestion
@@ -277,6 +280,27 @@ tables:
       continuous:
       currency:
       rebuilt_at:
+  dq_cross_field_invariants:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      as_of:
+      invariant:
+      scope:
+      expected:
+      actual:
+      delta:
+      tolerance:
+      holds:
+        tier: critical
+        definition: >-
+          Whether an aggregate equalled the parts that should reconstruct it. FALSE is not a
+          bad day in the data — it is two published figures disagreeing about the same fact,
+          which is the shape of defect that reaches a client screen looking entirely normal.
+        slo: cross_field_consistency
+        quality_rules:
+          - cross_field_invariant_rate
+      rebuilt_at:
   dq_return_plausibility:
     owner: data-quality
     default_tier: supporting
@@ -374,9 +398,14 @@ tables:
           Owner-prorated total capital committed to a fund, in USD — the denominator of every
           alts ratio and the basis of an unfunded-commitment liability.
         slo: gold_freshness
+        quality_rules:
+          - cross_field_invariant_rate
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          Narrowed by cross_field_invariant_rate (D-073), which asserts that a commitment
+          equals called plus unfunded — the identity whose silent failure was D-072, now a
+          daily signal. What remains uncovered is extraction accuracy: the alts chain is
+          validated document-to-document in silver (commitment continuity, call sequencing,
+          statement chaining) but none of that rolls up into dq_metrics, so
           there is no measured accuracy rate for fund figures the way there is for holdings and
           cash. Closing it needs an alts dimension in the DQ rollup.
       called_to_date_usd:
@@ -385,9 +414,14 @@ tables:
           Owner-prorated cumulative capital called by the fund, in USD, as extracted from
           capital call notices and confirmed by review.
         slo: gold_freshness
+        quality_rules:
+          - cross_field_invariant_rate
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          Narrowed by cross_field_invariant_rate (D-073), which asserts that a commitment
+          equals called plus unfunded — the identity whose silent failure was D-072, now a
+          daily signal. What remains uncovered is extraction accuracy: the alts chain is
+          validated document-to-document in silver (commitment continuity, call sequencing,
+          statement chaining) but none of that rolls up into dq_metrics, so
           there is no measured accuracy rate for fund figures the way there is for holdings and
           cash. Closing it needs an alts dimension in the DQ rollup.
       distributed_to_date_usd:
@@ -407,9 +441,14 @@ tables:
           the client must be able to meet, so understating it is a planning failure, not a
           reporting one.
         slo: gold_freshness
+        quality_rules:
+          - cross_field_invariant_rate
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
+          Narrowed by cross_field_invariant_rate (D-073), which asserts that a commitment
+          equals called plus unfunded — the identity whose silent failure was D-072, now a
+          daily signal. What remains uncovered is extraction accuracy: the alts chain is
+          validated document-to-document in silver (commitment continuity, call sequencing,
+          statement chaining) but none of that rolls up into dq_metrics, so
           there is no measured accuracy rate for fund figures the way there is for holdings and
           cash. Closing it needs an alts dimension in the DQ rollup.
       current_nav_usd:
@@ -508,6 +547,7 @@ tables:
           - files_landed_rate
           - holdings_cross_format_match_rate
           - cash_conformed_consistency_rate
+          - cross_field_invariant_rate
       fx_rate_used:
         tier: critical
         definition: >-
