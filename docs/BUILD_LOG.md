@@ -1130,3 +1130,34 @@ A scan of the rest of the client app for internal vocabulary in rendered strings
 - **The restatement tile's hover text** carries `restatement_detail` verbatim — "60011234: divisor 10000 -> 2000 (D-066)". That *is* internal: an account number, a modelling parameter, and a decision-log reference, on a client-facing surface. It is the same defect class as the line removed here, and it is not a copy tweak to fix — the string is produced in the gold job, so changing what a client sees means either changing the column or translating it in the web layer, and D-071 chose that text precisely for its provenance value. Flagged, not fixed, pending a decision on what a client should see instead.
 
 The same scan's second finding is now also fixed: the restatement tile's hover carried `restatement_detail` verbatim — "60011234: divisor 10000 -> 2000 (D-066)" — putting an account number, a modelling parameter and a decision-log reference on a client screen. The hover is gone, along with the derivation that fed it and the optional `title` prop added for it two commits earlier. The tile's own sentence already carries the meaning a client needs; the full provenance remains in `gold_performance.restatement_detail` and on the internal side, which is where it belongs. The test that asserted the hover's presence now asserts its absence, so the decision is pinned rather than merely done.
+
+## 2026-08-23 — MOIC was measuring the review queue, not the funds (D-072)
+
+A question about the client dashboard — why is every fund at a positive multiple while every client's return is negative? — turned out to have a boring answer and an interesting one.
+
+The boring answer: they are unrelated. MOIC is one fund, alts only, since that fund's 2024 inception, divided by capital *called*. TWR/Dietz/IRR are whole-portfolio, over four months in 2026, divided by portfolio *value*. And the decomposition showed no contradiction anyway — within the window alts **rose** (+2.0% Okafor, +1.6% Reyes) while the listed book fell (−6.4%, −11.7%) and outweighed them. The lazy version of that answer, "alts are a small slice", would have been wrong: alts are 53% of Okafor's wealth and 52% of Reyes'.
+
+The interesting answer: MOIC was wrong, for a reason with nothing to do with the question.
+
+**A ratio built from two different states of the world.** The NAV came from the latest confirmed capital account statement — which reports the fund as it stands and therefore already embeds every call the fund ever made. The denominator summed only the call notices a reviewer had confirmed. Gold's "only confirmed values count" rule was being applied per document type independently, so a fully-loaded numerator sat over a partially-confirmed denominator.
+
+**The tell is that MOIC tracked review progress rather than performance.** The generator calls 60% of commitment over a fund's life. FUND-EU01 had 2 of 4 notices confirmed → 35% called → 1.90×. Every other fund had 1 of 4 → 15% called → 4.13–4.65×. Approving a pending capital call would have pushed MOIC *down*: a fund looking worse because someone did their job.
+
+**And a symptom that had been sitting in gold the whole time:** `called_to_date_usd + unfunded_commitment_usd` never equalled `total_commitment_usd`. Wraithmoor was short by $1,350,000. `unfunded` came from the statement, `called` from the notices, so the two were never required to agree and nothing checked.
+
+Fixed by sourcing every term from the same statement: `called = total_commitment − unfunded_commitment`. Notices remain the source only when no statement is confirmed, where they are the only account of the fund that exists. Distributions are now bounded by the statement's own period end as well — a distribution after the NAV snapshot has not yet been deducted from that carried-forward NAV, and FUND-EU01 was live proof, with a 2025-12-31 statement and a 2026-03-31 distribution being added to it.
+
+**Verified before merge** by pulling the confirmed documents out of the live lakehouse and running both the old and new logic over them. The old path reproduced all four live MOICs to six decimals, which is what makes the new numbers trustworthy rather than merely plausible:
+
+| fund | before | after |
+|---|---:|---:|
+| Alpenrose (FUND-EU01) | 1.900249 | **1.028479** |
+| Meridian (FUND-PE01) | 4.653076 | **1.163269** |
+| Wraithmoor (FUND-PE02) | 4.133076 | **1.033269** |
+| Bramwell (FUND-VC01) | 4.333076 | **1.083269** |
+
+`called + unfunded − commitment` is now exactly 0.00 for every fund. Multiples of ~1.03–1.16× are what funds a couple of years in with modest markups should look like.
+
+No new quality rule was added, deliberately: the obvious one — "called + unfunded must equal commitment" — is now true by construction, and a control that cannot fail is not a control. The useful check is cross-document (statement-derived called versus notice-derived called), which is precisely the register's existing control gap on the alts chain and belongs to that slice.
+
+**No schema change**, so no migration and no exporter change: same column names, same types, correct values. `gold_reports.py` compiles; the governance gate still passes at 324/324 with coverage 59.4%.
