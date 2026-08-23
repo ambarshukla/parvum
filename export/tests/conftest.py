@@ -12,6 +12,7 @@ collide with each other or with real tenant schemas in the dev database.
 """
 
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -35,6 +36,29 @@ _INTERNAL_MIGRATIONS = (
 )
 
 
+# Flyway orders migrations by parsed version *number*; a plain filename sort
+# does not. They agree only while every version is a single digit, which is
+# why this went unnoticed through V1-V9 and broke the moment V10 arrived:
+# lexicographically "V10" sorts directly after "V1", so V10's ALTER ran before
+# V3 had created the table it alters. Applying the same files in a different
+# order than Flyway would is exactly the divergence these fixtures exist to
+# rule out, so parse the version the way Flyway does.
+_VERSION = re.compile(r"^V(\d+)__")
+
+
+def _flyway_order(migrations: list[Path]) -> list[Path]:
+    def version(path: Path) -> int:
+        match = _VERSION.match(path.name)
+        if match is None:
+            raise AssertionError(
+                f"{path.name} is not a Flyway-versioned migration (expected V<n>__name.sql) "
+                f"— this fixture cannot order it the way Flyway would"
+            )
+        return int(match.group(1))
+
+    return sorted(migrations, key=version)
+
+
 @pytest.fixture(scope="session")
 def connection():
     try:
@@ -54,7 +78,7 @@ def tenant_schemas(connection):
     """Two migrated throwaway schemas, dropped afterwards even on failure."""
     suffix = uuid.uuid4().hex[:8]
     schemas = (f"t_export_a_{suffix}", f"t_export_b_{suffix}")
-    migrations = sorted(_MIGRATIONS.glob("V*.sql"))
+    migrations = _flyway_order(list(_MIGRATIONS.glob("V*.sql")))
     assert migrations, f"no Flyway migrations found under {_MIGRATIONS}"
     for schema in schemas:
         with connection.transaction():
@@ -79,7 +103,7 @@ def internal_schema(connection):
     with a real running serving instance.
     """
     schema = f"i_export_{uuid.uuid4().hex[:8]}"
-    migrations = sorted(_INTERNAL_MIGRATIONS.glob("V*.sql"))
+    migrations = _flyway_order(list(_INTERNAL_MIGRATIONS.glob("V*.sql")))
     assert migrations, f"no Flyway migrations found under {_INTERNAL_MIGRATIONS}"
     with connection.transaction():
         connection.execute(f'CREATE SCHEMA "{schema}"')

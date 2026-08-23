@@ -63,6 +63,8 @@ export interface PerformanceRow {
     clientName: string;
     totalWealthUsd: number;
     externalFlowUsd: number;
+    restatementAdjustmentUsd: number;
+    restatementDetail: string | null;
     dailyTwrReturn: number | null;
     twrIndexSinceInception: number;
 }
@@ -75,6 +77,7 @@ export interface PerformanceSummaryRow {
     wealthBeginUsd: number;
     wealthEndUsd: number;
     netExternalFlowUsd: number;
+    restatementAdjustmentUsd: number;
     twrSinceInception: number;
     dietzSinceInception: number | null;
     irrSinceInceptionAnnualized: number | null;

@@ -37,6 +37,15 @@ export function ClientDashboard({ data, client, dark }: Props) {
         .filter((r) => r.clientId === client.clientId)
         .sort((a, b) => a.asOf.localeCompare(b.asOf));
     const performanceSummary = data.performanceSummary.find((r) => r.clientId === client.clientId);
+    // The summary carries the total adjustment but not what caused it; the
+    // daily series is where each restatement names its account, divisors and
+    // decision. Joined here so the disclosure tile can explain itself on hover
+    // rather than being a number with no provenance.
+    const restatementDetail =
+        performance
+            .filter((r) => r.restatementDetail !== null)
+            .map((r) => `${longDate(r.asOf)} — ${r.restatementDetail}`)
+            .join(" · ") || null;
     const altsHoldings = data.altsHoldings
         .filter((r) => r.clientId === client.clientId)
         .sort((a, b) => a.fundName.localeCompare(b.fundName));
@@ -345,6 +354,14 @@ export function ClientDashboard({ data, client, dark }: Props) {
                                     value={money(performanceSummary.netExternalFlowUsd)}
                                     sub={`${money(performanceSummary.wealthBeginUsd)} → ${money(performanceSummary.wealthEndUsd)}`}
                                 />
+                                {performanceSummary.restatementAdjustmentUsd !== 0 && (
+                                    <Tile
+                                        label="Book restatement"
+                                        value={money(performanceSummary.restatementAdjustmentUsd)}
+                                        sub="Change of scale, not performance — excluded from all three returns"
+                                        title={restatementDetail ?? undefined}
+                                    />
+                                )}
                             </div>
                         )}
                     </div>
@@ -426,14 +443,16 @@ function Tile({
     value,
     sub,
     hero,
+    title,
 }: {
     label: string;
     value: string;
     sub?: string;
     hero?: boolean;
+    title?: string;
 }) {
     return (
-        <div className="card tile">
+        <div className="card tile" title={title}>
             <div className="label">{label}</div>
             <div className={`value ${hero ? "hero" : ""}`}>{value}</div>
             {sub && <div className="asof">{sub}</div>}
