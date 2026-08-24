@@ -1076,7 +1076,174 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## Feeding the plausibility check back into `dq_metrics`
+# MAGIC %md ## `dq_cross_field_invariants` — quantities that must add up
+# MAGIC
+# MAGIC Every check above validates a number against **its own** source: a
+# MAGIC position against the other feed's copy of it, a cash balance against its
+# MAGIC own movements, a return against a plausibility bound. None of them ask
+# MAGIC whether two numbers that sit side by side on the same screen are telling
+# MAGIC the same story.
+# MAGIC
+# MAGIC That is the gap D-072 fell through. MOIC's numerator came from a
+# MAGIC confirmed statement and its denominator from a different document type
+# MAGIC with different confirmation semantics, and the arithmetic was flawless
+# MAGIC the whole time. Nothing could have failed, because nothing compared the
+# MAGIC two. The symptom was in plain sight for weeks —
+# MAGIC `called_to_date_usd + unfunded_commitment_usd` never equalled
+# MAGIC `total_commitment_usd` — but nobody adds three adjacent columns unless
+# MAGIC they already suspect something.
+# MAGIC
+# MAGIC So this cell asserts the additions. Each invariant names an aggregate
+# MAGIC and the parts that must reconstruct it, and every row records both
+# MAGIC sides, the gap, and the tolerance in force. Adding a new one later is
+# MAGIC one more `SELECT` in the `UNION ALL`, never a schema change — the same
+# MAGIC declarative shape `dq_metrics` uses.
+# MAGIC
+# MAGIC **These are cheap and they generalise.** No understanding of the
+# MAGIC underlying cause is required to write one: you do not need to know that
+# MAGIC two document types confirm independently, only that a commitment splits
+# MAGIC into called and unfunded. A check that catches a bug whose mechanism you
+# MAGIC have not thought of yet is worth more than one that re-tests a mechanism
+# MAGIC you already understand.
+# MAGIC
+# MAGIC **Tolerances are per-invariant and deliberate.** Money is compared to
+# MAGIC the cent, because every figure here is already rounded to cents and a
+# MAGIC larger tolerance would hide a real break. Weights and ownership
+# MAGIC fractions carry a small epsilon instead: they are divisions, and a sum
+# MAGIC of rounded fractions is not obliged to land on exactly 1.
+# MAGIC
+# MAGIC Two of these are near-tautological *in native units* and are kept
+# MAGIC anyway, because the columns they check are neither native nor unrounded:
+# MAGIC `alts_commitment_splits` and `position_owner_proration_sums` both run
+# MAGIC over figures that have been currency-converted, owner-prorated and
+# MAGIC rounded to two decimals independently of one another. That is precisely
+# MAGIC where a silent cent-level drift would appear.
+
+# COMMAND ----------
+
+# Money to the cent; fractions get an epsilon, since a sum of rounded
+# divisions has no obligation to land exactly on 1.
+_MONEY_TOLERANCE = "0.01"
+_FRACTION_TOLERANCE = "0.000001"
+_WEIGHT_TOLERANCE = "0.0001"
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_cross_field_invariants
+    COMMENT 'Cross-field consistency: one row per (date, invariant, scope) asserting that an aggregate equals the parts that should reconstruct it. Catches the class of defect where each figure is individually correct but two of them disagree about what happened -- the shape of D-072, which no single-source check could have found.'
+    AS
+    WITH wealth_dates AS (
+        SELECT MAX(as_of) AS latest FROM {SCHEMA}.gold_client_wealth
+    ),
+    wealth_components AS (
+        -- The headline number is the sum of its three published parts, or one
+        -- of the four columns is lying about the others.
+        SELECT as_of, 'wealth_components_sum' AS invariant, client_id AS scope,
+               CAST(total_wealth_usd AS DECIMAL(24,6)) AS expected,
+               CAST(positions_usd + cash_usd + alts_usd AS DECIMAL(24,6)) AS actual,
+               CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.gold_client_wealth
+    ),
+    ownership_totals AS (
+        -- Closes the control gap the register has carried against
+        -- ownership_pct since D-067: the graph proves itself fully allocated
+        -- at build time, and a unit test holds a shared account to 100%, but
+        -- neither assertion ever reached dq_metrics. Now it does, daily.
+        SELECT (SELECT latest FROM wealth_dates) AS as_of,
+               'account_ownership_totals_one' AS invariant, account_id AS scope,
+               CAST(1 AS DECIMAL(24,6)) AS expected,
+               CAST(SUM(ownership_pct) AS DECIMAL(24,6)) AS actual,
+               CAST({_FRACTION_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.silver_account_owners
+        GROUP BY account_id
+    ),
+    proration_sums AS (
+        -- Every owner's slice of a position must reassemble into the whole
+        -- position. This is where a rounding drift in the proration would
+        -- surface -- the figures are prorated and rounded independently.
+        SELECT o.as_of, 'position_owner_proration_sums' AS invariant,
+               CONCAT_WS('|', o.account_id, o.security_id) AS scope,
+               CAST(MAX(p.market_value) AS DECIMAL(24,6)) AS expected,
+               CAST(SUM(o.owned_value) AS DECIMAL(24,6)) AS actual,
+               CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.silver_position_owners o
+        JOIN {SCHEMA}.silver_positions p
+          ON p.as_of = o.as_of AND p.account_id = o.account_id
+         AND p.security_id = o.security_id
+        GROUP BY o.as_of, o.account_id, o.security_id
+    ),
+    allocation_weights AS (
+        SELECT as_of, 'allocation_weights_sum_one' AS invariant, client_id AS scope,
+               CAST(1 AS DECIMAL(24,6)) AS expected,
+               CAST(SUM(weight) AS DECIMAL(24,6)) AS actual,
+               CAST({_WEIGHT_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.gold_asset_allocation
+        GROUP BY as_of, client_id
+    ),
+    allocation_values AS (
+        -- Allocation carries Cash as an asset class, so it reconstructs the
+        -- whole wealth figure rather than just the invested part.
+        SELECT a.as_of, 'allocation_value_matches_wealth' AS invariant,
+               a.client_id AS scope,
+               CAST(MAX(w.total_wealth_usd) AS DECIMAL(24,6)) AS expected,
+               CAST(SUM(a.value_usd) AS DECIMAL(24,6)) AS actual,
+               CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.gold_asset_allocation a
+        JOIN {SCHEMA}.gold_client_wealth w USING (as_of, client_id)
+        GROUP BY a.as_of, a.client_id
+    ),
+    alts_commitment AS (
+        -- The invariant that would have caught D-072 weeks earlier, with no
+        -- understanding of its cause required.
+        -- Dated at the latest business day, not the statement's period end:
+        -- this is a latest-state table, and the assertion is about what this
+        -- rebuild published, so it belongs on the same day as the rest.
+        SELECT (SELECT latest FROM wealth_dates) AS as_of,
+               'alts_commitment_splits' AS invariant,
+               CONCAT_WS('|', client_id, fund_id) AS scope,
+               CAST(total_commitment_usd AS DECIMAL(24,6)) AS expected,
+               CAST(called_to_date_usd + unfunded_commitment_usd AS DECIMAL(24,6)) AS actual,
+               CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.gold_alts_holdings
+    ),
+    reconcile_variance AS (
+        -- The badge on the dashboard says "N accounts, $X". The drill-down
+        -- lists those accounts. They have to agree.
+        SELECT w.as_of, 'reconcile_variance_matches_exceptions' AS invariant,
+               w.client_id AS scope,
+               CAST(MAX(w.reconcile_variance_usd) AS DECIMAL(24,6)) AS expected,
+               CAST(COALESCE(SUM(ABS(e.delta_usd)), 0) AS DECIMAL(24,6)) AS actual,
+               CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
+        FROM {SCHEMA}.gold_client_wealth w
+        LEFT JOIN {SCHEMA}.gold_reconciliation_exceptions e
+               ON e.client_id = w.client_id AND e.as_of = w.as_of
+        WHERE w.as_of = (SELECT latest FROM wealth_dates)
+        GROUP BY w.as_of, w.client_id
+    ),
+    unioned AS (
+        SELECT * FROM wealth_components
+        UNION ALL SELECT * FROM ownership_totals
+        UNION ALL SELECT * FROM proration_sums
+        UNION ALL SELECT * FROM allocation_weights
+        UNION ALL SELECT * FROM allocation_values
+        UNION ALL SELECT * FROM alts_commitment
+        UNION ALL SELECT * FROM reconcile_variance
+    )
+    SELECT
+        as_of,
+        invariant,
+        scope,
+        expected,
+        actual,
+        CAST(actual - expected AS DECIMAL(24,6)) AS delta,
+        tolerance,
+        ABS(actual - expected) <= tolerance AS holds,
+        current_timestamp()                   AS rebuilt_at
+    FROM unioned"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ## Feeding both gold-side checks back into `dq_metrics`
 # MAGIC
 # MAGIC `dq_metrics` is built in `dq_recon`, which runs *before* this job — so a
 # MAGIC metric derived from gold cannot be computed there without reading the
@@ -1091,11 +1258,16 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-_PLAUSIBILITY_METRICS = ("daily_return_plausibility_rate", "return_plausibility_breaks_count")
+_GOLD_SIDE_METRICS = (
+    "daily_return_plausibility_rate",
+    "return_plausibility_breaks_count",
+    "cross_field_invariant_rate",
+    "cross_field_invariant_breaks_count",
+)
 
 spark.sql(  # noqa: F821
     f"""DELETE FROM {SCHEMA}.dq_metrics
-    WHERE metric IN {_PLAUSIBILITY_METRICS}"""
+    WHERE metric IN {_GOLD_SIDE_METRICS}"""
 )
 
 spark.sql(  # noqa: F821
@@ -1120,6 +1292,43 @@ spark.sql(  # noqa: F821
            CAST(breaks AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
            CONCAT(CAST(breaks AS STRING),
                   ' client-days moved implausibly with no declared restatement') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts"""
+)
+
+# The rate counts *invariants*, not invariant rows, on purpose. Row-weighting
+# would let position_owner_proration_sums -- an order of magnitude more rows
+# than everything else combined -- swallow a total failure of any other
+# invariant without visibly moving the number. "7 of 7 held" is a KPI; "10,807
+# of 10,808 rows held" is a shrug.
+spark.sql(  # noqa: F821
+    f"""INSERT INTO {SCHEMA}.dq_metrics
+    WITH per_invariant AS (
+        SELECT as_of, invariant,
+               SUM(CASE WHEN holds = FALSE THEN 1 ELSE 0 END) AS breaking_rows
+        FROM {SCHEMA}.dq_cross_field_invariants
+        GROUP BY as_of, invariant
+    ),
+    counts AS (
+        SELECT as_of,
+               COUNT(*) AS checked,
+               SUM(CASE WHEN breaking_rows = 0 THEN 1 ELSE 0 END) AS ok,
+               SUM(breaking_rows) AS breaking_rows
+        FROM per_invariant
+        GROUP BY as_of
+    )
+    SELECT as_of, 'accuracy' AS dimension, 'cross_field_invariant_rate' AS metric,
+           CAST(ok / NULLIF(checked, 0) AS DECIMAL(14,6)) AS value,
+           ok = checked AS passed,
+           CONCAT(CAST(ok AS STRING), ' of ', CAST(checked AS STRING),
+                  ' cross-field invariants held') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts
+    UNION ALL
+    SELECT as_of, 'exceptions' AS dimension, 'cross_field_invariant_breaks_count' AS metric,
+           CAST(breaking_rows AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+           CONCAT(CAST(breaking_rows AS STRING),
+                  ' rows where an aggregate did not equal its parts') AS detail,
            current_timestamp() AS rebuilt_at
     FROM counts"""
 )
@@ -1292,6 +1501,17 @@ COLUMN_COMMENTS = {
         "twr_since_inception": "Time-weighted return over the window: gold_performance's chained index minus 1. Not annualized (GIPS convention for sub-annual periods)",
         "dietz_since_inception": "Modified Dietz return over the same window: (end − begin − net flow − restatement adjustment) / (begin + day-weighted flow + day-weighted restatement). Not annualized; tracks TWR closely when flows are small relative to wealth",
         "irr_since_inception_annualized": "Money-weighted return (XIRR) over the same cash flows, solved by bisection and reported ANNUALIZED (the standard IRR convention) — diverges from the two return-based figures above on a short period by construction, not by error. NULL when no root exists in [-99.99%, +1000%]",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
+    "dq_cross_field_invariants": {
+        "as_of": "The date this assertion pertains to. Grain: one row per (date, invariant, scope). Latest-state tables (ownership, alts, reconciliation exceptions) are dated at the most recent business day rather than at a period end, so every row lands on the daily series",
+        "invariant": "Which identity is being asserted, e.g. wealth_components_sum or alts_commitment_splits",
+        "scope": "What is being checked — a client, an account, or a pipe-joined compound key such as account|security",
+        "expected": "The aggregate the parts should reconstruct (the headline figure, or 1 for a fraction)",
+        "actual": "What the parts actually sum to",
+        "delta": "actual − expected; 0 means the figures agree",
+        "tolerance": "The gap allowed for this invariant before it counts as broken — a cent for money, a small epsilon for sums of rounded fractions",
+        "holds": "TRUE when ABS(delta) is within tolerance. FALSE means two published figures disagree about the same fact, which is a wrong number rather than a bad day",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "dq_return_plausibility": {
