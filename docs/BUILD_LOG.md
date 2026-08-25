@@ -1209,3 +1209,13 @@ The only non-zero delta is a sum of rounded allocation weights, one millionth of
 **No regressions across the week's fixes.** `gold_performance_summary` still carries Hartwell's $178,175,109.88 restatement adjustment with TWR −4.167%; all five MOICs hold at 1.03–1.16×; `dq_return_plausibility` reports 0 breaks; all five `dq_metrics` dimensions intact (accuracy 453, completeness 91, exceptions 453, freshness 1, governance 4). Hartwell's IRR moved from −10.54% to −9.55% purely because a new feed day extended the annualisation window — arithmetic, not drift.
 
 **Operational note:** `make run-job` now runs past the ten-minute mark, so the CLI wait can be killed while the Databricks job continues unaffected. The two are not coupled; read the run state from `/api/2.1/jobs/runs/get` rather than inferring failure from a dead CLI. And when polling that endpoint, parse the run-level `state` object — a `grep` for `TERMINATED` matches the first *task* that finished and reports success several minutes early.
+
+## 2026-08-25 — Four metrics reached production without names
+
+The Ops page renders each DQ metric through a curated label map, falling back to the raw identifier. `dq_metrics` is deliberately open — adding a check means adding one more `SELECT` to a `UNION ALL` — and nothing connects that to naming the result. So D-070's two metrics and D-073's two shipped to production shouting `CROSS_FIELD_INVARIANT_RATE` and `DAILY_RETURN_PLAUSIBILITY_RATE` beside neighbours reading "Cash consistency" and "Cross-format match".
+
+It went unnoticed for a week for a specific reason worth recording: `/internal/**` returns 403 to an unauthenticated probe because `InternalAuthFilter` pre-matches, so every verification of these slices was done against the lakehouse and the API, never against the rendered page. The data was right every time. The page was not, and nothing that could be checked without a password would have said so.
+
+Named all four, and changed the fallback: an unknown metric is now humanised (underscores to spaces, first letter capitalised) rather than rendered raw. Explicit entries stay preferred — `holdings_cross_format_match_rate` humanises to "Holdings cross format match rate" and is curated to "Cross-format match", which is the whole reason the map exists — but the next unnamed metric will look like a blemish instead of a seam.
+
+`internal` 18/18 (4 new, including one asserting no label ever renders an underscore), typecheck, prettier and build clean.
