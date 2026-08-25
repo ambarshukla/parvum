@@ -128,6 +128,59 @@ describe("OpsPage", () => {
         ).toBeInTheDocument();
     });
 
+    it("collapses columns that share one written gap into a single row", () => {
+        // Gaps are written per column but caused per root. In production four
+        // of five share one alts paragraph word for word, and repeating it
+        // four times reads as a copy-paste glitch rather than one problem with
+        // four symptoms.
+        const shared = "The alts chain is validated document-to-document but never rolls up.";
+        const grouped: CdeRegistryRow[] = [
+            ...registry,
+            {
+                tableName: "gold_alts_holdings",
+                columnName: "moic",
+                layer: "gold",
+                description: "Multiple on invested capital",
+                tier: "critical",
+                owner: "alts-operations",
+                definition: "Distributions plus NAV over called.",
+                qualityRules: "",
+                qualityRuleCount: 0,
+                controlGap: shared,
+                slo: "gold_freshness",
+                sloMeasuredBy: "bronze_days_behind",
+                sloTarget: "no more than 2 days behind",
+            },
+            {
+                tableName: "gold_alts_holdings",
+                columnName: "current_nav_usd",
+                layer: "gold",
+                description: "Current NAV",
+                tier: "critical",
+                owner: "alts-operations",
+                definition: "The fund's latest confirmed NAV.",
+                qualityRules: "",
+                qualityRuleCount: 0,
+                controlGap: shared,
+                slo: "gold_freshness",
+                sloMeasuredBy: "bronze_days_behind",
+                sloTarget: "no more than 2 days behind",
+            },
+        ];
+
+        render(<OpsPage rows={[...rows, ...governanceRows]} registry={grouped} dark={false} />);
+
+        // Three gapped columns, but only two distinct causes.
+        expect(
+            screen.getByText("Critical elements with no automated control (3)"),
+        ).toBeInTheDocument();
+        // The shared statement is written once, not once per column.
+        expect(screen.getAllByText(shared)).toHaveLength(1);
+        // And both columns it covers are still named.
+        expect(screen.getByText("gold_alts_holdings.moic")).toBeInTheDocument();
+        expect(screen.getByText("gold_alts_holdings.current_nav_usd")).toBeInTheDocument();
+    });
+
     it("hides the governance section entirely when the dimension has no rows", () => {
         // A pipeline whose gold job predates D-068 still renders the rest.
         render(<OpsPage rows={rows} registry={registry} dark={false} />);

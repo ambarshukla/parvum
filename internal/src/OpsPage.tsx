@@ -28,6 +28,28 @@ export function OpsPage({ rows, registry, dark }: Props) {
         .sort((a, b) =>
             `${a.tableName}.${a.columnName}`.localeCompare(`${b.tableName}.${b.columnName}`),
         );
+    // Gaps are written per column but caused per root. Four of the five below
+    // share one alts paragraph word for word, and repeating it four times
+    // reads as a glitch rather than as one problem with four symptoms. Group
+    // on the statement itself: same words, same cause.
+    const gapGroups = [
+        ...gaps
+            .reduce((acc, r) => {
+                const existing = acc.get(r.controlGap!);
+                if (existing) {
+                    existing.elements.push(r);
+                    if (!existing.owners.includes(r.owner!)) existing.owners.push(r.owner!);
+                } else {
+                    acc.set(r.controlGap!, {
+                        controlGap: r.controlGap!,
+                        owners: [r.owner!],
+                        elements: [r],
+                    });
+                }
+                return acc;
+            }, new Map<string, { controlGap: string; owners: string[]; elements: typeof gaps }>())
+            .values(),
+    ];
 
     if (rows.length === 0) {
         return <div className="center-state">No DQ metrics recorded yet.</div>;
@@ -113,21 +135,25 @@ export function OpsPage({ rows, registry, dark }: Props) {
                             <table className="data">
                                 <thead>
                                     <tr>
-                                        <th>Element</th>
+                                        <th>Element{gaps.length > gapGroups.length ? "s" : ""}</th>
                                         <th>Owner</th>
                                         <th>What is missing</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {gaps.map((r) => (
-                                        <tr key={`${r.tableName}.${r.columnName}`}>
+                                    {gapGroups.map((g) => (
+                                        <tr key={g.controlGap}>
                                             <td>
-                                                <code>
-                                                    {r.tableName}.{r.columnName}
-                                                </code>
+                                                {g.elements.map((r) => (
+                                                    <div key={`${r.tableName}.${r.columnName}`}>
+                                                        <code>
+                                                            {r.tableName}.{r.columnName}
+                                                        </code>
+                                                    </div>
+                                                ))}
                                             </td>
-                                            <td>{r.owner}</td>
-                                            <td>{r.controlGap}</td>
+                                            <td>{g.owners.join(", ")}</td>
+                                            <td>{g.controlGap}</td>
                                         </tr>
                                     ))}
                                 </tbody>
