@@ -1219,3 +1219,13 @@ It went unnoticed for a week for a specific reason worth recording: `/internal/*
 Named all four, and changed the fallback: an unknown metric is now humanised (underscores to spaces, first letter capitalised) rather than rendered raw. Explicit entries stay preferred — `holdings_cross_format_match_rate` humanises to "Holdings cross format match rate" and is curated to "Cross-format match", which is the whole reason the map exists — but the next unnamed metric will look like a blemish instead of a seam.
 
 `internal` 18/18 (4 new, including one asserting no label ever renders an underscore), typecheck, prettier and build clean.
+
+## 2026-08-25 — The gap list reads as one problem, not four copies
+
+The Ops page's work list — critical elements with no automated control — printed one row per column, and four of the five carried the same alts paragraph word for word. Accurate, since those four columns genuinely share one root cause, but it read as a copy-paste glitch on the one table a reader is most likely to actually read.
+
+Grouped on the written statement itself: same words, same cause. The five columns now render as two rows — one naming the four alts columns together with the single paragraph that explains all of them, one for the FX rate. The heading still counts columns (`(5)`), because the number of uncovered *elements* is the governance fact; how many distinct causes they collapse into is presentation.
+
+A test pins it: three gapped columns sharing two causes must render the shared statement exactly once while still naming every column it covers.
+
+`internal` 19/19, typecheck, prettier and build clean.
