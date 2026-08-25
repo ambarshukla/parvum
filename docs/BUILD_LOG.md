@@ -1183,3 +1183,29 @@ The defence that worked, worth reusing: for every citation, ask *which specific 
 **Verified before merge** by running the table's own SQL against the live lakehouse: **11,033 rows, 7 invariants, 0 breaks**, worst delta 0.000001 and inside its stated epsilon. Every candidate was probed against live data before being written, which is how one got corrected during design — `allocation_value_matches_wealth` was first drafted against `positions + alts` and failed on all 270 rows, because allocation carries Cash as an asset class and reconstructs total wealth instead. The probe was wrong, not the data.
 
 Checks: ingest 118, reference 40 (+1 skip), export 50, alts-hitl 65, governance 47; ruff clean on all five; gate PASS at 333/333 classified.
+
+## 2026-08-24 — D-073 verified live, and the governance tile turns green
+
+`make land-registry` (333 records, up from 324) then `make run-job` — all five tasks SUCCESS. Every prediction recorded before the run matched.
+
+**`dq_cross_field_invariants`: 11,155 rows across 7 invariants, 0 breaks.**
+
+| invariant | rows | breaks | worst delta |
+|---|---:|---:|---:|
+| `account_ownership_totals_one` | 5 | 0 | 0.000000 |
+| `allocation_value_matches_wealth` | 273 | 0 | 0.000000 |
+| `allocation_weights_sum_one` | 273 | 0 | 0.000001 |
+| `alts_commitment_splits` | 5 | 0 | 0.000000 |
+| `position_owner_proration_sums` | 10,323 | 0 | 0.000000 |
+| `reconcile_variance_matches_exceptions` | 3 | 0 | 0.000000 |
+| `wealth_components_sum` | 273 | 0 | 0.000000 |
+
+The only non-zero delta is a sum of rounded allocation weights, one millionth off 1 and inside its stated epsilon — which is exactly why fractions carry an epsilon and money does not.
+
+`cross_field_invariant_rate` is 1.000000 and passing on all 91 days; `cross_field_invariant_breaks_count` is 0 on all 91. No `(as_of, metric)` pair appears twice, so the `DELETE`-then-`INSERT` guard still holds now that it covers four metric names rather than two.
+
+**The governance tile is green for the first time.** `critical_control_coverage_rate` reads **0.848485, `passed = true`** — "28 of 33 critical elements have a quality rule; target 80%". It has shipped red since D-068 at 35.7%. The target was set when the estate delivered 35.7%, deliberately as a figure that would fail, and has not been touched since; what moved was the estate. `columns_classified_rate` 1.000000 over 333 columns, `critical_element_count` 33, `control_gap_count` **5** — down from 18 at D-067, and every one of the five is a gap this session declined to paper over.
+
+**No regressions across the week's fixes.** `gold_performance_summary` still carries Hartwell's $178,175,109.88 restatement adjustment with TWR −4.167%; all five MOICs hold at 1.03–1.16×; `dq_return_plausibility` reports 0 breaks; all five `dq_metrics` dimensions intact (accuracy 453, completeness 91, exceptions 453, freshness 1, governance 4). Hartwell's IRR moved from −10.54% to −9.55% purely because a new feed day extended the annualisation window — arithmetic, not drift.
+
+**Operational note:** `make run-job` now runs past the ten-minute mark, so the CLI wait can be killed while the Databricks job continues unaffected. The two are not coupled; read the run state from `/api/2.1/jobs/runs/get` rather than inferring failure from a dead CLI. And when polling that endpoint, parse the run-level `state` object — a `grep` for `TERMINATED` matches the first *task* that finished and reports success several minutes early.
