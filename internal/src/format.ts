@@ -58,9 +58,30 @@ const DQ_METRIC_LABELS: Record<string, string> = {
     critical_control_coverage_rate: "Critical elements tested",
     critical_element_count: "Critical elements",
     control_gap_count: "Stated control gaps",
+    daily_return_plausibility_rate: "Return plausibility",
+    return_plausibility_breaks_count: "Plausibility breaks",
+    cross_field_invariant_rate: "Cross-field invariants",
+    cross_field_invariant_breaks_count: "Invariant breaks",
 };
 
-/** A dq_metrics `metric` identifier → its display label. */
+/** A dq_metrics `metric` identifier → its display label.
+ *
+ * `dq_metrics` is deliberately open: adding a check means adding one more
+ * `SELECT` to a `UNION ALL`, with nothing forcing anyone to come here and
+ * name it. That is a good property for the pipeline and a bad one for this
+ * page, and it has already bitten twice — the D-070 and D-073 metrics both
+ * shipped to production shouting `CROSS_FIELD_INVARIANT_RATE` at a reader
+ * beside neighbours reading "Cash consistency".
+ *
+ * So the fallback humanises rather than surrendering. An unnamed metric still
+ * reads as a phrase, which makes forgetting a label a cosmetic blemish
+ * instead of a visible seam. Explicit entries above remain preferred: they
+ * are what let "holdings_cross_format_match_rate" read as "Cross-format
+ * match" rather than "Holdings cross format match rate".
+ */
 export function dqMetricLabel(metric: string): string {
-    return DQ_METRIC_LABELS[metric] ?? metric;
+    const known = DQ_METRIC_LABELS[metric];
+    if (known) return known;
+    const humanised = metric.replace(/_/g, " ").trim();
+    return humanised.charAt(0).toUpperCase() + humanised.slice(1);
 }
