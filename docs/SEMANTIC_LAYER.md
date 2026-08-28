@@ -46,11 +46,17 @@ ORDER  BY aum DESC;
 ## It is lineage-tracked
 
 Unity Catalog treats the metric view like any other object. `gold_client_wealth`
-shows it downstream, alongside the Genie space that reads it, and the silver
-tables the gold table is built from upstream — the semantic layer is inside the
-lineage graph, not bolted onto its edge.
+shows it downstream — with its nine columns — alongside `dq_cross_field_invariants`,
+`gold_performance`, and the consumers that read it; the silver tables the gold
+table is built from sit upstream. The semantic layer is inside the lineage
+graph, not bolted onto its edge.
 
-![Lineage view of gold_client_wealth showing the metric view and Genie agent downstream, silver tables upstream](img/metric-view-lineage.png)
+![Visual lineage graph for gold_client_wealth: silver tables upstream, the wealth_metrics metric view and downstream tables/consumers on the right](img/lineage-graph.png)
+
+The table view names the Genie space as its own object type ("Genie Agent"),
+downstream of the metric view it reads:
+
+![Lineage table for gold_client_wealth listing the metric view and Genie agent as downstream assets](img/metric-view-lineage.png)
 
 ## AI/BI Genie over the layer
 
@@ -60,6 +66,12 @@ aggregation the model reinvented — and the answer cites the metric view as its
 source.
 
 ![Genie answering "total wealth by client for the latest date" with a bar chart, citing the metric view as source](img/genie-total-wealth.png)
+
+"Show code" on that answer confirms it: the generated SQL calls `MEASURE()` on
+the "Total wealth" measure of `workspace.parvum.wealth_metrics` — the governed
+measure, not a `SUM` the model wrote itself.
+
+![The SQL Genie generated for the answer, using MEASURE(`Total wealth`) against the wealth_metrics view](img/genie-generated-sql.png)
 
 The next question crosses from the headline number into the data-quality
 columns on the same view — one vocabulary for both.
