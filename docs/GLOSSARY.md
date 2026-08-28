@@ -69,6 +69,11 @@ magic — every term gets defined here on first use.
 - **Maven wrapper (`mvnw`)** — a committed script that downloads the pinned Maven version before building, so the build never depends on what happens to be installed.
 - **Spotless / google-java-format** — build-enforced Java formatting (ruff format's role on the Python side): `verify` fails on violations, `spotless:apply` fixes them.
 - **SQL Statements API** — Databricks' REST endpoint for running SQL on a warehouse and getting results back as JSON; how anything outside the workspace (the freshness gate, the exporter) reads lakehouse tables.
+- **Semantic layer** — a place where business measures ("total wealth", "net flow") are defined once, above the physical tables, so SQL, BI, and AI assistants resolve a term the same way instead of each re-expressing it. Here: a Unity Catalog metric view (`spark/metric_views/`, `docs/SEMANTIC_LAYER.md`).
+- **Metric view (Unity Catalog)** — a catalog object defined by a YAML spec of *dimensions* and *measures* over a source table; stores no data, is lineage-tracked and comment-carrying like a table. The Databricks-native semantic layer.
+- **Measure vs. dimension** — a *measure* is an aggregation (`SUM(total_wealth_usd)`); a *dimension* is something you group or filter by (client, date). A metric view fixes the measure so a consumer only chooses the grain.
+- **`MEASURE()`** — the SQL function that references a metric view's measure: the view supplies the aggregation, the query supplies the `GROUP BY`.
+- **AI/BI Genie** — Databricks' natural-language query surface: a curated "space" of tables or metric views that a person questions in plain language, getting SQL-backed answers with cited sources. Distinct from *Genie Code*, the in-product coding assistant.
 - **Service container (GitHub Actions)** — a Docker container the runner starts next to a CI job (here: Postgres 16 for the exporter's loader tests), the CI stand-in for the local docker-compose database.
 - **RDS / db.t4g.micro** — AWS managed Postgres; t4g.micro is the smallest ARM instance class (~£10/mo).
 - **AWS App Runner** — AWS's original PaaS-style "point it at a container image" service; closed to new customers 2026-04-30 (maintenance mode). Named in D-005; superseded by ECS Express Mode for this project (D-035).
