@@ -132,6 +132,14 @@ land-restatements: publish-restatements ## upload the book-restatement register 
 	databricks fs mkdir dbfs:/Volumes/workspace/parvum/landing/reference
 	databricks fs cp data/reference/book_restatements.json dbfs:/Volumes/workspace/parvum/landing/reference/book_restatements.json --overwrite
 
+# The semantic layer (docs/SEMANTIC_LAYER.md). Metric views are Unity Catalog
+# objects, not Delta tables, so the bronze -> gold job does not build them —
+# this applies the checked-in definitions on their own, via the SQL Statements
+# API. Not deployed by CI (needs live warehouse creds), like the land-* targets.
+metric-views: ## (re)create the Unity Catalog metric views from spark/metric_views/*.sql (needs DATABRICKS_HOST)
+	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
+	python spark/metric_views/apply.py
+
 # The Java side has its own toolchain: the Maven wrapper (mvnw) downloads the
 # pinned Maven, so only a JDK 21 on PATH/JAVA_HOME is assumed. Tests boot the
 # app against a throwaway Postgres container — Docker must be running.

@@ -1229,3 +1229,41 @@ Grouped on the written statement itself: same words, same cause. The five column
 A test pins it: three gapped columns sharing two causes must render the shared statement exactly once while still naming every column it covers.
 
 `internal` 19/19, typecheck, prettier and build clean.
+
+## 2026-08-28 — A governed semantic layer, and a Genie space that reads it
+
+Gold has always handed every consumer the same tables and left them to
+re-derive the same definitions. "Total wealth" is `SUM(total_wealth_usd)` at
+the right grain, written out by hand in the dashboard, the exporter, and every
+ad-hoc query — agreeing only by luck. The CDE register governs the columns;
+nothing governed the measures.
+
+Added `workspace.parvum.wealth_metrics`, a Unity Catalog **metric view**: six
+measures and three dimensions over `gold_client_wealth`, each carrying a
+`COMMENT` that is the business definition rather than the catalog description.
+The definition is in the repo at `spark/metric_views/wealth_metrics.sql` and
+applied with `make metric-views` (`apply.py` posts it through the SQL
+Statements API) — a metric view is a catalog object, not a Delta table, so the
+bronze → gold job does not build it and it is versioned on its own. Not wired
+into CI: it needs live warehouse credentials, like the `land-*` targets.
+
+An AI/BI **Genie space** ("Client Wealth Analytics") is pointed at the metric
+view. Plain-language questions resolve to the governed measure — not an
+aggregation the model reinvented — and answers cite the view as their source.
+
+Verified live on the Free Edition workspace: `MEASURE()` on "Total wealth"
+returns Hartwell $221,164,643.82 / Okafor $6,575,195.46 / Reyes $3,567,622.02,
+matching `gold_client_wealth` on the latest date. Lineage shows the metric view
+and the Genie agent downstream of `gold_client_wealth`, the silver tables
+upstream. Genie answered "total wealth by client for the latest date" and
+"which clients' books don't reconcile" — the second crossing from the headline
+number into the DQ columns on the same view, one vocabulary for both.
+
+Full write-up with screenshots: `docs/SEMANTIC_LAYER.md`. Decision and
+alternatives: D-074. New glossary terms: semantic layer, metric view, measure
+vs. dimension, `MEASURE()`, AI/BI Genie.
+
+Held honestly: the metric view's measures are not in the CDE register (they
+inherit classification from their 1:1 source columns, but the gate does not see
+them); the Genie space's instruction text lives in the workspace, not git.
+Both are natural next slices, not done here.

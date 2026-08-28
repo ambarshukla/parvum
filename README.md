@@ -92,6 +92,7 @@ own tests and CI.
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
 | Alts documents & HITL review | **Python**, **reportlab**, **LLM extraction (Anthropic Claude / OpenRouter)** — swappable behind one interface — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
 | Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column | [`governance/`](governance/) |
+| Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
@@ -104,7 +105,7 @@ Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
 guardrail, not free-tier-and-forget.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-063); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-074); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
@@ -129,6 +130,15 @@ source PDF beside the extracted fields, the cross-document check that caught it
 approve / save-correction actions that write an append-only audit row:
 
 ![Internal alts review queue — source PDF beside the extracted fields, with the cross-document validation note that flagged the document](docs/img/internal-review-queue.png)
+
+Above the gold tables sits a **semantic layer**: a Databricks Metric View
+defines each business measure once in Unity Catalog, so SQL, BI, and an AI/BI
+Genie space all resolve "total wealth" to the same governed expression rather
+than each re-deriving it. Genie answers plain-language questions against the
+metric view and cites it as the source — see
+[docs/SEMANTIC_LAYER.md](docs/SEMANTIC_LAYER.md) and D-074.
+
+![AI/BI Genie answering "total wealth by client for the latest date" against the governed metric view, citing it as source](docs/img/genie-total-wealth.png)
 
 ## Phases
 
