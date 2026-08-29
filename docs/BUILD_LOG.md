@@ -1629,3 +1629,38 @@ contradiction rather than resolve it, and cost the property that makes this
 page work in a demo: one scroll, the whole story.
 
 `internal` 31/31 (3 new), typecheck, prettier, build clean. D-083.
+
+## 2026-08-29 — The Service levels block was a third of the page, and mostly prose
+
+Still needing 50% zoom after the tile row went from nine to three. Measured it:
+the Service levels block was ~32% of the page height, and its bulk was **905
+characters of objective prose across eight rows** — register text written for a
+YAML file, rendered under each name so every row stood two lines tall. The two
+control-gap statements did the same at paragraph length.
+
+Three changes. Objectives are summarised to their first sentence (capped at 110
+characters on a word boundary) and sit *inline* beside the name, with the full
+text on the cell's `title`; on the real data every objective now fits one line,
+down from 58–214 characters to 58–108. Control gaps truncate at 130 characters
+with a **more/less** control — the click-to-expand pattern D-065 already
+established on the client dashboard. And the governance tile row loses the two
+tiles that restate the other two.
+
+**That last one was the same duplication defect as D-083, one section below and
+missed while fixing it.** `critical_element_count` is inside "34 of 36";
+`control_gap_count` is the heading of the list directly beneath it. No height
+saved — those tiles sit side by side — but the rule is about a figure being
+stated once, not about pixels.
+
+**A latent CSS bug found while measuring.** `.asof`, the class every piece of
+secondary text uses, was only styled as `.client-header .asof`. Inside a table
+it inherited nothing, so the objective sentences rendered at full size and
+colour, exactly as prominent as the names beside them. Unscoping the selector
+does as much for how the block reads as the truncation does.
+
+A left-hand nav pane was proposed and declined a second time, and moving the
+block to the bottom rejected — it reorders without removing anything, so the
+page stays as tall while the most actionable section drops below two charts.
+Both recorded in D-084 rather than left as unexplained absences.
+
+`internal` 38/38 (7 new), typecheck, prettier, build clean. D-084.

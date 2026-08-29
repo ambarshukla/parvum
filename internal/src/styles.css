@@ -260,10 +260,33 @@ body {
     font-weight: 600;
 }
 
-.client-header .asof {
+/* Secondary text, wherever it appears. This selector used to be scoped to
+   .client-header, so every `asof` inside a table rendered at full weight and
+   full colour -- which is why the Service levels block read as a wall of prose
+   rather than as figures with context beside them. */
+.asof {
     font-size: 13px;
     color: var(--muted);
+}
+
+.client-header .asof {
     margin-top: 2px;
+}
+
+/* A button that reads as part of the sentence it interrupts. */
+.linklike {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.linklike:hover {
+    opacity: 0.8;
 }
 
 /* ---- Tabs ---- */

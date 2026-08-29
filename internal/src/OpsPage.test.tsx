@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { OpsPage } from "./OpsPage";
 import type { CdeRegistryRow, DqMetricRow, SloAttainmentRow } from "./types";
 
@@ -408,5 +408,81 @@ describe("OpsPage tile row", () => {
         render(<OpsPage rows={[...covered, ...uncovered]} registry={[]} slos={[]} dark={false} />);
         expect(screen.getAllByText("Cash consistency").length).toBeGreaterThanOrEqual(1);
         expect(screen.getAllByText("Alts document validity").length).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe("OpsPage density", () => {
+    const gapRegistry: CdeRegistryRow[] = [
+        {
+            tableName: "gold_alts_holdings",
+            columnName: "moic",
+            layer: "gold",
+            description: "Multiple on invested capital",
+            tier: "critical",
+            owner: "alts-operations",
+            definition: "Distributions plus NAV over capital called.",
+            qualityRules: "",
+            qualityRuleCount: 0,
+            controlGap:
+                "The cross-document check now validates the documents this is computed from, " +
+                "but nothing evaluates the ratio itself. D-072 is the proof that this is a real " +
+                "distinction: every input was individually confirmed and the multiple was still " +
+                "four times wrong.",
+            slo: "gold_freshness",
+            sloMeasuredBy: "bronze_days_behind",
+            sloTarget: "no more than 2 days behind",
+        },
+    ];
+
+    it("shows a service level's objective on one line, with the full text reachable", () => {
+        const long: SloAttainmentRow = {
+            ...slos[0]!,
+            slo: "fx_integrity",
+            objective:
+                "The EUR/USD reference rate every non-USD figure is converted at is sound: " +
+                "it moves the way a market moves, and it is not being silently carried " +
+                "forward past the ECB's own publication calendar.",
+        };
+        render(<OpsPage rows={rows} registry={[]} slos={[long]} dark={false} />);
+        // Truncated on screen...
+        expect(screen.queryByText(long.objective)).not.toBeInTheDocument();
+        expect(screen.getByText(/^The EUR\/USD reference rate.*…$/)).toBeInTheDocument();
+        // ...but not lost: the cell carries the whole sentence.
+        expect(screen.getByTitle(long.objective)).toBeInTheDocument();
+    });
+
+    it("truncates a control gap until asked, then shows all of it", () => {
+        render(
+            <OpsPage
+                rows={[...rows, ...governanceRows]}
+                registry={gapRegistry}
+                slos={[]}
+                dark={false}
+            />,
+        );
+        const full = gapRegistry[0]!.controlGap!;
+        expect(screen.queryByText(full)).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "more" }));
+        expect(screen.getByText(full)).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "less" }));
+        expect(screen.queryByText(full)).not.toBeInTheDocument();
+    });
+
+    it("drops the governance tiles that restate the other two", () => {
+        render(
+            <OpsPage
+                rows={[...rows, ...governanceRows]}
+                registry={gapRegistry}
+                slos={[]}
+                dark={false}
+            />,
+        );
+        expect(screen.getByText("Register coverage")).toBeInTheDocument();
+        expect(screen.getByText("Critical elements tested")).toBeInTheDocument();
+        // "36" is already inside "34 of 36"; "2" is the heading of the list below.
+        expect(screen.queryByText("Critical elements")).not.toBeInTheDocument();
+        expect(screen.queryByText("Stated control gaps")).not.toBeInTheDocument();
     });
 });

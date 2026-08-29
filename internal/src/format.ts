@@ -118,3 +118,20 @@ function humanise(identifier: string): string {
     const words = identifier.replace(/_/g, " ").trim();
     return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+/** The first sentence, capped, for a table cell that must stay one line high.
+ *
+ * The register's objectives are written to be read in a YAML file, where two
+ * sentences and 200 characters are fine. Rendered verbatim in a table they
+ * doubled every row's height and turned the Service levels block into a third
+ * of the page. The full text is still there — the cell carries it as a title —
+ * but what a reader scans for is which promise is breached, not its prose.
+ */
+export function summarise(text: string, max = 110): string {
+    const [first] = text.trim().split(/(?<=\.)\s+/);
+    const sentence = first ?? text.trim();
+    if (sentence.length <= max) return sentence;
+    const cut = sentence.slice(0, max);
+    const boundary = cut.lastIndexOf(" ");
+    return `${(boundary > 40 ? cut.slice(0, boundary) : cut).replace(/[,;:]$/, "")}…`;
+}

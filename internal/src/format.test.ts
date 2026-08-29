@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dqMetricLabel, sloLabel } from "./format";
+import { dqMetricLabel, sloLabel, summarise } from "./format";
 
 describe("dqMetricLabel", () => {
     it("prefers the curated label where there is one", () => {
@@ -58,5 +58,41 @@ describe("dqMetricLabel — the metrics added after the last labelling miss", ()
         expect(dqMetricLabel("alts_documents_unconfirmed_count")).toBe("Alts awaiting review");
         expect(dqMetricLabel("fx_rate_plausibility_rate")).toBe("FX rate plausibility");
         expect(dqMetricLabel("fx_rate_stale_days_count")).toBe("FX stale days");
+    });
+});
+
+describe("summarise", () => {
+    it("keeps a short objective whole", () => {
+        const short = "Positions agree across the two custodial holdings formats.";
+        expect(summarise(short)).toBe(short);
+    });
+
+    it("takes the first sentence when there are two", () => {
+        expect(
+            summarise(
+                "Published figures that describe the same fact agree with each other. " +
+                    "Where an aggregate is accompanied by the parts that compose it, the parts " +
+                    "reconstruct the aggregate.",
+            ),
+        ).toBe("Published figures that describe the same fact agree with each other.");
+    });
+
+    it("caps a long single sentence at a word boundary", () => {
+        // fx_integrity is 192 characters in one sentence, so sentence-splitting
+        // alone does not shorten it.
+        const long =
+            "The EUR/USD reference rate every non-USD figure is converted at is sound: " +
+            "it moves the way a market moves, and it is not being silently carried " +
+            "forward past the ECB's own publication calendar.";
+        const out = summarise(long);
+        expect(out.length).toBeLessThanOrEqual(111);
+        expect(out.endsWith("…")).toBe(true);
+        expect(out).not.toContain("  ");
+        // Cut on a word, not mid-word.
+        expect(long.startsWith(out.slice(0, -1))).toBe(true);
+    });
+
+    it("never returns an empty string for real input", () => {
+        expect(summarise("Short.").length).toBeGreaterThan(0);
     });
 });
