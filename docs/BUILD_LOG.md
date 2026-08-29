@@ -1368,3 +1368,45 @@ fixture publishes a critical element, so it owed one like any other table.
 Held honestly: the contracts are verified in CI and stop there. Pushing them
 into `COLUMN_COMMENTS` so an AI reading Unity Catalog inherits them is the
 obvious next step and is not claimed. D-077. governance 53 tests (5 new).
+
+## 2026-08-29 — Two control gaps closed, two deliberately left open
+
+The register's work list had five critical elements with no control, collapsing
+into two root causes it had named since D-067. Both are now addressed.
+
+The alts chain has validated every document against the rest of its fund since
+D-050 — commitment continuity, call sequencing, statement chaining — and none
+of it reached the rollup. `dq_recon` now publishes
+`alts_cross_document_valid_rate` and `alts_documents_unconfirmed_count`. Live:
+**39 of 64 documents reconcile**, and 27 have no confirmed values because gold
+is correctly declining to report them. Red, and correctly so — green there
+would mean the defect injector had stopped.
+
+FX had nothing checking it at all, which is uncomfortable for the one input
+every non-USD figure is multiplied by. `dq_fx_plausibility` applies a
+day-over-day band and measures how far each published rate was carried forward,
+with a new `fx_integrity` service level that `fx_rate_used` is now held to.
+
+**Both thresholds were calibrated against the real distribution first.** The
+largest daily move in this project's own series is 2.72% against a 5% band; the
+ECB calendar produces carries of at most 4 days (four times in 2.5 years, over
+Christmas and Easter) against a 4-day threshold. Neither can fire on a real
+market or a real holiday.
+
+**Two gaps were not closed, and that is the point.** Citing the new alts rule
+against all four columns carrying the alts gap would have read 100%. Applying
+D-073's test — *which specific row of this check fails if this column is
+wrong?* — only two survive. `moic` is a ratio and the check does not evaluate
+ratios; D-072 proves the distinction is real, because every input was
+individually confirmed and the multiple was still four times wrong.
+`alts_usd`'s risks are proration and forward-fill, which the check does not
+touch. Both gaps kept and rewritten to say exactly what is still missing.
+
+**34 of 36 critical elements controlled, 94.4%, two stated gaps.**
+
+A false alarm worth recording: the first FX run showed 33 stale days. That was
+the *local* rate file being a month old, not the lakehouse — production carry
+is 1 day with 0 stale, checked against `gold_client_wealth`. The check was
+right; the input was stale. Reporting it would have been a fabricated finding.
+
+D-078. governance 53 tests, gate 363/363 classified.

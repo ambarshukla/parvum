@@ -206,9 +206,7 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
         # statement reduces NAV in reality while our carried-forward NAV still
         # predates it, so adding it counts the same money twice.
         _dists_by_then = [
-            f
-            for f in _fund_dists
-            if date.fromisoformat(f["distribution_date"]) <= _stmt_as_of
+            f for f in _fund_dists if date.fromisoformat(f["distribution_date"]) <= _stmt_as_of
         ]
         _distributed = (
             parse_decimal(_dists_by_then[-1]["cumulative_distributed"])
@@ -876,9 +874,7 @@ def _xirr(cashflows: list[tuple]) -> float | None:
     t0 = cashflows[0][0]
 
     def npv(rate: float) -> float:
-        return sum(
-            float(amount) / (1 + rate) ** ((d - t0).days / 365.0) for d, amount in cashflows
-        )
+        return sum(float(amount) / (1 + rate) ** ((d - t0).days / 365.0) for d, amount in cashflows)
 
     lo, hi = -0.9999, 10.0
     f_lo, f_hi = npv(lo), npv(hi)
@@ -1263,6 +1259,8 @@ _GOLD_SIDE_METRICS = (
     "return_plausibility_breaks_count",
     "cross_field_invariant_rate",
     "cross_field_invariant_breaks_count",
+    "fx_rate_plausibility_rate",
+    "fx_rate_stale_days_count",
 )
 
 spark.sql(  # noqa: F821
@@ -1329,6 +1327,109 @@ spark.sql(  # noqa: F821
            CAST(breaking_rows AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
            CONCAT(CAST(breaking_rows AS STRING),
                   ' rows where an aggregate did not equal its parts') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts"""
+)
+
+# COMMAND ----------
+
+# MAGIC %md ## `dq_fx_plausibility` — the one reference input nothing re-checked
+# MAGIC
+# MAGIC Every non-USD figure in the estate is multiplied by this rate, so a
+# MAGIC wrong one misstates a whole client's report by a clean proportion and
+# MAGIC looks entirely plausible doing it. The register has carried a control
+# MAGIC gap on `fx_rate_used` since D-067 saying nothing re-checked a landed
+# MAGIC rate once it was in the lakehouse.
+# MAGIC
+# MAGIC **What this catches and what it does not**, stated plainly because the
+# MAGIC difference is the whole value of the check:
+# MAGIC
+# MAGIC - **Caught:** a corrupted or mistyped rate (a decimal point, a
+# MAGIC   transposition, a currency pair swapped) — anything that moves the
+# MAGIC   rate more in one day than the market plausibly does.
+# MAGIC - **Caught:** a silently stale rate. The ECB publishes on business days
+# MAGIC   and the store carries the last published rate forward, which is
+# MAGIC   correct over a weekend and wrong if the feed quietly stopped. The
+# MAGIC   carry distance is measured, so "stale" stops being invisible.
+# MAGIC - **NOT caught:** a rate wrong by a small amount. Only fetching the
+# MAGIC   published rate a second time would catch that, and the cluster has no
+# MAGIC   egress by design (D-006) — so the honest close for that half of the
+# MAGIC   gap is a second fetch in the GitHub Action, not a Spark check.
+# MAGIC
+# MAGIC The band is 5% day over day. The largest move in this project's own
+# MAGIC series is 2.72% (2025-04-03), and EUR/USD's largest single-day move
+# MAGIC this century is around 3% -- so 5% will not fire on a real market and
+# MAGIC will fire on a corrupted decimal point. Both thresholds here were set
+# MAGIC by looking at the actual distribution first.
+
+# COMMAND ----------
+
+#: How far EUR/USD may move in one day before the rate is treated as suspect.
+FX_DAILY_BAND = 0.05
+
+#: How many calendar days a published rate may be carried forward before it is
+#: stale. Calibrated against the real series rather than guessed: over 2024-01
+#: to 2026-07 the ECB's own publication calendar produces carries of 0, 1, 2, 3
+#: and 4 days only -- four occurring four times, across Christmas and Easter
+#: runs -- and never five. So this threshold cannot fire on a holiday, and a
+#: fifth day means the feed itself has stopped. A check that cries wolf is
+#: worse than no check, which is why the distribution was checked first.
+FX_MAX_CARRY_DAYS = 4
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_fx_plausibility
+    COMMENT 'Per-date plausibility check on the EUR/USD reference rate every non-USD figure is converted at: how far it moved from the previous business day, and how far the published rate had to be carried forward to cover this date. Catches corruption and silent staleness; does not re-fetch the rate from the ECB, which the cluster cannot reach (D-006).'
+    AS
+    WITH series AS (
+        SELECT as_of, eur_usd, fx_rate_date,
+               LAG(eur_usd) OVER (ORDER BY as_of) AS prev_eur_usd
+        FROM fx
+    )
+    SELECT
+        as_of,
+        eur_usd,
+        prev_eur_usd,
+        CAST(ABS(eur_usd - prev_eur_usd) / NULLIF(prev_eur_usd, 0) AS DECIMAL(14,6)) AS daily_move,
+        CAST({FX_DAILY_BAND} AS DECIMAL(14,6)) AS band,
+        fx_rate_date,
+        CAST(DATEDIFF(as_of, fx_rate_date) AS INT) AS days_carried,
+        DATEDIFF(as_of, fx_rate_date) > {FX_MAX_CARRY_DAYS} AS stale,
+        CASE WHEN prev_eur_usd IS NULL THEN CAST(NULL AS BOOLEAN)
+             ELSE ABS(eur_usd - prev_eur_usd) / NULLIF(prev_eur_usd, 0) <= {FX_DAILY_BAND}
+                  AND DATEDIFF(as_of, fx_rate_date) <= {FX_MAX_CARRY_DAYS}
+        END AS plausible,
+        current_timestamp() AS rebuilt_at
+    FROM series"""
+)
+
+print("dq_fx_plausibility rows:", spark.table(f"{SCHEMA}.dq_fx_plausibility").count())  # noqa: F821
+
+# COMMAND ----------
+
+spark.sql(  # noqa: F821
+    f"""INSERT INTO {SCHEMA}.dq_metrics
+    WITH counts AS (
+        SELECT COUNT(*) AS checked,
+               SUM(CASE WHEN plausible THEN 1 ELSE 0 END) AS ok,
+               SUM(CASE WHEN stale THEN 1 ELSE 0 END) AS stale_days
+        FROM {SCHEMA}.dq_fx_plausibility
+        WHERE plausible IS NOT NULL
+    )
+    -- Dated at the run, not per business day: unlike the other accuracy
+    -- metrics this one judges a reference series the whole estate shares, so
+    -- one row saying "the rate series is sound" is the useful shape.
+    SELECT CURRENT_DATE() AS as_of, 'accuracy' AS dimension, 'fx_rate_plausibility_rate' AS metric,
+           CAST(ok / NULLIF(checked, 0) AS DECIMAL(14,6)) AS value,
+           ok = checked AS passed,
+           CONCAT(CAST(ok AS STRING), ' of ', CAST(checked AS STRING),
+                  ' FX rates moved plausibly and were not carried too far') AS detail,
+           current_timestamp() AS rebuilt_at
+    FROM counts
+    UNION ALL
+    SELECT CURRENT_DATE() AS as_of, 'exceptions' AS dimension, 'fx_rate_stale_days_count' AS metric,
+           CAST(stale_days AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+           CONCAT(CAST(stale_days AS STRING),
+                  ' dates used a rate carried forward further than the ECB calendar explains') AS detail,
            current_timestamp() AS rebuilt_at
     FROM counts"""
 )
@@ -1624,6 +1725,18 @@ COLUMN_COMMENTS = {
         "delta": "actual − expected; 0 means the figures agree",
         "tolerance": "The gap allowed for this invariant before it counts as broken — a cent for money, a small epsilon for sums of rounded fractions",
         "holds": "TRUE when ABS(delta) is within tolerance. FALSE means two published figures disagree about the same fact, which is a wrong number rather than a bad day",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
+    "dq_fx_plausibility": {
+        "as_of": "The date this rate was applied to. Grain: one row per date in the FX series",
+        "eur_usd": "The EUR to USD rate used for this date",
+        "prev_eur_usd": "The rate used on the previous date in the series; NULL on the first date, where there is nothing to compare against",
+        "daily_move": "Absolute proportional change from the previous date — the quantity the band is applied to",
+        "band": "How far the rate may move in a day before it is treated as suspect. 5%: EUR/USD's largest single-day move this century is around 3%, so this fires on a corrupted decimal point and not on a real market",
+        "fx_rate_date": "The day the ECB actually published this rate; earlier than as_of means it was carried forward over a weekend or holiday",
+        "days_carried": "How many days the published rate was carried forward to cover as_of",
+        "stale": "TRUE when the rate was carried further than the ECB's own publication calendar explains — the tell for a feed that stopped rather than a holiday",
+        "plausible": "TRUE when the move is inside the band and the rate is not stale. NULL on the first date, which has no predecessor. Catches corruption and silent staleness; a rate wrong by a small amount would need a second fetch from the source, which the cluster cannot make (D-006)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "dq_slo_attainment": {

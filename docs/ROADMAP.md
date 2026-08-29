@@ -52,7 +52,7 @@ first, then make it visible, then make it consumable.
 | Named SLOs with attainment + error budgets | Promote implicit thresholds to declared service levels that are *measured*, not just stated | ✅ done (D-075) |
 | Operator handoff standard | [RUNBOOK.md](RUNBOOK.md) — per alert: what it means, first checks, escalation | ✅ done (D-075) |
 | Column contracts in the register | Declared foreign keys and join cardinality, **verified** by the gate rather than described in a comment | ✅ done (D-077) |
-| Close the two remaining control-gap root causes | The alts chain's validation rolling up into `dq_metrics`; a landed FX rate re-checked against source | ⬜ planned |
+| Close the two remaining control-gap root causes | Alts validation now rolls up; FX has a plausibility and staleness check. Two element-level gaps deliberately kept — see D-078 | ✅ done (D-078) |
 | Semantic layer beyond one table | Metric views for allocation, performance and income; their measures brought under the gate | ⬜ planned |
 | Governance eval | Measure answer accuracy with vs. without the register and semantic layer — our own number | ⬜ planned |
 

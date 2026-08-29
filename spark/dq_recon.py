@@ -486,6 +486,39 @@ spark.sql(  # noqa: F821
                CONCAT(CAST(gapped AS STRING),
                       ' critical elements have a stated control gap and no automated rule') AS detail
         FROM governance_counts
+    ),
+    -- The alts chain has validated every document against the rest of its
+    -- fund since D-050 -- commitment continuity, call sequencing, statement
+    -- chaining -- and none of that reached the rollup, which is what the
+    -- register's own control gap on those columns has said all along. Dated
+    -- CURRENT_DATE() rather than a business day, like the governance rows
+    -- above: the alts corpus is episodic, so this is a fact about the state
+    -- of the document chain now, not about a feed day.
+    alts_counts AS (
+        SELECT COUNT(*) AS documents,
+               SUM(CASE WHEN cross_document_valid THEN 1 ELSE 0 END) AS valid,
+               SUM(CASE WHEN confirmed_fields_json IS NULL THEN 1 ELSE 0 END) AS unconfirmed
+        FROM {SCHEMA}.silver_alts_documents
+    ),
+    accuracy_alts AS (
+        SELECT CURRENT_DATE() AS as_of, 'accuracy' AS dimension,
+               'alts_cross_document_valid_rate' AS metric,
+               CAST(valid / NULLIF(documents, 0) AS DECIMAL(14,6)) AS value,
+               valid = documents AS passed,
+               CONCAT(CAST(valid AS STRING), ' of ', CAST(documents AS STRING),
+                      ' private-fund documents reconcile against the rest of their fund') AS detail
+        FROM alts_counts
+    ),
+    exceptions_alts AS (
+        -- Not a failure: a document awaiting review is one gold is correctly
+        -- declining to report (D-060). Counted so the queue's depth is
+        -- visible rather than inferred from an empty tab.
+        SELECT CURRENT_DATE() AS as_of, 'exceptions' AS dimension,
+               'alts_documents_unconfirmed_count' AS metric,
+               CAST(unconfirmed AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
+               CONCAT(CAST(unconfirmed AS STRING),
+                      ' private-fund documents have no confirmed values yet') AS detail
+        FROM alts_counts
     )
     SELECT *, current_timestamp() AS rebuilt_at FROM completeness
     UNION ALL SELECT *, current_timestamp() FROM accuracy_holdings
@@ -498,7 +531,9 @@ spark.sql(  # noqa: F821
     UNION ALL SELECT *, current_timestamp() FROM governance_classified
     UNION ALL SELECT *, current_timestamp() FROM governance_control
     UNION ALL SELECT *, current_timestamp() FROM governance_critical
-    UNION ALL SELECT *, current_timestamp() FROM governance_gaps"""
+    UNION ALL SELECT *, current_timestamp() FROM governance_gaps
+    UNION ALL SELECT *, current_timestamp() FROM accuracy_alts
+    UNION ALL SELECT *, current_timestamp() FROM exceptions_alts"""
 )
 
 # COMMAND ----------

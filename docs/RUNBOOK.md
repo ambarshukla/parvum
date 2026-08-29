@@ -143,6 +143,40 @@ which is a producer change.
 **For any other SLO** it means the series is short or has gone quiet —
 investigate as a freshness problem first.
 
+### 6 · `alts_cross_document_valid_rate` is below 100%
+
+**Means:** some private-fund documents do not reconcile against the rest of
+their fund — a commitment that does not continue, a call out of sequence, a
+statement whose opening balance does not match the prior period's close.
+
+**This is expected here.** The synthetic alts corpus carries deliberate
+defects, so this rate sits around 60% by construction. It is the number that
+gives the review queue something to review.
+
+**Do:** work the queue in the internal app. A document with no confirmed values
+is one gold is correctly declining to report (D-060), not a data error —
+`alts_documents_unconfirmed_count` is queue depth, not a failure count.
+
+**Escalate if:** the rate falls sharply with no new documents landed, which
+would suggest the validation logic changed rather than the corpus.
+
+### 7 · `fx_rate_stale_days_count` is above zero
+
+**Means:** a rate was carried forward further than the ECB's own publication
+calendar explains. The calendar never produces more than a 4-day carry, so this
+is the tell for a rates feed that stopped rather than a holiday.
+
+**First three checks:**
+1. Did the daily Action's `fetch-fx` step run and land a new file?
+2. `SELECT MAX(fx_rate_date), MAX(as_of) FROM workspace.parvum.gold_client_wealth` — how far behind is the newest published rate?
+3. `SELECT * FROM workspace.parvum.dq_fx_plausibility WHERE stale ORDER BY as_of DESC` — which dates, and by how much?
+
+**Do:** `make land-fx` to re-land the rates, then `make run-job`.
+
+**Note:** a stale *local* copy of `data/reference/fx_rates.json` on a laptop
+does not mean the lakehouse is stale — the daily Action lands its own. Check
+the lakehouse before concluding anything.
+
 ## Routine operations
 
 | Task | Command | Notes |

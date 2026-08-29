@@ -114,6 +114,20 @@ slos:
     # every flow-adjusted return downstream. Near-total.
     attainment_objective: 0.99
     window_days: 30
+  fx_integrity:
+    objective: >-
+      The EUR/USD reference rate every non-USD figure is converted at is sound: it moves the
+      way a market moves, and it is not being silently carried forward past the ECB's own
+      publication calendar.
+    measured_by: fx_rate_plausibility_rate
+    target: 100% of dates in the rate series
+    # A rate wrong by a lot is caught by the band; a rate wrong by a little
+    # needs a second fetch from the source, which the cluster cannot make
+    # (D-006). The objective is total because everything this check *can* see
+    # is either right or a defect -- there is no acceptable rate of corrupted
+    # exchange rates.
+    attainment_objective: 1.0
+    window_days: 30
   cross_field_consistency:
     objective: >-
       Published figures that describe the same fact agree with each other. Where an aggregate
@@ -457,6 +471,37 @@ tables:
       conformed_consistent:
       currency:
       rebuilt_at:
+  dq_fx_plausibility:
+    owner: data-quality
+    default_tier: supporting
+    context: >-
+      The check on the one reference input every non-USD figure in the estate is multiplied by.
+      Catches a corrupted rate (a moved decimal point, a transposition) through a day-over-day
+      band, and a silently stale one through the distance the published rate had to be carried
+      forward. It deliberately does not re-fetch the rate from the ECB to compare: the cluster
+      has no egress (D-006), so that half of the check belongs in the GitHub Action that lands
+      the rates, not here.
+    grain: [as_of]
+    columns:
+      as_of:
+      eur_usd:
+      prev_eur_usd:
+      daily_move:
+      band:
+      fx_rate_date:
+      days_carried:
+      stale:
+      plausible:
+        tier: critical
+        definition: >-
+          Whether the rate applied to this date is trustworthy: inside the day-over-day band and
+          not carried further forward than the ECB's publication calendar explains. A false here
+          means every EUR-denominated figure on that date is suspect by a clean proportion, which
+          is the failure mode that looks entirely plausible on a client report.
+        slo: fx_integrity
+        quality_rules:
+          - fx_rate_plausibility_rate
+      rebuilt_at:
   dq_holdings_recon:
     owner: data-quality
     default_tier: supporting
@@ -549,11 +594,8 @@ tables:
         definition: >-
           Owner-prorated cumulative capital distributed by the fund, in USD.
         slo: gold_freshness
-        control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+        quality_rules:
+          - alts_cross_document_valid_rate
       unfunded_commitment_usd:
         tier: critical
         definition: >-
@@ -577,11 +619,8 @@ tables:
           Owner-prorated ending balance from the latest confirmed capital account statement, in
           USD.
         slo: gold_freshness
-        control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+        quality_rules:
+          - alts_cross_document_valid_rate
       moic:
         tier: critical
         definition: >-
@@ -589,10 +628,11 @@ tables:
           headline fund performance figure, and owner-invariant because it is a ratio.
         slo: gold_freshness
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+          The cross-document check now validates the documents this is computed from, but
+          nothing evaluates the ratio itself. D-072 is the proof that this is a real distinction:
+          every input was individually confirmed and the multiple was still four times wrong,
+          because numerator and denominator described different moments. Closing it needs a
+          check that recomputes the multiple from a single confirmed statement and compares.
       pending_review_documents:
       pending_review_latest_period:
       rebuilt_at:
@@ -674,10 +714,12 @@ tables:
           recent confirmed capital account statement.
         slo: gold_freshness
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+          The document chain feeding this is now measured, but this column's own risks are
+          proration and forward-fill — attributing a fund's NAV across owners, and carrying the
+          last confirmed statement forward until the next one is confirmed. Neither is touched by
+          the cross-document check, so citing it here would be a loosely-related metric dressed
+          as a control. Closing it needs an invariant tying prorated alts NAV back to the
+          statement it came from.
       total_wealth_usd:
         tier: critical
         definition: >-
@@ -698,12 +740,12 @@ tables:
         definition: >-
           The EUR to USD ECB reference rate applied to this date's EUR amounts. Wrong here and
           every non-USD figure in the report is wrong by the same proportion.
-        slo: gold_freshness
-        control_gap: >-
-          Nothing re-checks a landed ECB rate against its source or against a plausibility band
-          once it is in the lakehouse. A wrong or silently stale rate would misstate every
-          EUR-denominated figure while every other control still passed. Closing it needs a
-          reference-data check in dq_metrics comparing fx_rates.json against a second source.
+        # Held to rate integrity rather than to freshness: a stale rate is one
+        # failure mode of this column and a corrupted one is the other, and
+        # fx_integrity is the promise that covers both.
+        slo: fx_integrity
+        quality_rules:
+          - fx_rate_plausibility_rate
       fx_rate_date:
       books_reconcile:
         tier: critical

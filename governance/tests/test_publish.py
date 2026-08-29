@@ -36,12 +36,15 @@ def test_a_critical_row_carries_its_whole_obligation():
 
 
 def test_a_gapped_element_carries_the_gap_and_no_rules():
+    # `moic` is a deliberate remaining gap: the cross-document check validates
+    # the documents its inputs come from, but nothing evaluates the ratio, and
+    # D-072 is the proof that the distinction is real rather than pedantic.
     rows = {(r.table_name, r.column_name): r for r in build_snapshot(find_repo_root())}
-    fx = rows[("gold_client_wealth", "fx_rate_used")]
-    assert fx.tier == "critical"
-    assert fx.quality_rules == ""
-    assert fx.quality_rule_count == 0
-    assert fx.control_gap
+    moic = rows[("gold_alts_holdings", "moic")]
+    assert moic.tier == "critical"
+    assert moic.quality_rules == ""
+    assert moic.quality_rule_count == 0
+    assert moic.control_gap
 
 
 def test_the_register_classifies_its_own_table():
