@@ -33,6 +33,13 @@ Attainment is on the internal app's Ops page under **Service levels**, and in
 the lakehouse as `workspace.parvum.dq_slo_attainment`. Objectives live in the
 register; nothing here restates them, because two copies of a target drift.
 
+**Reading the page:** the tiles at the top say what is true *now* — how stale
+the feed is, whether today's files all landed, and any quality metric no
+service level covers. The Service levels table says whether the estate is
+meeting what it promised, over each SLO's own window. A metric the table
+reports on has no tile, deliberately: it would state the same thing over a
+different window and the two numbers would disagree (D-083).
+
 Three states, and they are not two:
 
 | Status | Meaning | Action |

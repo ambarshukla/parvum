@@ -24,7 +24,25 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
     )[0];
     const accuracy = rows.filter((r) => r.dimension === "accuracy");
     const exceptions = rows.filter((r) => r.dimension === "exceptions");
-    const accuracyMetrics = [...new Set(accuracy.map((r) => r.metric))];
+    // Every accuracy metric used to get a tile, and the Service levels table
+    // below then restated most of them — with a *different* number, because a
+    // tile counted attainment over all history while the table counts it over
+    // the window the SLO declares. Eight of nine tiles were duplicates saying
+    // 35% next to 45.5% about the same metric, which is the "two correct
+    // figures answering different questions" shape this estate keeps meeting.
+    //
+    // The rule now: **a tile says what is true now; the table says whether we
+    // are meeting what we promised.** So a metric a service level already
+    // covers has no tile, and one no service level covers does.
+    const measuredBySlo = new Set(slos.map((s) => s.measuredBy));
+    const allAccuracyMetrics = [...new Set(accuracy.map((r) => r.metric))];
+    // If the service levels failed to load, show every metric rather than
+    // none: a page that silently hides quality information because a second
+    // request failed is worse than one that briefly repeats itself.
+    const accuracyMetrics =
+        slos.length === 0
+            ? allAccuracyMetrics
+            : allAccuracyMetrics.filter((m) => !measuredBySlo.has(m));
     const governance = rows.filter((r) => r.dimension === "governance");
     // The interesting artefact is not the coverage percentage but the named
     // gaps behind it: critical elements nobody has a control for. A stated
@@ -66,7 +84,10 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
             <div className="client-header">
                 <div>
                     <h1>Data Operations</h1>
-                    <div className="asof">Pipeline-wide — not scoped to one firm</div>
+                    <div className="asof">
+                        Pipeline-wide — not scoped to one firm. These are current facts; whether the
+                        estate is meeting what it promised is below.
+                    </div>
                 </div>
             </div>
 
