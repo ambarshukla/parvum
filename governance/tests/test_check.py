@@ -20,6 +20,8 @@ slos:
     objective: fresh
     measured_by: bronze_days_behind
     target: 2 days
+    attainment_objective: 0.98
+    window_days: 7
 common_columns: {}
 tables:
   gold_thing:
@@ -101,7 +103,10 @@ def test_a_critical_element_must_name_a_service_level(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("        slo: gold_freshness\n", ""),
     )
-    assert rules(result) == {"incomplete_obligation"}
+    # Removing the citation breaks two things at once, and both are reported:
+    # the element owes an SLO, and the SLO it used to cite is now held by
+    # nothing at all.
+    assert rules(result) == {"incomplete_obligation", "unheld_slo"}
     assert "'slo'" in result.findings[0].message
 
 
@@ -159,7 +164,33 @@ def test_an_unknown_slo_is_rejected(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("slo: gold_freshness", "slo: made_up"),
     )
-    assert rules(result) == {"invalid_reference"}
+    # Two rules fire, and both are right: the element cites an SLO that does
+    # not exist, and the SLO that does exist is now held by nothing.
+    assert rules(result) == {"invalid_reference", "unheld_slo"}
+
+
+def test_a_service_level_nobody_is_held_to_fails(tmp_path):
+    # The mirror of `orphan`, pointed at the SLO block: a promise with no
+    # element on the hook for it is decoration — and, because attainment is
+    # computed from the SLOs the register's own elements cite, an unheld one
+    # would never be measured either. Everything else here stays valid, so the
+    # unheld SLO is the only finding.
+    second_slo = (
+        "  cash_ledger_integrity:\n"
+        "    objective: it adds up\n"
+        "    measured_by: cash_conformed_consistency_rate\n"
+        "    target: 99%\n"
+        "    attainment_objective: 0.95\n"
+        "    window_days: 30\n"
+        "common_columns: {}"
+    )
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        REGISTER.replace("common_columns: {}", second_slo),
+    )
+    assert rules(result) == {"unheld_slo"}
+    assert result.findings[0].key == "cash_ledger_integrity"
 
 
 def test_an_unknown_tier_is_rejected_and_obligations_are_not_guessed(tmp_path):
@@ -168,7 +199,8 @@ def test_an_unknown_tier_is_rejected_and_obligations_are_not_guessed(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("tier: critical", "tier: extremely"),
     )
-    assert rules(result) == {"invalid_reference"}
+    # No element is `critical` any more, so nothing is held to the SLO either.
+    assert rules(result) == {"invalid_reference", "unheld_slo"}
     assert result.coverage.by_tier == {"supporting": 1}
 
 

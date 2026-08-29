@@ -1267,3 +1267,53 @@ Held honestly: the metric view's measures are not in the CDE register (they
 inherit classification from their 1:1 source columns, but the gate does not see
 them); the Genie space's instruction text lives in the workspace, not git.
 Both are natural next slices, not done here.
+
+## 2026-08-29 — Service levels that can be missed, and a rule that found two nobody was holding
+
+The register has named seven service levels since D-067. None was measured.
+Its own comment said so — "objectives the estate is held to, not claims about
+current attainment" — and a target nobody measures can be quoted in a review
+forever without ever being missed.
+
+Each SLO now carries a machine-readable half (`attainment_objective`,
+`window_days`) beside its target sentence, and gold computes
+`dq_slo_attainment` from those against the `dq_metrics` series: one row per
+service level, with attainment, the error budget, and how much of it is spent.
+`V11` projects it, `/internal/tenants/{id}/slo-attainment` serves it, and the
+Ops page renders a **Service levels** section with breaches sorted first.
+`docs/RUNBOOK.md` is the other half: per alert, what it means, the first three
+checks, what to do, and when to escalate — plus an explicit ownership boundary
+(an operator can always re-run; an operator never edits gold).
+
+**A sixth gate rule paid for itself immediately.** `unheld_slo` fails the build
+when a declared service level has no critical element citing it — the mirror of
+`orphan`, and, since attainment is derived from what elements cite, an unheld
+SLO would also never be measured. It found two: `feed_completeness` and
+`cash_continuity`, declared since D-067 and held by nothing at all. Both were
+real promises, so both were assigned rather than deleted, using the D-073 test
+pointed at SLOs: *if this service level is breached, is this element's value
+affected?* `total_wealth_usd` moved to `feed_completeness`; `external_flow_usd`
+to `cash_continuity`.
+
+**Verified against the live warehouse before merge**, predictions first, by
+running the table's own SQL with the objectives substituted as literals. All
+seven matched. 22 business days inside the 30-day window. Four SLOs at
+1.000000 and met. `holdings_agreement` at 0.000000 with 22 days consumed
+against a 1.10-day budget; `cash_ledger_integrity` at 0.454545 — both breached
+by design, because the defect injector is doing its job (D-011), and both left
+visibly red rather than exempted. `gold_freshness` came back with one day of
+history and no verdict, which is the third state working: `bronze_days_behind`
+is published as a single as-of-now row rather than a series, so it *cannot*
+have seven days to judge. A real limitation of that metric's shape, surfaced
+rather than smoothed into a fake 100%.
+
+Both designed edge cases behaved on live data: an objective of 1.0 produced a
+zero error budget and a NULL remaining-percentage (a budget that does not exist
+cannot be part-spent), and insufficient history produced a NULL verdict in grey
+rather than a green pass.
+
+Checks: governance 48 (5 new), ingest 118, reference 40(+1), export 50, alts-hitl
+65, ruff clean on all five; serving `mvn verify` 32/32 with V11 replaying
+through jOOQ's H2 and every tenant schema migrating for real; internal 22/22
+(3 new), typecheck, prettier and build clean. Gate: **353 published / 353
+classified, 35 critical, 30 controlled (85.7%), 5 stated gaps.**

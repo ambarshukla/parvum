@@ -32,7 +32,7 @@ reason it has its own CI status check rather than sharing one.
 ## What the gate enforces
 
 A pull request fails if it leaves the register and the platform out of
-step:
+step, or leaves a promise nobody is on the hook for:
 
 | rule | fires when |
 | --- | --- |
@@ -41,6 +41,7 @@ step:
 | `missing_description` | a published column carries no catalog comment |
 | `incomplete_obligation` | a tier's obligations are unmet (a critical element with no owner, definition, SLO, or statement about controls) |
 | `invalid_reference` | the register points at an unknown owner, tier, SLO, or a quality rule the DQ layer does not compute |
+| `unheld_slo` | a service level is declared but no critical element is held to it — the mirror of `orphan`, and, since attainment is computed from the SLOs elements cite, an unheld one is never measured either |
 
 The tiers themselves are defined in `registry.py`, deliberately not in
 the YAML: a register able to relax its own rules would not be a control.
@@ -56,6 +57,12 @@ and rolls four metrics into `dq_metrics` under a `governance` dimension:
 80% target — set when the estate delivered 35.7% and unmoved since; the estate
 crossed it at D-073), `critical_element_count` and `control_gap_count`. See
 D-068.
+
+Each named service level also carries the machine-readable half of its
+objective (`attainment_objective`, `window_days`), which is what lets
+`spark/gold_reports.py` compute `dq_slo_attainment` — attainment and error-budget
+consumption per SLO — without a second landed file to keep in step. See D-075,
+and `docs/RUNBOOK.md` for what a breach obliges an operator to do.
 
 Note the recursion: `governance_cde_registry` is a published table, so the
 register has to classify its own columns. The gate enforces that like any

@@ -1335,6 +1335,118 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
+# MAGIC %md ## `dq_slo_attainment` — the service levels, measured
+# MAGIC
+# MAGIC The register names seven service levels and says what each promises.
+# MAGIC Until now it said nothing about whether any of them were being *met*,
+# MAGIC which makes an SLO quotable but never missable. This table closes that:
+# MAGIC one row per service level, over its own trailing window, carrying the
+# MAGIC attainment, the error budget, and how much of that budget is spent.
+# MAGIC
+# MAGIC Three deliberate choices worth reading before the SQL:
+# MAGIC
+# MAGIC - **The window ends at the metric's own latest day, not today.** A
+# MAGIC   pipeline that stopped running last week would otherwise shrink its
+# MAGIC   denominator toward zero and read as "no breaches" — the failure mode
+# MAGIC   where the alarm goes quiet because the sensor died. Staleness is
+# MAGIC   `gold_freshness`'s job; this one refuses to disguise it.
+# MAGIC - **An objective of 1.0 has no error budget, and that is stated rather
+# MAGIC   than smoothed.** Cross-field consistency and return plausibility are
+# MAGIC   correctness invariants, not availability targets: "how many
+# MAGIC   contradictions a month are acceptable" has no non-zero answer. Their
+# MAGIC   `error_budget_days` is 0 and `budget_remaining_pct` is NULL, which is
+# MAGIC   the honest representation of a budget that does not exist.
+# MAGIC - **Too little history is not the same as passing.** Below
+# MAGIC   `MIN_DAYS_FOR_VERDICT` days in the window, `meets_objective` is NULL.
+# MAGIC   `bronze_days_behind` is published as a single as-of-now row rather
+# MAGIC   than a series, so `gold_freshness` lands there today — a real
+# MAGIC   limitation of that metric's shape, surfaced instead of averaged away.
+
+# COMMAND ----------
+
+#: Below this many measured days in the window, attainment is reported but no
+#: verdict is given. A single green day is not evidence of a service level.
+MIN_DAYS_FOR_VERDICT = 7
+
+spark.sql(  # noqa: F821
+    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_slo_attainment
+    COMMENT 'Attainment and error-budget consumption for every named service level in the CDE register, over the trailing window each one declares. One row per service level. Objectives come from governance_cde_registry; the evidence comes from dq_metrics.'
+    AS
+    WITH slo_defs AS (
+        -- Only SLOs something is actually held to. The governance gate's
+        -- `unheld_slo` rule keeps that set equal to the declared set, so this
+        -- filter narrows nothing in practice — it just means a declared-but-
+        -- unheld SLO could never appear here claiming an attainment.
+        SELECT DISTINCT
+            slo,
+            slo_objective            AS objective,
+            slo_measured_by          AS measured_by,
+            slo_target               AS target,
+            slo_attainment_objective AS attainment_objective,
+            slo_window_days          AS window_days
+        FROM {SCHEMA}.governance_cde_registry
+        WHERE slo IS NOT NULL AND tier = 'critical'
+    ),
+    bounds AS (
+        SELECT d.slo, MAX(m.as_of) AS window_end
+        FROM slo_defs d
+        JOIN {SCHEMA}.dq_metrics m ON m.metric = d.measured_by
+        WHERE m.passed IS NOT NULL
+        GROUP BY d.slo
+    ),
+    observed AS (
+        -- Calendar window, business-day denominator: the window is
+        -- window_days of calendar time, and days_measured counts the days the
+        -- metric actually reported inside it. Both numbers are published so
+        -- neither has to be inferred from the other.
+        SELECT d.slo, m.as_of, m.passed
+        FROM slo_defs d
+        JOIN bounds b ON b.slo = d.slo
+        JOIN {SCHEMA}.dq_metrics m ON m.metric = d.measured_by
+        WHERE m.passed IS NOT NULL
+          AND DATEDIFF(b.window_end, m.as_of) BETWEEN 0 AND d.window_days - 1
+    ),
+    agg AS (
+        SELECT slo,
+               MIN(as_of) AS window_start,
+               MAX(as_of) AS window_end,
+               COUNT(*)   AS days_measured,
+               SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS days_met
+        FROM observed
+        GROUP BY slo
+    )
+    SELECT
+        d.slo,
+        d.objective,
+        d.measured_by,
+        d.target,
+        CAST(d.attainment_objective AS DECIMAL(14,6)) AS attainment_objective,
+        CAST(d.window_days AS INT)                    AS window_days,
+        a.window_start,
+        a.window_end,
+        CAST(a.days_measured AS INT) AS days_measured,
+        CAST(a.days_met AS INT)      AS days_met,
+        CAST(a.days_met / NULLIF(a.days_measured, 0) AS DECIMAL(14,6)) AS attainment,
+        CASE WHEN a.days_measured < {MIN_DAYS_FOR_VERDICT} THEN CAST(NULL AS BOOLEAN)
+             ELSE a.days_met >= d.attainment_objective * a.days_measured
+        END AS meets_objective,
+        a.days_measured < {MIN_DAYS_FOR_VERDICT} AS insufficient_history,
+        CAST((1 - d.attainment_objective) * a.days_measured AS DECIMAL(14,2)) AS error_budget_days,
+        CAST(a.days_measured - a.days_met AS INT) AS budget_consumed_days,
+        CAST(
+            (( 1 - d.attainment_objective) * a.days_measured - (a.days_measured - a.days_met))
+            / NULLIF((1 - d.attainment_objective) * a.days_measured, 0)
+            AS DECIMAL(14,6)
+        ) AS budget_remaining_pct,
+        current_timestamp() AS rebuilt_at
+    FROM slo_defs d
+    JOIN agg a ON a.slo = d.slo"""
+)
+
+print("dq_slo_attainment rows:", spark.table(f"{SCHEMA}.dq_slo_attainment").count())  # noqa: F821
+
+# COMMAND ----------
+
 # MAGIC %md ## `gold_top_holdings` — the biggest positions, latest day
 # MAGIC
 # MAGIC Grain: one row per (client, rank), top 10 by owned USD value on the
@@ -1512,6 +1624,25 @@ COLUMN_COMMENTS = {
         "delta": "actual − expected; 0 means the figures agree",
         "tolerance": "The gap allowed for this invariant before it counts as broken — a cent for money, a small epsilon for sums of rounded fractions",
         "holds": "TRUE when ABS(delta) is within tolerance. FALSE means two published figures disagree about the same fact, which is a wrong number rather than a bad day",
+        "rebuilt_at": "When this gold rebuild ran (UTC)",
+    },
+    "dq_slo_attainment": {
+        "slo": "The named service level being measured. Grain: one row per service level",
+        "objective": "What this service level promises, in one sentence",
+        "measured_by": "The dq_metrics metric that evidences it — the series attainment is computed from",
+        "target": "The stated threshold, as a sentence (the human half of the objective)",
+        "attainment_objective": "The machine-readable half: the share of measured days on which measured_by must have passed",
+        "window_days": "Length of the trailing window in calendar days. days_measured counts the days the metric actually reported inside it",
+        "window_start": "First day in the window that the metric reported on",
+        "window_end": "Last day the metric reported on — the window ends at the metric's own latest day, not today, so a stalled pipeline cannot shrink its denominator into looking healthy",
+        "days_measured": "How many days inside the window carry a pass/fail verdict for this metric",
+        "days_met": "How many of those days passed",
+        "attainment": "days_met / days_measured — the achieved service level over the window",
+        "meets_objective": "TRUE when attainment reaches attainment_objective. NULL when there is too little history to judge (see insufficient_history) — unmeasurable is not the same as passing",
+        "insufficient_history": "TRUE when fewer than 7 days in the window carry a verdict, which is the case for any metric published as a single as-of-now row rather than a daily series",
+        "error_budget_days": "How many failing days the objective allows across days_measured. 0 where the objective is 1.0 — a correctness invariant has no budget by construction, which is stated rather than smoothed",
+        "budget_consumed_days": "How many days actually failed",
+        "budget_remaining_pct": "Share of the error budget still unspent; negative means the objective is breached by more than the budget allowed. NULL where error_budget_days is 0, because a budget that does not exist cannot be part-spent",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "dq_return_plausibility": {

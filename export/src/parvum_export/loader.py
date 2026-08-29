@@ -28,6 +28,7 @@ PROJECTION_TABLES = {
     "gold_reconciliation_exceptions": "reconciliation_exceptions",
     "dq_metrics": "dq_metrics",
     "governance_cde_registry": "cde_registry",
+    "dq_slo_attainment": "slo_attainment",
 }
 
 

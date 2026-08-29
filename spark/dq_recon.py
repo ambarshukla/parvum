@@ -31,7 +31,7 @@
 
 # COMMAND ----------
 
-from pyspark.sql.types import LongType, StringType, StructField, StructType
+from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
 SCHEMA = "workspace.parvum"
 
@@ -256,8 +256,11 @@ REGISTRY_SCHEMA = StructType(
         StructField("quality_rule_count", LongType(), nullable=False),
         StructField("control_gap", StringType(), nullable=True),
         StructField("slo", StringType(), nullable=True),
+        StructField("slo_objective", StringType(), nullable=True),
         StructField("slo_measured_by", StringType(), nullable=True),
         StructField("slo_target", StringType(), nullable=True),
+        StructField("slo_attainment_objective", DoubleType(), nullable=True),
+        StructField("slo_window_days", LongType(), nullable=True),
     ]
 )
 
@@ -281,8 +284,11 @@ spark.sql(  # noqa: F821
         quality_rule_count,
         control_gap,
         slo,
+        slo_objective,
         slo_measured_by,
         slo_target,
+        slo_attainment_objective,
+        slo_window_days,
         current_timestamp() AS rebuilt_at
     FROM cde_registry_landed"""
 )
@@ -549,8 +555,11 @@ COLUMN_COMMENTS = {
         "quality_rule_count": "How many quality rules cite this element — carried separately so counting needs no string parsing",
         "control_gap": "For a critical element with no quality rule: what is missing and what would close it. The register requires one or the other, never silence",
         "slo": "Name of the service level this element is held to (see slo_measured_by / slo_target)",
+        "slo_objective": "What that service level promises, in one sentence — the thing the target is a threshold for",
         "slo_measured_by": "The dq_metrics metric that evidences that service level",
-        "slo_target": "The service level's stated objective — what the estate is held to, not a claim about current attainment",
+        "slo_target": "The service level's stated objective, as a sentence — what the estate is held to, not a claim about current attainment",
+        "slo_attainment_objective": "The machine-readable half of that objective: the share of days in the window on which slo_measured_by must have passed. What dq_slo_attainment measures against",
+        "slo_window_days": "How many trailing days the service level is judged over",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
     "dq_metrics": {

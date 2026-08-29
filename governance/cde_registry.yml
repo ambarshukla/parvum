@@ -55,36 +55,76 @@ owners:
     provenance and rebuild timestamps.
 
 # Named service levels. `measured_by` must be a metric `dq_metrics` really
-# computes, so an SLO can always be evidenced. These are objectives the
-# estate is held to, not claims about current attainment — measuring
-# attainment against them is the next slice of work.
+# computes, so an SLO can always be evidenced.
+#
+# `target` is the human sentence. `attainment_objective` and `window_days`
+# are the same promise in machine-readable form, and they are what turns a
+# stated objective into a measured one: the share of days in the trailing
+# window on which `measured_by` must have passed, and how long that window
+# is. `gold_reports.py` computes attainment and the error budget from these
+# into `dq_slo_attainment` (D-075).
+#
+# Two of these ship breached, and deliberately. The feed generator injects
+# defects at a rate no real custodian would (D-011), so holdings agreement
+# and cash ledger integrity fail on most days by construction. The objective
+# is what a real deployment would hold the feed to; the breach is a property
+# of the corpus, and lowering the objective to match it would make the
+# number meaningless. Left uncomfortable on purpose, and explained in
+# docs/RUNBOOK.md.
 slos:
   feed_completeness:
     objective: Every expected custodial file for a business day lands and parses.
     measured_by: files_landed_rate
     target: 100% of expected files on every business day
+    # A day that lands nothing is an incident, not a budget item, so the
+    # objective is close to total; one grace day a month absorbs a late
+    # upstream publication without hiding a broken feed.
+    attainment_objective: 0.99
+    window_days: 30
   gold_freshness:
     objective: Client-facing figures reflect the most recent custodial feeds.
     measured_by: bronze_days_behind
     target: no more than 2 days behind on any business day
+    # Short window: staleness is only interesting recently. Note
+    # bronze_days_behind is published as a single as-of-now row rather than a
+    # series, so attainment currently has one day of history to judge — a real
+    # limitation, surfaced rather than smoothed.
+    attainment_objective: 0.98
+    window_days: 7
   holdings_agreement:
     objective: Positions agree across the two custodial holdings formats.
     measured_by: holdings_cross_format_match_rate
     target: 99% of account-days or better
+    # What a real custodial feed would be held to. Breached here by design —
+    # see the note above.
+    attainment_objective: 0.95
+    window_days: 30
   cash_ledger_integrity:
     objective: Each account's cash ledger adds up — opening plus movements equals closing.
     measured_by: cash_conformed_consistency_rate
     target: 99% of account-days or better
+    # Same: the objective a real ledger would carry. Breached here by design.
+    attainment_objective: 0.95
+    window_days: 30
   cash_continuity:
     objective: Each account's closing balance carries into the next day's opening.
     measured_by: cash_day_over_day_continuity_rate
     target: 100% of account-days
+    # A break means recorded flows never landed in wealth, which distorts
+    # every flow-adjusted return downstream. Near-total.
+    attainment_objective: 0.99
+    window_days: 30
   cross_field_consistency:
     objective: >-
       Published figures that describe the same fact agree with each other. Where an aggregate
       is accompanied by the parts that compose it, the parts reconstruct the aggregate.
     measured_by: cross_field_invariant_rate
     target: 100% of invariants, every day
+    # An identity either holds or the published figures contradict each other.
+    # There is no defensible budget for a contradiction, so the objective is
+    # total.
+    attainment_objective: 1.0
+    window_days: 30
   return_plausibility:
     objective: >-
       Every reported day-over-day move in client wealth is either small enough to be a
@@ -92,6 +132,10 @@ slos:
       report as performance that the market did not produce.
     measured_by: daily_return_plausibility_rate
     target: 100% of client-days
+    # Same reasoning: an implausible move is either a declared restatement or
+    # a defect, and neither is something to spend a budget on.
+    attainment_objective: 1.0
+    window_days: 30
 
 # Column names that mean the same thing wherever they appear, declared once.
 # A table may still override any of them for a column that genuinely differs
@@ -268,6 +312,48 @@ tables:
       cost_basis:
       cost_basis_ccy:
       ingested_at:
+  # The service levels, measured. Deliberately `supporting` throughout, with
+  # two exceptions: `attainment` and `meets_objective` are what an operator
+  # actually decides on, so they carry the obligations of an element the
+  # business consumes directly. The rest are the workings behind those two.
+  dq_slo_attainment:
+    owner: data-quality
+    default_tier: supporting
+    columns:
+      slo:
+      objective:
+      measured_by:
+      target:
+      attainment_objective:
+      window_days:
+      window_start:
+      window_end:
+      days_measured:
+      days_met:
+      attainment:
+        tier: critical
+        definition: >-
+          The service level actually achieved over the window — the share of measured days on
+          which the metric evidencing this SLO passed. It is the number an operator reports
+          upward and the number a breach conversation starts from, so an attainment that
+          silently drifted from its own evidence would misstate the health of the estate to
+          the people deciding what to fix.
+        slo: cross_field_consistency
+        quality_rules: [cross_field_invariant_rate]
+      meets_objective:
+        tier: critical
+        definition: >-
+          Whether this service level is being met: attainment against the declared objective,
+          or NULL where too little history exists to judge. The verdict that decides whether
+          anyone is called. A false green here is worse than no measurement, because it
+          converts an unmeasured risk into a managed-looking one.
+        slo: cross_field_consistency
+        quality_rules: [cross_field_invariant_rate]
+      insufficient_history:
+      error_budget_days:
+      budget_consumed_days:
+      budget_remaining_pct:
+      rebuilt_at:
   dq_cash_continuity:
     owner: data-quality
     default_tier: supporting
@@ -542,7 +628,11 @@ tables:
         definition: >-
           The headline number: positions plus cash plus alternatives, owner-prorated and in
           USD. The figure the client reads first and the one every conversation starts from.
-        slo: gold_freshness
+        # Held to completeness rather than freshness: a stale headline is
+        # wrong by a day, but a headline computed from a day whose files did
+        # not all land is wrong by an unknown amount and looks fine. That is
+        # the more dangerous failure and the more specific promise.
+        slo: feed_completeness
         quality_rules:
           - files_landed_rate
           - holdings_cross_format_match_rate
@@ -616,9 +706,14 @@ tables:
         definition: >-
           Net client contribution or withdrawal in USD on a date. Misclassifying a flow as
           market movement (or the reverse) corrupts every return figure downstream of it.
-        slo: cash_ledger_integrity
+        # Held to continuity rather than to ledger integrity: this is the flow
+        # figure, and a continuity break is precisely the case where a recorded
+        # movement never lands in wealth — which is what that SLO's objective
+        # says in so many words. Integrity still tests it, as a quality rule.
+        slo: cash_continuity
         quality_rules:
           - cash_conformed_consistency_rate
+          - cash_day_over_day_continuity_rate
       restatement_adjustment_usd:
         tier: critical
         definition: >-
@@ -806,8 +901,11 @@ tables:
       quality_rule_count:
       control_gap:
       slo:
+      slo_objective:
       slo_measured_by:
       slo_target:
+      slo_attainment_objective:
+      slo_window_days:
       rebuilt_at:
   silver_account_owners:
     owner: reference-data

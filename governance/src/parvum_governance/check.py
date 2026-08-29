@@ -1,6 +1,6 @@
 """The gate: reconcile the register against what the platform actually publishes.
 
-Five rules, each of which fails the build. Together they are the mechanical
+Six rules, each of which fails the build. Together they are the mechanical
 form of a publisher's responsibilities — the point being that nobody has to
 remember them, and nobody can quietly skip them:
 
@@ -27,6 +27,13 @@ remember them, and nobody can quietly skip them:
     role, an unknown tier, an SLO it never defined, or a quality rule that
     the DQ layer does not actually compute. A control you cannot execute is
     worse than an admitted gap, because it reads as covered.
+
+`unheld_slo`
+    A service level is declared but no critical element is held to it. The
+    mirror of `orphan`, pointed at the SLO block: a promise nobody is on the
+    hook for is decoration, and — since attainment is computed from the SLOs
+    the register's own elements cite — it would also never be measured. Delete
+    it, or hold something to it.
 """
 
 from __future__ import annotations
@@ -100,6 +107,7 @@ def check(
     critical_with_controls = 0
     critical_with_gap = 0
     registered = 0
+    slos_held: set[str] = set()
 
     for column in columns:
         if not column.description.strip():
@@ -134,6 +142,8 @@ def check(
         by_tier[entry.tier] = by_tier.get(entry.tier, 0) + 1
         findings.extend(_check_obligations(entry))
         if entry.tier == "critical":
+            if entry.slo:
+                slos_held.add(entry.slo)
             if entry.quality_rules:
                 critical_with_controls += 1
             elif entry.control_gap:
@@ -149,6 +159,18 @@ def check(
                     "remove the entry, or restore the column",
                 )
             )
+
+    for name in sorted(set(registry.slos) - slos_held):
+        findings.append(
+            Finding(
+                "unheld_slo",
+                name,
+                "declared under `slos` but no critical element is held to it — "
+                "cite it from the elements it governs, or remove it. Attainment is "
+                "computed only for SLOs something is held to, so an unheld one is "
+                "never measured either",
+            )
+        )
 
     coverage = Coverage(
         published=len(columns),

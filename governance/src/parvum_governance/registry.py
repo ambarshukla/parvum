@@ -46,12 +46,26 @@ class RegistryError(ValueError):
 
 @dataclass(frozen=True)
 class Slo:
-    """A named service level that critical elements can be held to."""
+    """A named service level that critical elements can be held to.
+
+    `target` is the human sentence; `attainment_objective` and `window_days`
+    are the machine-readable form of the same promise, and they are what makes
+    attainment computable. An SLO stated only in prose can be quoted but never
+    missed, which is the failure mode this pair exists to remove: the share of
+    days in the trailing window on which `measured_by` must have passed.
+    """
 
     name: str
     objective: str
     measured_by: str
     target: str
+    attainment_objective: float
+    window_days: int
+
+    @property
+    def error_budget_fraction(self) -> float:
+        """The share of the window the SLO is allowed to miss before it is breached."""
+        return 1.0 - self.attainment_objective
 
 
 @dataclass(frozen=True)
@@ -178,14 +192,37 @@ def load_registry(path: Path) -> Registry:
     for name, body in (raw.get("slos") or {}).items():
         if not isinstance(body, dict):
             raise RegistryError(f"{path.name}: slo {name!r} is not a mapping")
-        missing = sorted({"objective", "measured_by", "target"} - set(body))
+        missing = sorted(
+            {"objective", "measured_by", "target", "attainment_objective", "window_days"}
+            - set(body)
+        )
         if missing:
             raise RegistryError(f"{path.name}: slo {name!r} is missing {missing}")
+        objective_raw = body["attainment_objective"]
+        if not isinstance(objective_raw, (int, float)) or isinstance(objective_raw, bool):
+            raise RegistryError(
+                f"{path.name}: slo {name!r} attainment_objective must be a number between "
+                f"0 and 1, not {objective_raw!r}"
+            )
+        if not 0 < float(objective_raw) <= 1:
+            raise RegistryError(
+                f"{path.name}: slo {name!r} attainment_objective must be in (0, 1]; "
+                f"got {objective_raw!r}. It is the share of days the metric must pass — "
+                f"a percentage expressed as a fraction."
+            )
+        window_raw = body["window_days"]
+        if not isinstance(window_raw, int) or isinstance(window_raw, bool) or window_raw < 1:
+            raise RegistryError(
+                f"{path.name}: slo {name!r} window_days must be a positive integer, "
+                f"not {window_raw!r}"
+            )
         slos[name] = Slo(
             name=name,
             objective=body["objective"],
             measured_by=body["measured_by"],
             target=body["target"],
+            attainment_objective=float(objective_raw),
+            window_days=window_raw,
         )
 
     common_columns = {

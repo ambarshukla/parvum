@@ -25,9 +25,14 @@ def test_a_critical_row_carries_its_whole_obligation():
     assert wealth.definition
     assert wealth.quality_rule_count == len(wealth.quality_rules.split(", "))
     # The SLO is flattened, not referenced — one table that answers a question.
-    assert wealth.slo == "gold_freshness"
-    assert wealth.slo_measured_by == "bronze_days_behind"
+    assert wealth.slo == "feed_completeness"
+    assert wealth.slo_measured_by == "files_landed_rate"
+    assert wealth.slo_objective
     assert wealth.slo_target
+    # ...including the machine-readable half, which is what makes attainment
+    # computable in the lakehouse without a second landed file to keep in step.
+    assert wealth.slo_attainment_objective == 0.99
+    assert wealth.slo_window_days == 30
 
 
 def test_a_gapped_element_carries_the_gap_and_no_rules():
@@ -64,8 +69,11 @@ def test_render_is_json_lines_spark_can_read_without_a_multiline_flag():
         "quality_rule_count",
         "control_gap",
         "slo",
+        "slo_objective",
         "slo_measured_by",
         "slo_target",
+        "slo_attainment_objective",
+        "slo_window_days",
     }
 
 

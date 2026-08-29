@@ -1,4 +1,10 @@
-import type { CdeRegistryRow, DqMetricRow, QueueItem, QueueStatus } from "./types";
+import type {
+    CdeRegistryRow,
+    DqMetricRow,
+    QueueItem,
+    QueueStatus,
+    SloAttainmentRow,
+} from "./types";
 
 // Same-origin by default (empty base), split-deployment override via
 // VITE_API_BASE — same story as web/api.ts. Unlike the public dashboard,
@@ -79,6 +85,12 @@ export async function fetchDqMetrics(): Promise<DqMetricRow[]> {
 export async function fetchCdeRegistry(): Promise<CdeRegistryRow[]> {
     const response = await request(`/internal/tenants/${OPS_TENANT}/cde-registry`);
     return (await response.json()) as CdeRegistryRow[];
+}
+
+/** Service-level attainment (D-075) — unscoped like the two above. */
+export async function fetchSloAttainment(): Promise<SloAttainmentRow[]> {
+    const response = await request(`/internal/tenants/${OPS_TENANT}/slo-attainment`);
+    return (await response.json()) as SloAttainmentRow[];
 }
 
 export async function fetchQueue(status?: QueueStatus): Promise<QueueItem[]> {

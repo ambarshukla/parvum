@@ -33,6 +33,30 @@ export interface CdeRegistryRow {
     sloTarget: string | null;
 }
 
+// dev.parvum.serving.internal.InternalProjectionResource.SloAttainmentRow.
+// One row per named service level (D-075). Two fields are nullable, for two
+// different reasons, and neither means "fine": meetsObjective is null when
+// there is too little history to judge, and budgetRemainingPct is null when
+// the objective is 1.0 and there is therefore no error budget to spend.
+export interface SloAttainmentRow {
+    slo: string;
+    objective: string;
+    measuredBy: string;
+    target: string;
+    attainmentObjective: number;
+    windowDays: number;
+    windowStart: string;
+    windowEnd: string;
+    daysMeasured: number;
+    daysMet: number;
+    attainment: number;
+    meetsObjective: boolean | null;
+    insufficientHistory: boolean;
+    errorBudgetDays: number;
+    budgetConsumedDays: number;
+    budgetRemainingPct: number | null;
+}
+
 export type QueueStatus = "pending" | "approved" | "corrected";
 export type DocType = "capital_call" | "distribution" | "capital_account_statement";
 
