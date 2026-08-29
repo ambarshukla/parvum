@@ -1,5 +1,6 @@
 import type { CdeRegistryRow, DqMetricRow, SloAttainmentRow } from "./types";
-import { dqMetricLabel, longDate, percent, sloLabel } from "./format";
+import { useState } from "react";
+import { dqMetricLabel, longDate, percent, sloLabel, summarise } from "./format";
 import { AccuracyTrendChart, ExceptionsChart } from "./components/Charts";
 
 /** Below this many days, attainment is not a service level and is not shown
@@ -43,7 +44,14 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
         slos.length === 0
             ? allAccuracyMetrics
             : allAccuracyMetrics.filter((m) => !measuredBySlo.has(m));
-    const governance = rows.filter((r) => r.dimension === "governance");
+    // Same rule as the accuracy tiles (D-083): a figure stated elsewhere on
+    // the page does not get a tile of its own. `critical_element_count` is
+    // already inside "34 of 36", and `control_gap_count` is the heading of the
+    // work list immediately below.
+    const governanceRestated = new Set(["critical_element_count", "control_gap_count"]);
+    const governance = rows.filter(
+        (r) => r.dimension === "governance" && !governanceRestated.has(r.metric),
+    );
     // The interesting artefact is not the coverage percentage but the named
     // gaps behind it: critical elements nobody has a control for. A stated
     // gap is a work item; an unstated one is a surprise.
@@ -171,9 +179,9 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                             <tbody>
                                 {slos.map((s) => (
                                     <tr key={s.slo}>
-                                        <td>
-                                            <div>{sloLabel(s.slo)}</div>
-                                            <div className="asof">{s.objective}</div>
+                                        <td title={s.objective}>
+                                            {sloLabel(s.slo)}{" "}
+                                            <span className="asof">{summarise(s.objective)}</span>
                                         </td>
                                         <td>{s.target}</td>
                                         <td className="num">
@@ -257,7 +265,9 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                                                 ))}
                                             </td>
                                             <td>{g.owners.join(", ")}</td>
-                                            <td>{g.controlGap}</td>
+                                            <td>
+                                                <ExpandableText text={g.controlGap} />
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -305,6 +315,27 @@ function budgetText(s: SloAttainmentRow): string {
     const spent = `${s.budgetConsumedDays} of ${s.errorBudgetDays} days spent`;
     if (remaining === null) return spent;
     return remaining < 0 ? `${spent} — over budget` : `${spent} — ${percent(remaining, 0)} left`;
+}
+
+/** A long statement, scannable by default and complete on request.
+ *
+ *  The control gaps are the most important prose on this page and the least
+ *  suited to a table cell: each runs to a paragraph, and three of them stacked
+ *  turn the work list into a wall. Truncated they can be scanned; expanded
+ *  they say everything. Same move as the reconcile badge on the client
+ *  dashboard (D-065) — a verdict you can open, rather than a verdict with its
+ *  evidence permanently in the way. */
+function ExpandableText({ text, limit = 130 }: { text: string; limit?: number }) {
+    const [open, setOpen] = useState(false);
+    if (text.length <= limit) return <>{text}</>;
+    return (
+        <>
+            {open ? text : `${text.slice(0, limit).trimEnd()}…`}{" "}
+            <button type="button" className="linklike" onClick={() => setOpen(!open)}>
+                {open ? "less" : "more"}
+            </button>
+        </>
+    );
 }
 
 function Tile({
