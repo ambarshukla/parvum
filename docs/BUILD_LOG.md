@@ -1717,3 +1717,30 @@ view** — the cost of skipping it is paid by the reader, in confusion rather th
 in defects.
 
 `internal` 41/41 (2 new), typecheck, prettier, build clean. D-086.
+
+## 2026-08-29 — The chart's tallest bar was not an event
+
+The Exceptions chart showed 27 at the right-hand edge, towering over every
+other day. Nothing spiked: `alts_documents_unconfirmed_count` is the review
+queue's standing depth, dated at the run rather than at a business day, and on
+a daily axis it becomes a fake event. `alts_cross_document_valid_rate` did the
+quiet version in the Accuracy trend — one point, invisible as a line, still
+holding a legend slot.
+
+Both charts now take only metrics with a real series, using the same threshold
+the tiles and the SLO verdicts already share. Nothing is lost: those two are in
+the tile strip, where a single current value is the right shape.
+
+**Third surface, same mistake.** A tile that showed one day's attainment as
+though it were a rate; a service level that could never be judged; now a chart.
+Every time: a metric rendered in a frame implying a grain it does not have,
+and every time it looked like a plausible number rather than an error.
+
+The deeper cause is upstream and is recorded rather than fixed: `dq_metrics`
+carries two kinds of thing in one shape — measurements of a business day, and
+facts about now — so every consumer re-derives which it is holding. A `grain`
+column would say it once; it would also touch the register, the projection, the
+exporter and three consumers, and the threshold covers the symptom everywhere
+today.
+
+`internal` 43/43 (2 new), typecheck, prettier, build clean. D-087.

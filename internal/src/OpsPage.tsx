@@ -292,15 +292,37 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
             <div className="grid cols-2">
                 <div className="card">
                     <h2>Accuracy trend</h2>
-                    <AccuracyTrendChart rows={accuracy} dark={dark} />
+                    <AccuracyTrendChart rows={asSeries(accuracy)} dark={dark} />
                 </div>
                 <div className="card">
                     <h2>Exceptions per day</h2>
-                    <ExceptionsChart rows={exceptions} dark={dark} />
+                    <ExceptionsChart rows={asSeries(exceptions)} dark={dark} />
                 </div>
             </div>
         </>
     );
+}
+
+/** Only the metrics that are actually a time series.
+ *
+ *  Not every metric in `dq_metrics` has a daily grain. Some are a standing
+ *  fact dated at the run — the alts review queue's depth, for instance, is
+ *  "how many documents are waiting right now", not "how many arrived today".
+ *  Drawn on a daily axis beside real daily counts, one such row becomes a
+ *  single bar at the right-hand edge that reads as a spike on the last day; in
+ *  a line chart it is a lone point that renders as nothing at all while still
+ *  taking a slot in the legend.
+ *
+ *  Both are the same mistake this page has now made on three surfaces — a
+ *  tile, a service level and a chart: **rendering a metric in a frame that
+ *  implies a grain it does not have.** These metrics are not lost; they are in
+ *  the tile strip above, where a single current value is exactly the right
+ *  shape.
+ */
+function asSeries(rows: DqMetricRow[]): DqMetricRow[] {
+    const days = new Map<string, number>();
+    for (const row of rows) days.set(row.metric, (days.get(row.metric) ?? 0) + 1);
+    return rows.filter((r) => (days.get(r.metric) ?? 0) >= MIN_DAYS_FOR_ATTAINMENT);
 }
 
 /** Three states, not two. An SLO with too little history to judge is neither

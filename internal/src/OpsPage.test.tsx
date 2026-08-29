@@ -533,3 +533,53 @@ describe("OpsPage tile groups", () => {
         expect(screen.getByText("Freshness")).toBeInTheDocument();
     });
 });
+
+describe("OpsPage charts", () => {
+    it("keeps a standing count out of the daily charts", () => {
+        // alts_documents_unconfirmed_count is queue depth dated at the run, not
+        // a count of things that happened that day. One bar at the right-hand
+        // edge of a daily axis reads as a spike on the last day.
+        const daily: DqMetricRow[] = Array.from({ length: 10 }, (_, i) => ({
+            asOf: `2026-08-${String(i + 1).padStart(2, "0")}`,
+            dimension: "exceptions" as const,
+            metric: "holdings_findings_count",
+            value: 3,
+            passed: null,
+            detail: "3 cross-format findings",
+        }));
+        const standing: DqMetricRow[] = [
+            {
+                asOf: "2026-08-29",
+                dimension: "exceptions",
+                metric: "alts_documents_unconfirmed_count",
+                value: 27,
+                passed: null,
+                detail: "27 private-fund documents have no confirmed values yet",
+            },
+        ];
+        render(
+            <OpsPage
+                rows={[...rows, ...daily, ...standing]}
+                registry={[]}
+                slos={[]}
+                dark={false}
+            />,
+        );
+        // Charted metrics appear in their legend; this one must not.
+        expect(screen.getByText("Cross-format findings")).toBeInTheDocument();
+        expect(screen.queryByText("Alts awaiting review")).not.toBeInTheDocument();
+    });
+
+    it("still charts a metric once it has a real series", () => {
+        const series: DqMetricRow[] = Array.from({ length: 8 }, (_, i) => ({
+            asOf: `2026-08-${String(i + 1).padStart(2, "0")}`,
+            dimension: "exceptions" as const,
+            metric: "fx_rate_stale_days_count",
+            value: 0,
+            passed: null,
+            detail: "no stale rates",
+        }));
+        render(<OpsPage rows={[...rows, ...series]} registry={[]} slos={[]} dark={false} />);
+        expect(screen.getByText("FX stale days")).toBeInTheDocument();
+    });
+});
