@@ -105,7 +105,7 @@ Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
 guardrail, not free-tier-and-forget.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-075); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-076); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
@@ -142,6 +142,10 @@ metric view and cites it as the source — see
 
 ## Phases
 
+The plan, its quarterly review date, and what this project has explicitly
+decided *not* to do are in [docs/ROADMAP.md](docs/ROADMAP.md); who each
+surface is for is in [docs/PERSONAS.md](docs/PERSONAS.md).
+
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Foundations — repo, local Postgres, docs | ✅ done |
@@ -152,8 +156,8 @@ metric view and cites it as the source — see
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ✅ done |
 | 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
-| 8 | Observability stack — metrics, dashboards, paging | ⬜ |
-| 9 | Data governance — Critical Data Element register, publisher-obligation gate, lineage and a semantic layer | 🔶 in progress |
+| 8 | Observability stack — metrics, dashboards, paging | 🔶 in progress |
+| 9 | Data governance — CDE register, publisher-obligation gate, service levels, semantic layer | 🔶 in progress |
 
 Failure and data-freshness alerting already run on the daily pipeline (a
 job-failure email, a long-run warning, and a freshness gate that fails the

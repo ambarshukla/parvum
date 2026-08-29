@@ -1317,3 +1317,23 @@ Checks: governance 48 (5 new), ingest 118, reference 40(+1), export 50, alts-hit
 through jOOQ's H2 and every tenant schema migrating for real; internal 22/22
 (3 new), typecheck, prettier and build clean. Gate: **353 published / 353
 classified, 35 critical, 30 controlled (85.7%), 5 stated gaps.**
+
+## 2026-08-29 — Four personas, and a roadmap with a review date on it
+
+Two documents, no code. `docs/PERSONAS.md` names the four people the platform
+already serves — consumer, producer, operator, analyst — and gives each a
+surface, an enablement path, and a **self-serve ceiling**. The ceiling is the
+interesting column: what a persona cannot do for themselves is the design
+decision, and a consumer's inability to ask a new question is deliberate rather
+than a gap.
+
+`docs/ROADMAP.md` publishes the plan with a named next review date
+(2026-10-01), a changelog, a parked list where every entry carries the trigger
+that would revive it, and an **explicitly not doing** section — real client
+data, production-scale benchmarks, a second orchestrator. Parked and refused
+are different commitments, and a roadmap that only ever grows is a wish list.
+
+An executive persona is named as a deliberate omission rather than left out
+silently: real in a bigger organisation, architecture theatre at this size.
+
+D-076. Both linked from the README and from `RUNBOOK.md`.
