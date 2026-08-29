@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dqMetricLabel } from "./format";
+import { dqMetricLabel, sloLabel } from "./format";
 
 describe("dqMetricLabel", () => {
     it("prefers the curated label where there is one", () => {
@@ -31,5 +31,32 @@ describe("dqMetricLabel", () => {
         for (const metric of ["a_b_c", "already Fine", "single", "trailing_"]) {
             expect(dqMetricLabel(metric)).not.toContain("_");
         }
+    });
+});
+
+describe("sloLabel", () => {
+    it("uses the curated label, including acronym casing the fallback cannot infer", () => {
+        expect(sloLabel("fx_integrity")).toBe("FX integrity");
+        expect(sloLabel("cash_ledger_integrity")).toBe("Cash ledger integrity");
+    });
+
+    it("does not surface a medallion layer name to an ops reader", () => {
+        // `gold_freshness` is the register's identifier; "gold" is the
+        // pipeline's vocabulary, not the reader's.
+        expect(sloLabel("gold_freshness")).toBe("Data freshness");
+    });
+
+    it("humanises an unknown service level rather than rendering the identifier", () => {
+        expect(sloLabel("some_new_promise")).toBe("Some new promise");
+        expect(sloLabel("some_new_promise")).not.toContain("_");
+    });
+});
+
+describe("dqMetricLabel — the metrics added after the last labelling miss", () => {
+    it("names every metric the pipeline currently publishes", () => {
+        expect(dqMetricLabel("alts_cross_document_valid_rate")).toBe("Alts document validity");
+        expect(dqMetricLabel("alts_documents_unconfirmed_count")).toBe("Alts awaiting review");
+        expect(dqMetricLabel("fx_rate_plausibility_rate")).toBe("FX rate plausibility");
+        expect(dqMetricLabel("fx_rate_stale_days_count")).toBe("FX stale days");
     });
 });

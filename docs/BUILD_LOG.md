@@ -1550,3 +1550,45 @@ when it pinned the conversion against a live probe instead of a fixture, and it
 is why the loud stop matters more here than a wider type map would.
 
 `export` 52 tests (2 new).
+
+## 2026-08-29 — The tile said 0% when the answer was 61%
+
+A screenshot of the live Ops page showed `ALTS CROSS DOCUMENT VALID RATE — 0%`.
+The real rate is 60.9%. The tile's arithmetic was right: accuracy tiles render
+SLA *attainment*, and the metric had one day of history, so `0/1` rendered as
+a percentage under a label naming a rate. Two correct numbers, one answering a
+different question — the fourth time this project has met that shape.
+
+One root cause with two symptoms: `fx_rate_plausibility_rate` and
+`alts_cross_document_valid_rate` were published as single `CURRENT_DATE` rows
+rather than daily series. That produced the misleading tile *and* left
+`fx_integrity` reading "not enough history" one section below.
+
+Four fixes. `fx_rate_plausibility_rate` is now a daily series over the dates
+the estate reports on — verified live: **95 rows, all plausible, 0 stale**,
+matching the other accuracy metrics exactly, which turns `fx_integrity` from
+unmeasurable into Met. The tile stops reporting attainment below seven days
+and shows the metric's own value instead, mirroring `MIN_DAYS_FOR_VERDICT` in
+the gold job. The four unnamed metrics got curated labels, and SLOs got a
+label map of their own.
+
+**And a ninth gate rule, `unlabelled_metric`.** The 2026-08-25 fix humanised
+the label fallback, which made the symptom cosmetic and left the cause alone —
+so four days later the same author shipped four more unnamed metrics. A
+humanising fallback also cannot be right: it has no way to know `fx` is an
+acronym, so `fx_integrity` reached a live screen as "Fx integrity". The gate
+now fails a build where the DQ layer publishes a metric, or the register
+declares a service level, that the Ops page has no label for. `governance`
+reads `internal/src/format.ts` the way it already reads `spark/*.py` —
+importing nothing, judging what it finds.
+
+Proven by negative control: stripping one metric label and one SLO label from a
+copy of `format.ts` produced exactly two findings naming both. The scanner
+raises on a renamed or unparseable map rather than passing vacuously.
+
+`gold_freshness` now reads "Data freshness" — a medallion layer is the
+pipeline's vocabulary, not an operator's.
+
+Checks: governance 73 (7 new), export 52, ingest 118, reference 40(+1),
+alts-hitl 65, ruff clean; internal 28/28 (4 new), typecheck, prettier, build
+clean. Gate: 363/363, 94.4%, nine rules. D-082.

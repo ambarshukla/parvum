@@ -1406,32 +1406,56 @@ print("dq_fx_plausibility rows:", spark.table(f"{SCHEMA}.dq_fx_plausibility").co
 
 # COMMAND ----------
 
+# A daily series, one row per reported date -- not the single as-of-now row
+# this first shipped as. Two things went wrong with one row, and they are the
+# same mistake seen from two sides:
+#
+#   * `fx_integrity` could never be judged. Attainment needs a window, and a
+#     metric with one day of history reads "not enough history" forever -- the
+#     exact limitation `bronze_days_behind` has, except this one was
+#     self-inflicted on data that is per-date already.
+#   * The Ops tile showed a number that was not the number it was labelled
+#     with. The accuracy tiles render *SLA attainment*, so a one-row metric
+#     rendered 0% or 100% directly beneath a label naming a rate.
+#
+# Restricted to the dates the estate actually reports on: the rate series runs
+# back to 2024 to convert historical alts statements, but the promise this
+# metric evidences is about the figures we publish, and stretching the ops
+# trend chart back two years to say so would be a worse answer.
 spark.sql(  # noqa: F821
     f"""INSERT INTO {SCHEMA}.dq_metrics
-    WITH counts AS (
-        SELECT COUNT(*) AS checked,
-               SUM(CASE WHEN plausible THEN 1 ELSE 0 END) AS ok,
-               SUM(CASE WHEN stale THEN 1 ELSE 0 END) AS stale_days
-        FROM {SCHEMA}.dq_fx_plausibility
-        WHERE plausible IS NOT NULL
+    WITH reported_days AS (
+        SELECT DISTINCT as_of FROM {SCHEMA}.gold_client_wealth
+    ),
+    per_day AS (
+        SELECT f.as_of, f.plausible, f.stale, f.daily_move, f.days_carried
+        FROM {SCHEMA}.dq_fx_plausibility f
+        JOIN reported_days d ON d.as_of = f.as_of
+        WHERE f.plausible IS NOT NULL
     )
-    -- Dated at the run, not per business day: unlike the other accuracy
-    -- metrics this one judges a reference series the whole estate shares, so
-    -- one row saying "the rate series is sound" is the useful shape.
-    SELECT CURRENT_DATE() AS as_of, 'accuracy' AS dimension, 'fx_rate_plausibility_rate' AS metric,
-           CAST(ok / NULLIF(checked, 0) AS DECIMAL(14,6)) AS value,
-           ok = checked AS passed,
-           CONCAT(CAST(ok AS STRING), ' of ', CAST(checked AS STRING),
-                  ' FX rates moved plausibly and were not carried too far') AS detail,
+    SELECT as_of, 'accuracy' AS dimension, 'fx_rate_plausibility_rate' AS metric,
+           CAST(CASE WHEN plausible THEN 1 ELSE 0 END AS DECIMAL(14,6)) AS value,
+           plausible AS passed,
+           CASE WHEN plausible
+                THEN CONCAT('rate moved ', CAST(ROUND(daily_move * 100, 3) AS STRING),
+                            '% and was carried ', CAST(days_carried AS STRING), ' day(s)')
+                ELSE CONCAT('rate moved ', CAST(ROUND(daily_move * 100, 3) AS STRING),
+                            '% or was carried ', CAST(days_carried AS STRING),
+                            ' day(s) -- outside the band or past the ECB calendar')
+           END AS detail,
            current_timestamp() AS rebuilt_at
-    FROM counts
+    FROM per_day
     UNION ALL
-    SELECT CURRENT_DATE() AS as_of, 'exceptions' AS dimension, 'fx_rate_stale_days_count' AS metric,
-           CAST(stale_days AS DECIMAL(14,6)) AS value, CAST(NULL AS BOOLEAN) AS passed,
-           CONCAT(CAST(stale_days AS STRING),
-                  ' dates used a rate carried forward further than the ECB calendar explains') AS detail,
+    SELECT as_of, 'exceptions' AS dimension, 'fx_rate_stale_days_count' AS metric,
+           CAST(CASE WHEN stale THEN 1 ELSE 0 END AS DECIMAL(14,6)) AS value,
+           CAST(NULL AS BOOLEAN) AS passed,
+           CASE WHEN stale
+                THEN CONCAT('rate carried ', CAST(days_carried AS STRING),
+                            ' days -- further than the ECB calendar explains')
+                ELSE 'rate carried no further than the ECB calendar explains'
+           END AS detail,
            current_timestamp() AS rebuilt_at
-    FROM counts"""
+    FROM per_day"""
 )
 
 # COMMAND ----------

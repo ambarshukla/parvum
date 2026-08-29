@@ -27,6 +27,10 @@ plus the gate that keeps the register honest.
 - `metric_views.py` — reads the semantic layer's declared measures and their
   business definitions out of `spark/metric_views/*.sql`, so the gate can
   govern the measures too, not only the columns.
+- `ops_labels.py` — reads the Ops page's curated label maps out of
+  `internal/src/format.ts`. `dq_metrics` and the SLO block are both open by
+  design, so nothing connects publishing a figure to naming it for a reader —
+  a gap that reached production twice before this rule existed.
 - `evaluation.py` — `parvum-governance-eval`: does any of this actually help
   an AI? Eight questions asked twice, with column names alone and with the
   full metadata, both executed against the warehouse and scored against
@@ -54,6 +58,8 @@ step, or leaves a promise nobody is on the hook for:
 | `invalid_reference` | the register points at an unknown owner, tier, SLO, or a quality rule the DQ layer does not compute |
 | `unheld_slo` | a service level is declared but no critical element is held to it — the mirror of `orphan`, and, since attainment is computed from the SLOs elements cite, an unheld one is never measured either |
 | `broken_contract` | a declared grain or foreign-key column the table does not publish, a foreign key pointing at a column no job publishes, an unknown join cardinality, or a table with a critical element and no narrative `context` |
+| `undefined_measure` | a metric view publishes a measure or dimension with no business definition |
+| `unlabelled_metric` | the DQ layer publishes a metric, or the register declares a service level, that the Ops page has no display label for — a figure put in front of a person must be named for that person |
 
 The tiers themselves are defined in `registry.py`, deliberately not in
 the YAML: a register able to relax its own rules would not be a control.
