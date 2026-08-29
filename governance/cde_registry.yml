@@ -319,6 +319,12 @@ tables:
   dq_slo_attainment:
     owner: data-quality
     default_tier: supporting
+    context: >-
+      Whether the estate is meeting what it promised: attainment and error-budget consumption per
+      named service level, over the trailing window each one declares. Two service levels are
+      breached here by design, because the feed generator injects defects deliberately (D-011);
+      docs/RUNBOOK.md says which and why.
+    grain: [slo]
     columns:
       slo:
       objective:
@@ -369,6 +375,12 @@ tables:
   dq_cross_field_invariants:
     owner: data-quality
     default_tier: supporting
+    context: >-
+      Assertions that published figures describing the same fact agree with each other, an
+      aggregate against the parts that reconstruct it. The class of check that would have caught
+      the two defects a person found first (D-073), because writing one needs no theory of what
+      might break it.
+    grain: [as_of, invariant, scope]
     columns:
       as_of:
       invariant:
@@ -390,6 +402,15 @@ tables:
   dq_return_plausibility:
     owner: data-quality
     default_tier: supporting
+    context: >-
+      The bound on how far client wealth may move in a day without a declared book restatement,
+      computed from the raw wealth series rather than the published return, so a restatement
+      cannot hide inside the NULL it causes there (D-070).
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -469,6 +490,19 @@ tables:
   gold_alts_holdings:
     owner: alts-operations
     default_tier: supporting
+    context: >-
+      Private-fund positions per client: commitment, called and unfunded capital, NAV and
+      multiple. Every term of the multiple comes from the same confirmed document and the same
+      as-of date (D-072); mixing documents is what made this table wrong for weeks. Figures a
+      human has not yet confirmed are excluded and counted separately, never silently assumed.
+    grain: [client_id, fund_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
+      - column: account_id
+        references: gold_ownership.account_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -565,6 +599,16 @@ tables:
   gold_asset_allocation:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      What the wealth is made of: one row per client per date per asset class, reconstructing the
+      same total gold_client_wealth reports by a different aggregation path. Cash is an asset
+      class here, and so are Alternatives, which is why the weights sum to one against total
+      wealth rather than against positions.
+    grain: [as_of, client_id, asset_class]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -590,6 +634,17 @@ tables:
   gold_client_wealth:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The headline client report: one row per client family per valuation date, carrying
+      positions, cash and private-fund NAV summed to a single wealth figure in USD, plus the
+      reconciliation verdict attached to it. Everything a client statement leads with comes from
+      here. Amounts are owner-prorated, so a shared account contributes each family its own
+      fraction and a SUM across clients does not double-count.
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_ownership.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -666,6 +721,14 @@ tables:
   gold_income:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      Dividends and interest by calendar month. Income only: fees and trades move value between a
+      portfolio's own pockets and are flows, not income, so they are deliberately absent.
+    grain: [client_id, month, type]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -685,6 +748,18 @@ tables:
   gold_ownership:
     owner: reference-data
     default_tier: supporting
+    context: >-
+      The ownership graph, flattened: which client families own which accounts and in what
+      proportion. One account is shared 60/40 between two families, which is the case every
+      prorated figure in gold exists to handle correctly.
+    grain: [account_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       account_id:
       client_id:
@@ -696,6 +771,16 @@ tables:
   gold_performance:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The daily return chain: wealth, the client's own flows, any declared book restatement, and
+      the time-weighted return computed with both removed. The index links straight through a
+      restatement day rather than compounding it, because a change of scale is not performance
+      (D-070).
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -769,6 +854,16 @@ tables:
   gold_performance_summary:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      One row per client: the same window measured three ways, time-weighted, Modified Dietz and
+      money-weighted IRR. They disagree by construction over short periods, and
+      docs/PERFORMANCE_METHODOLOGY.md explains where and why. Reporting only one of them would
+      hide the disagreement rather than resolve it.
+    grain: [client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: one_to_one
     columns:
       client_id:
       client_name:
@@ -847,6 +942,18 @@ tables:
   gold_reconciliation_exceptions:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The drill-down behind the dashboard's reconciliation badge: one row per currently-broken
+      account, with the signed gap in the account's own currency and in USD. Exists so a verdict
+      on a client screen can be traced to the account and figure that caused it (D-065).
+    grain: [client_id, account_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
+      - column: account_id
+        references: gold_ownership.account_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -867,6 +974,15 @@ tables:
   gold_top_holdings:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The ten largest positions per client on the latest date. Weight is the share of the client's
+      positions value, the conventional holdings-report basis, not of total wealth, so these
+      weights do not sum to the allocation table's.
+    grain: [as_of, client_id, rank]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -910,6 +1026,11 @@ tables:
   silver_account_owners:
     owner: reference-data
     default_tier: supporting
+    context: >-
+      The resolved ownership bridge: the effective fraction of each account held by each client
+      family, materialised so downstream layers never re-walk the graph. Fractions for an account
+      sum to exactly one, which is asserted daily.
+    grain: [account_id, client_id]
     columns:
       account_id:
       client_id:
@@ -938,6 +1059,17 @@ tables:
   silver_cash_balance_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Cash balances attributed to owners, on the same separate-grain principle as the position
+      owners table.
+    grain: [as_of, account_id, balance_type, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:
@@ -962,6 +1094,17 @@ tables:
   silver_cash_transaction_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Cash movements attributed to owners. The source of every flow figure in the performance
+      chain, which is why a missing movement here distorts returns rather than merely cash.
+    grain: [as_of, account_id, transaction_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:
@@ -994,6 +1137,19 @@ tables:
   silver_position_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Positions attributed to owners. Deliberately a separate table from silver_positions rather
+      than extra columns on it: exploding owners into the positions table would make a naive SUM
+      over a shared account double-count, and separate grains make the safe query the obvious one
+      (D-023).
+    grain: [as_of, account_id, security_scheme, security_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:

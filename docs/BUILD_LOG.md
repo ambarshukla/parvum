@@ -1337,3 +1337,34 @@ An executive persona is named as a deliberate omission rather than left out
 silently: real in a bigger organisation, architecture theatre at this size.
 
 D-076. Both linked from the README and from `RUNBOOK.md`.
+
+## 2026-08-29 — Contracts the gate checks, instead of comments that rot
+
+The register knew what each column meant and who owned it, and nothing about
+how the tables fit together: what one row represents, which columns join to
+which, whether a join can fan out. That is exactly the metadata an analyst
+needs before using a dataset unaided and a model needs before generating a
+correct join — and the conventional home for it is a catalog comment, which is
+also the problem. A comment saying "joins to silver_account_owners" reads as
+authoritative, is checked by nothing, and rots the moment a column is renamed.
+
+Tables now declare `grain`, `foreign_keys` (with a cardinality from a closed
+set) and a `context` sentence, and a seventh gate rule, `broken_contract`,
+resolves every one of them against the scanned inventory on each pull request.
+Sixteen tables — the ones carrying a critical element — got a paragraph saying
+what they are for; the rest owe nothing, because requiring it everywhere is how
+a metadata field becomes noise.
+
+**Proven by negative control, not just by tests.** Renaming one end of a real
+declared join in a copy of the register (`gold_ownership.account_id` →
+`.acct_id`) produced exactly one finding naming the broken reference. Five new
+unit tests pin the rest: a resolving contract passes; a phantom grain column, a
+foreign key to a column nobody publishes, an unknown cardinality, and a missing
+context each fail.
+
+Writing the base test fixture's own `context` was itself the rule working — the
+fixture publishes a critical element, so it owed one like any other table.
+
+Held honestly: the contracts are verified in CI and stop there. Pushing them
+into `COLUMN_COMMENTS` so an AI reading Unity Catalog inherits them is the
+obvious next step and is not claimed. D-077. governance 53 tests (5 new).

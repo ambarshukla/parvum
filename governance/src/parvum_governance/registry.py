@@ -91,14 +91,51 @@ class ColumnEntry:
         return bool(self.quality_rules) or bool(self.control_gap)
 
 
+#: Join cardinalities a foreign key may declare. Deliberately a short closed
+#: set: the point of declaring cardinality is that a consumer (or a model
+#: generating a join) knows whether the join can fan out, and a free-text
+#: field would answer that question differently every time it was written.
+CARDINALITIES = ("many_to_one", "one_to_one")
+
+
+@dataclass(frozen=True)
+class ForeignKey:
+    """A declared join from one published column to another.
+
+    Contracts like this are usually written into a catalog comment, where
+    nothing checks them and they rot silently. Here the gate resolves both
+    ends against the scanned inventory, so a declared join that no longer
+    exists fails the build like any other broken reference.
+    """
+
+    column: str
+    references_table: str
+    references_column: str
+    cardinality: str
+
+    @property
+    def references(self) -> str:
+        return f"{self.references_table}.{self.references_column}"
+
+
 @dataclass(frozen=True)
 class TableEntry:
-    """A registered table: its owner, its fallback tier, and its columns."""
+    """A registered table: its owner, its fallback tier, its columns, and the
+    contracts a consumer needs in order to use it without asking someone."""
 
     name: str
     owner: str | None
     default_tier: str | None
     columns: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: What one row means, as the columns that make it unique. The most
+    #: load-bearing property of a table (D-023): mixing grains is how
+    #: double-counting happens, and a consumer cannot infer it from a schema.
+    grain: tuple[str, ...] = ()
+    #: How this table joins to the rest of the estate.
+    foreign_keys: tuple[ForeignKey, ...] = ()
+    #: What the table is for, in prose — the thing a model or a new analyst
+    #: needs that a column list cannot supply.
+    context: str | None = None
 
 
 @dataclass(frozen=True)
@@ -245,6 +282,47 @@ def load_registry(path: Path) -> Registry:
                 column: _check_entry_shape(entry, where=f"{name}.{column}")
                 for column, entry in columns_raw.items()
             },
+            grain=_load_grain(body.get("grain"), path, name),
+            foreign_keys=_load_foreign_keys(body.get("foreign_keys"), path, name),
+            context=body.get("context"),
         )
 
     return Registry(owners=owners, slos=slos, common_columns=common_columns, tables=tables)
+
+
+def _load_grain(raw: Any, path: Path, table: str) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(c, str) for c in raw):
+        raise RegistryError(f"{path.name}: table {table!r} grain must be a list of column names")
+    return tuple(raw)
+
+
+def _load_foreign_keys(raw: Any, path: Path, table: str) -> tuple[ForeignKey, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise RegistryError(f"{path.name}: table {table!r} foreign_keys must be a list")
+    keys: list[ForeignKey] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise RegistryError(f"{path.name}: {table!r} foreign_keys entries must be mappings")
+        missing = sorted({"column", "references", "cardinality"} - set(item))
+        if missing:
+            raise RegistryError(f"{path.name}: {table!r} foreign key is missing {missing}")
+        reference = item["references"]
+        if not isinstance(reference, str) or reference.count(".") != 1:
+            raise RegistryError(
+                f"{path.name}: {table!r} foreign key references {reference!r}; "
+                f"expected exactly one 'table.column'"
+            )
+        referenced_table, referenced_column = reference.split(".")
+        keys.append(
+            ForeignKey(
+                column=item["column"],
+                references_table=referenced_table,
+                references_column=referenced_column,
+                cardinality=item["cardinality"],
+            )
+        )
+    return tuple(keys)

@@ -27,6 +27,7 @@ tables:
   gold_thing:
     owner: client-reporting
     default_tier: supporting
+    context: what this table is for, in prose
     columns:
       as_of:
       value_usd:
@@ -212,3 +213,65 @@ def test_the_real_repository_passes_its_own_gate():
     assert result.coverage.classified_pct == 100.0
     # The critical list is meant to stay a small, defensible minority.
     assert 0 < result.coverage.critical < result.coverage.published * 0.15
+
+
+CONTRACT_REGISTER = REGISTER.replace(
+    "    context: what this table is for, in prose\n",
+    "    context: what this table is for, in prose\n"
+    "    grain: [as_of]\n"
+    "    foreign_keys:\n"
+    "      - column: as_of\n"
+    "        references: gold_thing.as_of\n"
+    "        cardinality: many_to_one\n",
+)
+
+
+def test_a_declared_contract_that_resolves_passes(tmp_path):
+    result = run(tmp_path, published("as_of", "value_usd"), CONTRACT_REGISTER)
+    assert result.passed
+
+
+def test_a_foreign_key_pointing_at_a_column_nobody_publishes_fails(tmp_path):
+    # The rule that earns this whole block. Join keys usually live in catalog
+    # comments where nothing checks them, so they rot the first time a column
+    # is renamed and the reader cannot tell.
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("references: gold_thing.as_of", "references: gold_thing.renamed"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "no job publishes that column" in result.findings[0].message
+
+
+def test_a_grain_column_the_table_does_not_publish_fails(tmp_path):
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("grain: [as_of]", "grain: [as_of, dropped_column]"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "does not publish it" in result.findings[0].message
+
+
+def test_an_unknown_join_cardinality_is_rejected(tmp_path):
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("cardinality: many_to_one", "cardinality: sort_of_one"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "unknown cardinality" in result.findings[0].message
+
+
+def test_a_table_with_a_critical_element_must_say_what_it_is_for(tmp_path):
+    # A table nobody consumes directly can be read from its column comments.
+    # One carrying a critical element is being read by people and models
+    # making decisions, and a column list does not say what it is *for*.
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("    context: what this table is for, in prose\n", ""),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert result.findings[0].key == "gold_thing"

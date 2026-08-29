@@ -1,6 +1,6 @@
 """The gate: reconcile the register against what the platform actually publishes.
 
-Six rules, each of which fails the build. Together they are the mechanical
+Seven rules, each of which fails the build. Together they are the mechanical
 form of a publisher's responsibilities — the point being that nobody has to
 remember them, and nobody can quietly skip them:
 
@@ -34,6 +34,19 @@ remember them, and nobody can quietly skip them:
     hook for is decoration, and — since attainment is computed from the SLOs
     the register's own elements cite — it would also never be measured. Delete
     it, or hold something to it.
+
+`broken_contract`
+    A table's declared contract does not survive contact with the inventory:
+    a grain column or a foreign-key column the table does not publish, a
+    foreign key pointing at a table or column nothing publishes, an unknown
+    cardinality, or a table with a critical element and no narrative context.
+
+    This is the rule worth understanding. Join keys, cardinality and "what is
+    this table for" are normally written into catalog comments, where they
+    read as authoritative and nothing ever checks them — so they rot the first
+    time a column is renamed, and the reader cannot tell. Declaring them here
+    means both ends resolve against the columns the jobs actually publish, and
+    a contract that stops being true fails the build.
 """
 
 from __future__ import annotations
@@ -41,7 +54,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from parvum_governance.registry import TIER_OBLIGATIONS, TIERS, Registry, load_registry
+from parvum_governance.registry import (
+    CARDINALITIES,
+    TIER_OBLIGATIONS,
+    TIERS,
+    Registry,
+    load_registry,
+)
 from parvum_governance.schema_scan import PublishedColumn, scan_dq_metric_names, scan_spark_jobs
 
 
@@ -160,6 +179,8 @@ def check(
                 )
             )
 
+    findings.extend(_check_contracts(registry, columns))
+
     for name in sorted(set(registry.slos) - slos_held):
         findings.append(
             Finding(
@@ -180,6 +201,79 @@ def check(
         critical_with_gap=critical_with_gap,
     )
     return GateResult(findings=sorted(findings, key=lambda f: (f.rule, f.key)), coverage=coverage)
+
+
+def _check_contracts(registry: Registry, columns: list[PublishedColumn]) -> list[Finding]:
+    """Resolve every declared contract against what the jobs actually publish."""
+    findings: list[Finding] = []
+    published: dict[str, set[str]] = {}
+    for column in columns:
+        published.setdefault(column.table, set()).add(column.column)
+
+    critical_tables = {
+        column.table
+        for column in columns
+        if (entry := registry.resolve(column.table, column.column)) and entry.tier == "critical"
+    }
+
+    for table in registry.tables.values():
+        own = published.get(table.name, set())
+
+        for grain_column in table.grain:
+            if grain_column not in own:
+                findings.append(
+                    Finding(
+                        "broken_contract",
+                        f"{table.name}.{grain_column}",
+                        "declared in `grain` but the table does not publish it",
+                    )
+                )
+
+        for key in table.foreign_keys:
+            if key.column not in own:
+                findings.append(
+                    Finding(
+                        "broken_contract",
+                        f"{table.name}.{key.column}",
+                        "declared as a foreign key but the table does not publish it",
+                    )
+                )
+            target = published.get(key.references_table)
+            if target is None or key.references_column not in target:
+                findings.append(
+                    Finding(
+                        "broken_contract",
+                        f"{table.name}.{key.column}",
+                        f"references {key.references} — no job publishes that column. "
+                        f"A declared join that does not resolve is worse than an "
+                        f"undeclared one, because a consumer will trust it",
+                    )
+                )
+            if key.cardinality not in CARDINALITIES:
+                findings.append(
+                    Finding(
+                        "broken_contract",
+                        f"{table.name}.{key.column}",
+                        f"unknown cardinality {key.cardinality!r}; "
+                        f"expected one of {list(CARDINALITIES)}",
+                    )
+                )
+
+        # A table nobody consumes directly can be read from its column
+        # comments. One carrying a critical element is being read by people
+        # and models making decisions, and a column list does not tell them
+        # what the table is *for*.
+        if table.name in critical_tables and not (table.context or "").strip():
+            findings.append(
+                Finding(
+                    "broken_contract",
+                    table.name,
+                    "publishes a critical element but has no `context` — say what the "
+                    "table is for in prose, not only what its columns contain",
+                )
+            )
+
+    return findings
 
 
 def _check_references(entry, registry: Registry, dq_metric_names: set[str]) -> list[Finding]:
