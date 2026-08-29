@@ -339,3 +339,74 @@ describe("OpsPage accuracy tiles", () => {
         expect(screen.getByText("SLA attained 8 of 10 days")).toBeInTheDocument();
     });
 });
+
+describe("OpsPage tile row", () => {
+    const covered: DqMetricRow[] = Array.from({ length: 10 }, (_, i) => ({
+        asOf: `2026-08-${String(i + 1).padStart(2, "0")}`,
+        dimension: "accuracy" as const,
+        metric: "cash_conformed_consistency_rate",
+        value: 1,
+        passed: true,
+        detail: "all accounts consistent",
+    }));
+    const uncovered: DqMetricRow[] = [
+        {
+            asOf: "2026-08-29",
+            dimension: "accuracy",
+            metric: "alts_cross_document_valid_rate",
+            value: 0.609375,
+            passed: false,
+            detail: "39 of 64 private-fund documents reconcile",
+        },
+    ];
+    const withSlo: SloAttainmentRow[] = [
+        {
+            slo: "cash_ledger_integrity",
+            objective: "the ledger adds up",
+            measuredBy: "cash_conformed_consistency_rate",
+            target: "99% of account-days",
+            attainmentObjective: 0.95,
+            windowDays: 30,
+            windowStart: "2026-07-30",
+            windowEnd: "2026-08-28",
+            daysMeasured: 22,
+            daysMet: 10,
+            attainment: 0.454545,
+            meetsObjective: false,
+            insufficientHistory: false,
+            errorBudgetDays: 1.1,
+            budgetConsumedDays: 12,
+            budgetRemainingPct: -9.9,
+        },
+    ];
+
+    it("gives no tile to a metric a service level already reports on", () => {
+        // The duplicate that put "35%" beside "45.5%" for the same metric.
+        render(
+            <OpsPage rows={[...covered, ...uncovered]} registry={[]} slos={withSlo} dark={false} />,
+        );
+        // It still appears once, in the Accuracy trend chart's legend — the
+        // chart is the history view and plotting it there is the point. What
+        // it must not have is a *tile* stating an attainment figure the
+        // Service levels row below states differently.
+        expect(screen.getAllByText("Cash consistency")).toHaveLength(1);
+        expect(screen.queryByText(/SLA attained 10 of 10 days/)).not.toBeInTheDocument();
+        expect(screen.getByText("Cash ledger integrity")).toBeInTheDocument();
+    });
+
+    it("keeps a tile for a metric no service level covers", () => {
+        render(
+            <OpsPage rows={[...covered, ...uncovered]} registry={[]} slos={withSlo} dark={false} />,
+        );
+        expect(screen.getAllByText("Alts document validity").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText("61%")).toBeInTheDocument();
+    });
+
+    it("shows every metric when the service levels did not load", () => {
+        // Degrading to a repeated number beats hiding quality information
+        // because a second request failed.
+        render(<OpsPage rows={[...covered, ...uncovered]} registry={[]} slos={[]} dark={false} />);
+        expect(screen.getAllByText("Cash consistency").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getAllByText("Alts document validity").length).toBeGreaterThanOrEqual(1);
+    });
+});

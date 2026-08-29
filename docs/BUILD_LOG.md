@@ -1592,3 +1592,40 @@ pipeline's vocabulary, not an operator's.
 Checks: governance 73 (7 new), export 52, ingest 118, reference 40(+1),
 alts-hitl 65, ruff clean; internal 28/28 (4 new), typecheck, prettier, build
 clean. Gate: 363/363, 94.4%, nine rules. D-082.
+
+## 2026-08-29 — "This ops page is quite cluttered now tbh"
+
+The user's words, on a screenshot at 60% zoom. The clutter turned out to be a
+symptom: nine tiles sat above a Service levels table that restated eight of
+them with a *different* number, because the tiles counted attainment over all
+history and the table counts it over the window each SLO declares.
+`CASH CONSISTENCY 35%` sat two inches above `Cash ledger integrity 45.5%`,
+about the same metric.
+
+Fifth appearance of the same shape — two correct figures answering different
+questions, side by side, with nothing saying which is which.
+
+The cause is sequencing, not design. The tile row predates the Service levels
+table by a day; when D-075 added the table it superseded what the tiles were
+for, and nobody deleted them. So the fix is subtraction: a tile now says **what
+is true now**, and the table says **whether we are meeting what we promised**.
+A metric a service level already reports on loses its tile.
+
+**Nine tiles become three** — freshness, completeness, and alts document
+validity, the only accuracy metric with no service level (its data is episodic
+and cannot carry an attainment window). Verified against the live production
+API rather than guessed: six metrics dropped, one kept.
+
+Freshness and completeness stay despite having SLOs, and are not duplicates:
+the tiles state today ("1d behind", "11 of 11 files parsed"), the SLO rows
+state the window ("attained on 22 of 22 days").
+
+It degrades toward showing more: if the service-levels request fails, every
+accuracy metric gets its tile back rather than the page quietly hiding quality
+information because a second request failed.
+
+A left-hand nav pane was considered and rejected — it would hide the
+contradiction rather than resolve it, and cost the property that makes this
+page work in a demo: one scroll, the whole story.
+
+`internal` 31/31 (3 new), typecheck, prettier, build clean. D-083.
