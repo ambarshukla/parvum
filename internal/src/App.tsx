@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
-import { checkSession, demoLogin, fetchCdeRegistry, fetchDqMetrics, logout } from "./api";
+import {
+    checkSession,
+    demoLogin,
+    fetchCdeRegistry,
+    fetchDqMetrics,
+    fetchSloAttainment,
+    logout,
+} from "./api";
 import { LoginPage } from "./LoginPage";
 import { OpsPage } from "./OpsPage";
 import { ReviewQueuePage } from "./ReviewQueuePage";
-import type { CdeRegistryRow, DqMetricRow } from "./types";
+import type { CdeRegistryRow, DqMetricRow, SloAttainmentRow } from "./types";
 
 type Theme = "light" | "dark";
 type AuthState = "checking" | "out" | "in";
@@ -21,6 +28,7 @@ export function App() {
     const [page, setPage] = useState<Page>("queue");
     const [dqMetrics, setDqMetrics] = useState<DqMetricRow[] | null>(null);
     const [registry, setRegistry] = useState<CdeRegistryRow[] | null>(null);
+    const [slos, setSlos] = useState<SloAttainmentRow[] | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -50,15 +58,18 @@ export function App() {
         checkSession().then((ok) => setAuth(ok ? "in" : "out"));
     }, []);
 
-    // Both halves of the Ops page load together: the metrics carry the
-    // headline rates, the register carries the named gaps behind them, and a
-    // page showing one without the other reads as a verdict with no evidence.
+    // Every part of the Ops page loads together: the metrics carry the
+    // headline rates, the service levels say whether the estate is meeting
+    // what it promised, and the register carries the named gaps behind both.
+    // A page showing one without the others reads as a verdict with no
+    // evidence.
     useEffect(() => {
         if (auth !== "in" || page !== "ops" || dqMetrics !== null) return;
-        Promise.all([fetchDqMetrics(), fetchCdeRegistry()])
-            .then(([metrics, rows]) => {
+        Promise.all([fetchDqMetrics(), fetchCdeRegistry(), fetchSloAttainment()])
+            .then(([metrics, rows, sloRows]) => {
                 setDqMetrics(metrics);
                 setRegistry(rows);
+                setSlos(sloRows);
             })
             .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
     }, [auth, page, dqMetrics]);
@@ -124,6 +135,7 @@ export function App() {
                                     <OpsPage
                                         rows={dqMetrics}
                                         registry={registry ?? []}
+                                        slos={slos ?? []}
                                         dark={theme === "dark"}
                                     />
                                 )}

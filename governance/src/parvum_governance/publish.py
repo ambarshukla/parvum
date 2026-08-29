@@ -23,8 +23,12 @@ Two shape choices worth naming:
   exporter's wire-format conversion dead. `quality_rule_count` carries the
   one thing the flattening would otherwise cost: counting without parsing.
 * **The SLO is flattened into the row** (`slo`, `slo_measured_by`,
-  `slo_target`) rather than referenced. One table that answers a question is
-  worth more here than two that need joining.
+  `slo_target`, and since D-075 the machine-readable
+  `slo_attainment_objective` / `slo_window_days`) rather than referenced. One
+  table that answers a question is worth more here than two that need
+  joining — and it means the gold layer can derive the SLO set it must
+  measure attainment for from this one landed file, with no second feed to
+  keep in step.
 """
 
 from __future__ import annotations
@@ -56,8 +60,11 @@ class SnapshotRow:
     quality_rule_count: int
     control_gap: str | None
     slo: str | None
+    slo_objective: str | None
     slo_measured_by: str | None
     slo_target: str | None
+    slo_attainment_objective: float | None
+    slo_window_days: int | None
 
 
 def build_snapshot(repo_root: Path) -> list[SnapshotRow]:
@@ -82,8 +89,11 @@ def _row(column, registry: Registry) -> SnapshotRow:
         quality_rule_count=len(entry.quality_rules) if entry else 0,
         control_gap=entry.control_gap if entry else None,
         slo=entry.slo if entry else None,
+        slo_objective=slo.objective if slo else None,
         slo_measured_by=slo.measured_by if slo else None,
         slo_target=slo.target if slo else None,
+        slo_attainment_objective=slo.attainment_objective if slo else None,
+        slo_window_days=slo.window_days if slo else None,
     )
 
 

@@ -20,11 +20,14 @@ slos:
     objective: fresh
     measured_by: bronze_days_behind
     target: 2 days
+    attainment_objective: 0.98
+    window_days: 7
 common_columns: {}
 tables:
   gold_thing:
     owner: client-reporting
     default_tier: supporting
+    context: what this table is for, in prose
     columns:
       as_of:
       value_usd:
@@ -101,7 +104,10 @@ def test_a_critical_element_must_name_a_service_level(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("        slo: gold_freshness\n", ""),
     )
-    assert rules(result) == {"incomplete_obligation"}
+    # Removing the citation breaks two things at once, and both are reported:
+    # the element owes an SLO, and the SLO it used to cite is now held by
+    # nothing at all.
+    assert rules(result) == {"incomplete_obligation", "unheld_slo"}
     assert "'slo'" in result.findings[0].message
 
 
@@ -159,7 +165,33 @@ def test_an_unknown_slo_is_rejected(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("slo: gold_freshness", "slo: made_up"),
     )
-    assert rules(result) == {"invalid_reference"}
+    # Two rules fire, and both are right: the element cites an SLO that does
+    # not exist, and the SLO that does exist is now held by nothing.
+    assert rules(result) == {"invalid_reference", "unheld_slo"}
+
+
+def test_a_service_level_nobody_is_held_to_fails(tmp_path):
+    # The mirror of `orphan`, pointed at the SLO block: a promise with no
+    # element on the hook for it is decoration — and, because attainment is
+    # computed from the SLOs the register's own elements cite, an unheld one
+    # would never be measured either. Everything else here stays valid, so the
+    # unheld SLO is the only finding.
+    second_slo = (
+        "  cash_ledger_integrity:\n"
+        "    objective: it adds up\n"
+        "    measured_by: cash_conformed_consistency_rate\n"
+        "    target: 99%\n"
+        "    attainment_objective: 0.95\n"
+        "    window_days: 30\n"
+        "common_columns: {}"
+    )
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        REGISTER.replace("common_columns: {}", second_slo),
+    )
+    assert rules(result) == {"unheld_slo"}
+    assert result.findings[0].key == "cash_ledger_integrity"
 
 
 def test_an_unknown_tier_is_rejected_and_obligations_are_not_guessed(tmp_path):
@@ -168,7 +200,8 @@ def test_an_unknown_tier_is_rejected_and_obligations_are_not_guessed(tmp_path):
         published("as_of", "value_usd"),
         REGISTER.replace("tier: critical", "tier: extremely"),
     )
-    assert rules(result) == {"invalid_reference"}
+    # No element is `critical` any more, so nothing is held to the SLO either.
+    assert rules(result) == {"invalid_reference", "unheld_slo"}
     assert result.coverage.by_tier == {"supporting": 1}
 
 
@@ -180,3 +213,65 @@ def test_the_real_repository_passes_its_own_gate():
     assert result.coverage.classified_pct == 100.0
     # The critical list is meant to stay a small, defensible minority.
     assert 0 < result.coverage.critical < result.coverage.published * 0.15
+
+
+CONTRACT_REGISTER = REGISTER.replace(
+    "    context: what this table is for, in prose\n",
+    "    context: what this table is for, in prose\n"
+    "    grain: [as_of]\n"
+    "    foreign_keys:\n"
+    "      - column: as_of\n"
+    "        references: gold_thing.as_of\n"
+    "        cardinality: many_to_one\n",
+)
+
+
+def test_a_declared_contract_that_resolves_passes(tmp_path):
+    result = run(tmp_path, published("as_of", "value_usd"), CONTRACT_REGISTER)
+    assert result.passed
+
+
+def test_a_foreign_key_pointing_at_a_column_nobody_publishes_fails(tmp_path):
+    # The rule that earns this whole block. Join keys usually live in catalog
+    # comments where nothing checks them, so they rot the first time a column
+    # is renamed and the reader cannot tell.
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("references: gold_thing.as_of", "references: gold_thing.renamed"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "no job publishes that column" in result.findings[0].message
+
+
+def test_a_grain_column_the_table_does_not_publish_fails(tmp_path):
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("grain: [as_of]", "grain: [as_of, dropped_column]"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "does not publish it" in result.findings[0].message
+
+
+def test_an_unknown_join_cardinality_is_rejected(tmp_path):
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("cardinality: many_to_one", "cardinality: sort_of_one"),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert "unknown cardinality" in result.findings[0].message
+
+
+def test_a_table_with_a_critical_element_must_say_what_it_is_for(tmp_path):
+    # A table nobody consumes directly can be read from its column comments.
+    # One carrying a critical element is being read by people and models
+    # making decisions, and a column list does not say what it is *for*.
+    result = run(
+        tmp_path,
+        published("as_of", "value_usd"),
+        CONTRACT_REGISTER.replace("    context: what this table is for, in prose\n", ""),
+    )
+    assert rules(result) == {"broken_contract"}
+    assert result.findings[0].key == "gold_thing"

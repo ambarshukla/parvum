@@ -55,36 +55,90 @@ owners:
     provenance and rebuild timestamps.
 
 # Named service levels. `measured_by` must be a metric `dq_metrics` really
-# computes, so an SLO can always be evidenced. These are objectives the
-# estate is held to, not claims about current attainment — measuring
-# attainment against them is the next slice of work.
+# computes, so an SLO can always be evidenced.
+#
+# `target` is the human sentence. `attainment_objective` and `window_days`
+# are the same promise in machine-readable form, and they are what turns a
+# stated objective into a measured one: the share of days in the trailing
+# window on which `measured_by` must have passed, and how long that window
+# is. `gold_reports.py` computes attainment and the error budget from these
+# into `dq_slo_attainment` (D-075).
+#
+# Two of these ship breached, and deliberately. The feed generator injects
+# defects at a rate no real custodian would (D-011), so holdings agreement
+# and cash ledger integrity fail on most days by construction. The objective
+# is what a real deployment would hold the feed to; the breach is a property
+# of the corpus, and lowering the objective to match it would make the
+# number meaningless. Left uncomfortable on purpose, and explained in
+# docs/RUNBOOK.md.
 slos:
   feed_completeness:
     objective: Every expected custodial file for a business day lands and parses.
     measured_by: files_landed_rate
     target: 100% of expected files on every business day
+    # A day that lands nothing is an incident, not a budget item, so the
+    # objective is close to total; one grace day a month absorbs a late
+    # upstream publication without hiding a broken feed.
+    attainment_objective: 0.99
+    window_days: 30
   gold_freshness:
     objective: Client-facing figures reflect the most recent custodial feeds.
     measured_by: bronze_days_behind
     target: no more than 2 days behind on any business day
+    # Short window: staleness is only interesting recently. Note
+    # bronze_days_behind is published as a single as-of-now row rather than a
+    # series, so attainment currently has one day of history to judge — a real
+    # limitation, surfaced rather than smoothed.
+    attainment_objective: 0.98
+    window_days: 7
   holdings_agreement:
     objective: Positions agree across the two custodial holdings formats.
     measured_by: holdings_cross_format_match_rate
     target: 99% of account-days or better
+    # What a real custodial feed would be held to. Breached here by design —
+    # see the note above.
+    attainment_objective: 0.95
+    window_days: 30
   cash_ledger_integrity:
     objective: Each account's cash ledger adds up — opening plus movements equals closing.
     measured_by: cash_conformed_consistency_rate
     target: 99% of account-days or better
+    # Same: the objective a real ledger would carry. Breached here by design.
+    attainment_objective: 0.95
+    window_days: 30
   cash_continuity:
     objective: Each account's closing balance carries into the next day's opening.
     measured_by: cash_day_over_day_continuity_rate
     target: 100% of account-days
+    # A break means recorded flows never landed in wealth, which distorts
+    # every flow-adjusted return downstream. Near-total.
+    attainment_objective: 0.99
+    window_days: 30
+  fx_integrity:
+    objective: >-
+      The EUR/USD reference rate every non-USD figure is converted at is sound: it moves the
+      way a market moves, and it is not being silently carried forward past the ECB's own
+      publication calendar.
+    measured_by: fx_rate_plausibility_rate
+    target: 100% of dates in the rate series
+    # A rate wrong by a lot is caught by the band; a rate wrong by a little
+    # needs a second fetch from the source, which the cluster cannot make
+    # (D-006). The objective is total because everything this check *can* see
+    # is either right or a defect -- there is no acceptable rate of corrupted
+    # exchange rates.
+    attainment_objective: 1.0
+    window_days: 30
   cross_field_consistency:
     objective: >-
       Published figures that describe the same fact agree with each other. Where an aggregate
       is accompanied by the parts that compose it, the parts reconstruct the aggregate.
     measured_by: cross_field_invariant_rate
     target: 100% of invariants, every day
+    # An identity either holds or the published figures contradict each other.
+    # There is no defensible budget for a contradiction, so the objective is
+    # total.
+    attainment_objective: 1.0
+    window_days: 30
   return_plausibility:
     objective: >-
       Every reported day-over-day move in client wealth is either small enough to be a
@@ -92,6 +146,10 @@ slos:
       report as performance that the market did not produce.
     measured_by: daily_return_plausibility_rate
     target: 100% of client-days
+    # Same reasoning: an implausible move is either a declared restatement or
+    # a defect, and neither is something to spend a budget on.
+    attainment_objective: 1.0
+    window_days: 30
 
 # Column names that mean the same thing wherever they appear, declared once.
 # A table may still override any of them for a column that genuinely differs
@@ -268,6 +326,54 @@ tables:
       cost_basis:
       cost_basis_ccy:
       ingested_at:
+  # The service levels, measured. Deliberately `supporting` throughout, with
+  # two exceptions: `attainment` and `meets_objective` are what an operator
+  # actually decides on, so they carry the obligations of an element the
+  # business consumes directly. The rest are the workings behind those two.
+  dq_slo_attainment:
+    owner: data-quality
+    default_tier: supporting
+    context: >-
+      Whether the estate is meeting what it promised: attainment and error-budget consumption per
+      named service level, over the trailing window each one declares. Two service levels are
+      breached here by design, because the feed generator injects defects deliberately (D-011);
+      docs/RUNBOOK.md says which and why.
+    grain: [slo]
+    columns:
+      slo:
+      objective:
+      measured_by:
+      target:
+      attainment_objective:
+      window_days:
+      window_start:
+      window_end:
+      days_measured:
+      days_met:
+      attainment:
+        tier: critical
+        definition: >-
+          The service level actually achieved over the window — the share of measured days on
+          which the metric evidencing this SLO passed. It is the number an operator reports
+          upward and the number a breach conversation starts from, so an attainment that
+          silently drifted from its own evidence would misstate the health of the estate to
+          the people deciding what to fix.
+        slo: cross_field_consistency
+        quality_rules: [cross_field_invariant_rate]
+      meets_objective:
+        tier: critical
+        definition: >-
+          Whether this service level is being met: attainment against the declared objective,
+          or NULL where too little history exists to judge. The verdict that decides whether
+          anyone is called. A false green here is worse than no measurement, because it
+          converts an unmeasured risk into a managed-looking one.
+        slo: cross_field_consistency
+        quality_rules: [cross_field_invariant_rate]
+      insufficient_history:
+      error_budget_days:
+      budget_consumed_days:
+      budget_remaining_pct:
+      rebuilt_at:
   dq_cash_continuity:
     owner: data-quality
     default_tier: supporting
@@ -283,6 +389,12 @@ tables:
   dq_cross_field_invariants:
     owner: data-quality
     default_tier: supporting
+    context: >-
+      Assertions that published figures describing the same fact agree with each other, an
+      aggregate against the parts that reconstruct it. The class of check that would have caught
+      the two defects a person found first (D-073), because writing one needs no theory of what
+      might break it.
+    grain: [as_of, invariant, scope]
     columns:
       as_of:
       invariant:
@@ -304,6 +416,15 @@ tables:
   dq_return_plausibility:
     owner: data-quality
     default_tier: supporting
+    context: >-
+      The bound on how far client wealth may move in a day without a declared book restatement,
+      computed from the raw wealth series rather than the published return, so a restatement
+      cannot hide inside the NULL it causes there (D-070).
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -350,6 +471,37 @@ tables:
       conformed_consistent:
       currency:
       rebuilt_at:
+  dq_fx_plausibility:
+    owner: data-quality
+    default_tier: supporting
+    context: >-
+      The check on the one reference input every non-USD figure in the estate is multiplied by.
+      Catches a corrupted rate (a moved decimal point, a transposition) through a day-over-day
+      band, and a silently stale one through the distance the published rate had to be carried
+      forward. It deliberately does not re-fetch the rate from the ECB to compare: the cluster
+      has no egress (D-006), so that half of the check belongs in the GitHub Action that lands
+      the rates, not here.
+    grain: [as_of]
+    columns:
+      as_of:
+      eur_usd:
+      prev_eur_usd:
+      daily_move:
+      band:
+      fx_rate_date:
+      days_carried:
+      stale:
+      plausible:
+        tier: critical
+        definition: >-
+          Whether the rate applied to this date is trustworthy: inside the day-over-day band and
+          not carried further forward than the ECB's publication calendar explains. A false here
+          means every EUR-denominated figure on that date is suspect by a clean proportion, which
+          is the failure mode that looks entirely plausible on a client report.
+        slo: fx_integrity
+        quality_rules:
+          - fx_rate_plausibility_rate
+      rebuilt_at:
   dq_holdings_recon:
     owner: data-quality
     default_tier: supporting
@@ -383,6 +535,19 @@ tables:
   gold_alts_holdings:
     owner: alts-operations
     default_tier: supporting
+    context: >-
+      Private-fund positions per client: commitment, called and unfunded capital, NAV and
+      multiple. Every term of the multiple comes from the same confirmed document and the same
+      as-of date (D-072); mixing documents is what made this table wrong for weeks. Figures a
+      human has not yet confirmed are excluded and counted separately, never silently assumed.
+    grain: [client_id, fund_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
+      - column: account_id
+        references: gold_ownership.account_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -429,11 +594,8 @@ tables:
         definition: >-
           Owner-prorated cumulative capital distributed by the fund, in USD.
         slo: gold_freshness
-        control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+        quality_rules:
+          - alts_cross_document_valid_rate
       unfunded_commitment_usd:
         tier: critical
         definition: >-
@@ -457,11 +619,8 @@ tables:
           Owner-prorated ending balance from the latest confirmed capital account statement, in
           USD.
         slo: gold_freshness
-        control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+        quality_rules:
+          - alts_cross_document_valid_rate
       moic:
         tier: critical
         definition: >-
@@ -469,16 +628,27 @@ tables:
           headline fund performance figure, and owner-invariant because it is a ratio.
         slo: gold_freshness
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+          The cross-document check now validates the documents this is computed from, but
+          nothing evaluates the ratio itself. D-072 is the proof that this is a real distinction:
+          every input was individually confirmed and the multiple was still four times wrong,
+          because numerator and denominator described different moments. Closing it needs a
+          check that recomputes the multiple from a single confirmed statement and compares.
       pending_review_documents:
       pending_review_latest_period:
       rebuilt_at:
   gold_asset_allocation:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      What the wealth is made of: one row per client per date per asset class, reconstructing the
+      same total gold_client_wealth reports by a different aggregation path. Cash is an asset
+      class here, and so are Alternatives, which is why the weights sum to one against total
+      wealth rather than against positions.
+    grain: [as_of, client_id, asset_class]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -504,6 +674,17 @@ tables:
   gold_client_wealth:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The headline client report: one row per client family per valuation date, carrying
+      positions, cash and private-fund NAV summed to a single wealth figure in USD, plus the
+      reconciliation verdict attached to it. Everything a client statement leads with comes from
+      here. Amounts are owner-prorated, so a shared account contributes each family its own
+      fraction and a SUM across clients does not double-count.
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_ownership.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -533,16 +714,22 @@ tables:
           recent confirmed capital account statement.
         slo: gold_freshness
         control_gap: >-
-          The alts chain is validated document-to-document in silver (commitment continuity,
-          call sequencing, statement chaining) but none of that rolls up into dq_metrics, so
-          there is no measured accuracy rate for fund figures the way there is for holdings and
-          cash. Closing it needs an alts dimension in the DQ rollup.
+          The document chain feeding this is now measured, but this column's own risks are
+          proration and forward-fill — attributing a fund's NAV across owners, and carrying the
+          last confirmed statement forward until the next one is confirmed. Neither is touched by
+          the cross-document check, so citing it here would be a loosely-related metric dressed
+          as a control. Closing it needs an invariant tying prorated alts NAV back to the
+          statement it came from.
       total_wealth_usd:
         tier: critical
         definition: >-
           The headline number: positions plus cash plus alternatives, owner-prorated and in
           USD. The figure the client reads first and the one every conversation starts from.
-        slo: gold_freshness
+        # Held to completeness rather than freshness: a stale headline is
+        # wrong by a day, but a headline computed from a day whose files did
+        # not all land is wrong by an unknown amount and looks fine. That is
+        # the more dangerous failure and the more specific promise.
+        slo: feed_completeness
         quality_rules:
           - files_landed_rate
           - holdings_cross_format_match_rate
@@ -553,12 +740,12 @@ tables:
         definition: >-
           The EUR to USD ECB reference rate applied to this date's EUR amounts. Wrong here and
           every non-USD figure in the report is wrong by the same proportion.
-        slo: gold_freshness
-        control_gap: >-
-          Nothing re-checks a landed ECB rate against its source or against a plausibility band
-          once it is in the lakehouse. A wrong or silently stale rate would misstate every
-          EUR-denominated figure while every other control still passed. Closing it needs a
-          reference-data check in dq_metrics comparing fx_rates.json against a second source.
+        # Held to rate integrity rather than to freshness: a stale rate is one
+        # failure mode of this column and a corrupted one is the other, and
+        # fx_integrity is the promise that covers both.
+        slo: fx_integrity
+        quality_rules:
+          - fx_rate_plausibility_rate
       fx_rate_date:
       books_reconcile:
         tier: critical
@@ -576,6 +763,14 @@ tables:
   gold_income:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      Dividends and interest by calendar month. Income only: fees and trades move value between a
+      portfolio's own pockets and are flows, not income, so they are deliberately absent.
+    grain: [client_id, month, type]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -595,6 +790,18 @@ tables:
   gold_ownership:
     owner: reference-data
     default_tier: supporting
+    context: >-
+      The ownership graph, flattened: which client families own which accounts and in what
+      proportion. One account is shared 60/40 between two families, which is the case every
+      prorated figure in gold exists to handle correctly.
+    grain: [account_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       account_id:
       client_id:
@@ -606,6 +813,16 @@ tables:
   gold_performance:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The daily return chain: wealth, the client's own flows, any declared book restatement, and
+      the time-weighted return computed with both removed. The index links straight through a
+      restatement day rather than compounding it, because a change of scale is not performance
+      (D-070).
+    grain: [as_of, client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -616,9 +833,14 @@ tables:
         definition: >-
           Net client contribution or withdrawal in USD on a date. Misclassifying a flow as
           market movement (or the reverse) corrupts every return figure downstream of it.
-        slo: cash_ledger_integrity
+        # Held to continuity rather than to ledger integrity: this is the flow
+        # figure, and a continuity break is precisely the case where a recorded
+        # movement never lands in wealth — which is what that SLO's objective
+        # says in so many words. Integrity still tests it, as a quality rule.
+        slo: cash_continuity
         quality_rules:
           - cash_conformed_consistency_rate
+          - cash_day_over_day_continuity_rate
       restatement_adjustment_usd:
         tier: critical
         definition: >-
@@ -674,6 +896,16 @@ tables:
   gold_performance_summary:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      One row per client: the same window measured three ways, time-weighted, Modified Dietz and
+      money-weighted IRR. They disagree by construction over short periods, and
+      docs/PERFORMANCE_METHODOLOGY.md explains where and why. Reporting only one of them would
+      hide the disagreement rather than resolve it.
+    grain: [client_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: one_to_one
     columns:
       client_id:
       client_name:
@@ -752,6 +984,18 @@ tables:
   gold_reconciliation_exceptions:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The drill-down behind the dashboard's reconciliation badge: one row per currently-broken
+      account, with the signed gap in the account's own currency and in USD. Exists so a verdict
+      on a client screen can be traced to the account and figure that caused it (D-065).
+    grain: [client_id, account_id]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
+      - column: account_id
+        references: gold_ownership.account_id
+        cardinality: many_to_one
     columns:
       client_id:
       client_name:
@@ -772,6 +1016,15 @@ tables:
   gold_top_holdings:
     owner: client-reporting
     default_tier: supporting
+    context: >-
+      The ten largest positions per client on the latest date. Weight is the share of the client's
+      positions value, the conventional holdings-report basis, not of total wealth, so these
+      weights do not sum to the allocation table's.
+    grain: [as_of, client_id, rank]
+    foreign_keys:
+      - column: client_id
+        references: gold_client_wealth.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       client_id:
@@ -806,12 +1059,20 @@ tables:
       quality_rule_count:
       control_gap:
       slo:
+      slo_objective:
       slo_measured_by:
       slo_target:
+      slo_attainment_objective:
+      slo_window_days:
       rebuilt_at:
   silver_account_owners:
     owner: reference-data
     default_tier: supporting
+    context: >-
+      The resolved ownership bridge: the effective fraction of each account held by each client
+      family, materialised so downstream layers never re-walk the graph. Fractions for an account
+      sum to exactly one, which is asserted daily.
+    grain: [account_id, client_id]
     columns:
       account_id:
       client_id:
@@ -840,6 +1101,17 @@ tables:
   silver_cash_balance_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Cash balances attributed to owners, on the same separate-grain principle as the position
+      owners table.
+    grain: [as_of, account_id, balance_type, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:
@@ -864,6 +1136,17 @@ tables:
   silver_cash_transaction_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Cash movements attributed to owners. The source of every flow figure in the performance
+      chain, which is why a missing movement here distorts returns rather than merely cash.
+    grain: [as_of, account_id, transaction_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:
@@ -896,6 +1179,19 @@ tables:
   silver_position_owners:
     owner: custody-ingestion
     default_tier: supporting
+    context: >-
+      Positions attributed to owners. Deliberately a separate table from silver_positions rather
+      than extra columns on it: exploding owners into the positions table would make a naive SUM
+      over a shared account double-count, and separate grains make the safe query the obvious one
+      (D-023).
+    grain: [as_of, account_id, security_scheme, security_id, client_id]
+    foreign_keys:
+      - column: account_id
+        references: silver_account_owners.account_id
+        cardinality: many_to_one
+      - column: client_id
+        references: silver_account_owners.client_id
+        cardinality: many_to_one
     columns:
       as_of:
       account_id:

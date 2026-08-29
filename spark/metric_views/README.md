@@ -9,8 +9,18 @@ same way instead of each re-expressing it. Full write-up with screenshots:
 
 | File | What it is |
 |------|------------|
-| `wealth_metrics.sql` | A Unity Catalog **metric view** over `gold_client_wealth`: a YAML spec of six measures and three dimensions, plus the `COMMENT` statements that carry each one's business definition. Stores no data. |
+| `wealth_metrics.sql` | Metric view over `gold_client_wealth` — the headline figures. |
+| `allocation_metrics.sql` | Metric view over `gold_asset_allocation` — what the wealth is made of. |
+| `performance_metrics.sql` | Metric view over `gold_performance` — the additive components a return is built from. Deliberately does **not** expose the returns themselves; see the file's own header for why. |
 | `apply.py` | (Re)creates every `*.sql` here on the lakehouse via the SQL Statements API. |
+
+Each file is a YAML spec of measures and dimensions plus the `COMMENT`
+statements carrying each one's business definition. They store no data.
+
+**The governance gate reads this directory.** `undefined_measure` fails the
+build when a measure or dimension has no comment — the semantic layer is a
+published surface, and a measure an AI has to guess the meaning of is not a
+contract.
 
 A metric view is a **catalog object, not a Delta table**, so the bronze → gold
 job (`databricks.yml`) does not build it. It is versioned here and applied on

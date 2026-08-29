@@ -1,17 +1,18 @@
-import type { CdeRegistryRow, DqMetricRow } from "./types";
+import type { CdeRegistryRow, DqMetricRow, SloAttainmentRow } from "./types";
 import { dqMetricLabel, longDate, percent } from "./format";
 import { AccuracyTrendChart, ExceptionsChart } from "./components/Charts";
 
 interface Props {
     rows: DqMetricRow[];
     registry: CdeRegistryRow[];
+    slos: SloAttainmentRow[];
     dark: boolean;
 }
 
 /** The pipeline-wide operations view: not scoped to any one firm's clients
  *  (see V4__dq_metrics.sql) — freshness, completeness, accuracy, and
  *  exceptions for the whole platform, over time. */
-export function OpsPage({ rows, registry, dark }: Props) {
+export function OpsPage({ rows, registry, slos, dark }: Props) {
     const freshness = rows.find((r) => r.dimension === "freshness");
     const completeness = [...rows.filter((r) => r.dimension === "completeness")].sort((a, b) =>
         b.asOf.localeCompare(a.asOf),
@@ -96,6 +97,62 @@ export function OpsPage({ rows, registry, dark }: Props) {
                 })}
             </div>
 
+            {slos.length > 0 && (
+                <>
+                    <div className="client-header" style={{ marginTop: 26 }}>
+                        <div>
+                            <h1>Service levels</h1>
+                            <div className="asof">
+                                What the estate is held to, and whether it is meeting it. Breaches
+                                first — a met objective needs no attention.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="card" style={{ marginBottom: 18 }}>
+                        <table className="data">
+                            <thead>
+                                <tr>
+                                    <th>Service level</th>
+                                    <th>Objective</th>
+                                    <th className="num">Attainment</th>
+                                    <th className="num">Window</th>
+                                    <th>Error budget</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {slos.map((s) => (
+                                    <tr key={s.slo}>
+                                        <td>
+                                            <div>{sloLabel(s.slo)}</div>
+                                            <div className="asof">{s.objective}</div>
+                                        </td>
+                                        <td>{s.target}</td>
+                                        <td className="num">
+                                            {percent(s.attainment, 1)}
+                                            <div className="asof">
+                                                target {percent(s.attainmentObjective, 0)}
+                                            </div>
+                                        </td>
+                                        <td className="num">
+                                            {s.daysMet}/{s.daysMeasured} days
+                                            <div className="asof">{s.windowDays}d window</div>
+                                        </td>
+                                        <td>{budgetText(s)}</td>
+                                        <td>
+                                            <span className={`badge ${sloBadge(s)}`}>
+                                                {sloStatus(s)}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </>
+            )}
+
             {governance.length > 0 && (
                 <>
                     <div className="client-header" style={{ marginTop: 26 }}>
@@ -175,6 +232,40 @@ export function OpsPage({ rows, registry, dark }: Props) {
             </div>
         </>
     );
+}
+
+/** `cash_ledger_integrity` -> "Cash ledger integrity". Same humanising rule
+ *  as dqMetricLabel: an SLO added in the register should read as a blemish at
+ *  worst, never as a raw identifier (the lesson from the unlabelled metrics). */
+function sloLabel(slo: string): string {
+    const words = slo.replace(/_/g, " ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Three states, not two. An SLO with too little history to judge is neither
+ *  met nor breached, and saying "met" there would be the exact false green a
+ *  service level exists to prevent. */
+function sloStatus(s: SloAttainmentRow): string {
+    if (s.insufficientHistory || s.meetsObjective === null) return "Not enough history";
+    return s.meetsObjective ? "Met" : "Breached";
+}
+
+/** Grey, not amber, for "not enough history": it is an absence of evidence,
+ *  not a warning about the estate, and colouring it as a problem would train
+ *  people to ignore the colour that means one. */
+function sloBadge(s: SloAttainmentRow): string {
+    if (s.insufficientHistory || s.meetsObjective === null) return "neutral";
+    return s.meetsObjective ? "ok" : "warn";
+}
+
+/** An objective of 1.0 has no error budget at all, so there is nothing to
+ *  report as spent — say that rather than rendering a misleading 0% or 100%. */
+function budgetText(s: SloAttainmentRow): string {
+    if (s.errorBudgetDays === 0) return "None — objective is total";
+    const remaining = s.budgetRemainingPct;
+    const spent = `${s.budgetConsumedDays} of ${s.errorBudgetDays} days spent`;
+    if (remaining === null) return spent;
+    return remaining < 0 ? `${spent} — over budget` : `${spent} — ${percent(remaining, 0)} left`;
 }
 
 function Tile({

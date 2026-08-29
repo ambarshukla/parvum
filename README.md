@@ -91,13 +91,14 @@ own tests and CI.
 | Reference & enrichment | **Python**, OpenFIGI security master, ECB FX, ownership graph | [`reference/`](reference/) |
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
 | Alts documents & HITL review | **Python**, **reportlab**, **LLM extraction (Anthropic Claude / OpenRouter)** — swappable behind one interface — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
-| Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column | [`governance/`](governance/) |
-| Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
+| Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column; named SLOs with measured attainment and error budgets; column contracts (grain, joins, cardinality) the gate verifies | [`governance/`](governance/) |
+| Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog, definitions enforced by the governance gate), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
 | Internal tools (auth-gated) | **React**, **TypeScript**, **Vite** — data ops + alts review queue | [`internal/`](internal/) |
 | CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
+| Agent skills | Repo-versioned procedures an AI assistant loads — dataset discovery, wrong-number triage | [`skills/`](skills/) |
 | Infra | **Docker Compose** (local), **Terraform** (**AWS**: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
@@ -105,7 +106,7 @@ Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
 guardrail, not free-tier-and-forget.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-074); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-081); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
@@ -142,6 +143,10 @@ metric view and cites it as the source — see
 
 ## Phases
 
+The plan, its quarterly review date, and what this project has explicitly
+decided *not* to do are in [docs/ROADMAP.md](docs/ROADMAP.md); who each
+surface is for is in [docs/PERSONAS.md](docs/PERSONAS.md).
+
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Foundations — repo, local Postgres, docs | ✅ done |
@@ -152,8 +157,8 @@ metric view and cites it as the source — see
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ✅ done |
 | 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
-| 8 | Observability stack — metrics, dashboards, paging | ⬜ |
-| 9 | Data governance — Critical Data Element register, publisher-obligation gate, lineage and a semantic layer | 🔶 in progress |
+| 8 | Observability stack — metrics, dashboards, paging | 🔶 in progress |
+| 9 | Data governance — CDE register, publisher-obligation gate, service levels, semantic layer | 🔶 in progress |
 
 Failure and data-freshness alerting already run on the daily pipeline (a
 job-failure email, a long-run warning, and a freshness gate that fails the

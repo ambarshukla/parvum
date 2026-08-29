@@ -18,6 +18,8 @@ slos:
     objective: fresh
     measured_by: bronze_days_behind
     target: 2 days
+    attainment_objective: 0.98
+    window_days: 7
 common_columns:
   rebuilt_at:
     tier: operational

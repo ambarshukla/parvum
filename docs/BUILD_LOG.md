@@ -1267,3 +1267,244 @@ Held honestly: the metric view's measures are not in the CDE register (they
 inherit classification from their 1:1 source columns, but the gate does not see
 them); the Genie space's instruction text lives in the workspace, not git.
 Both are natural next slices, not done here.
+
+## 2026-08-29 — Service levels that can be missed, and a rule that found two nobody was holding
+
+The register has named seven service levels since D-067. None was measured.
+Its own comment said so — "objectives the estate is held to, not claims about
+current attainment" — and a target nobody measures can be quoted in a review
+forever without ever being missed.
+
+Each SLO now carries a machine-readable half (`attainment_objective`,
+`window_days`) beside its target sentence, and gold computes
+`dq_slo_attainment` from those against the `dq_metrics` series: one row per
+service level, with attainment, the error budget, and how much of it is spent.
+`V11` projects it, `/internal/tenants/{id}/slo-attainment` serves it, and the
+Ops page renders a **Service levels** section with breaches sorted first.
+`docs/RUNBOOK.md` is the other half: per alert, what it means, the first three
+checks, what to do, and when to escalate — plus an explicit ownership boundary
+(an operator can always re-run; an operator never edits gold).
+
+**A sixth gate rule paid for itself immediately.** `unheld_slo` fails the build
+when a declared service level has no critical element citing it — the mirror of
+`orphan`, and, since attainment is derived from what elements cite, an unheld
+SLO would also never be measured. It found two: `feed_completeness` and
+`cash_continuity`, declared since D-067 and held by nothing at all. Both were
+real promises, so both were assigned rather than deleted, using the D-073 test
+pointed at SLOs: *if this service level is breached, is this element's value
+affected?* `total_wealth_usd` moved to `feed_completeness`; `external_flow_usd`
+to `cash_continuity`.
+
+**Verified against the live warehouse before merge**, predictions first, by
+running the table's own SQL with the objectives substituted as literals. All
+seven matched. 22 business days inside the 30-day window. Four SLOs at
+1.000000 and met. `holdings_agreement` at 0.000000 with 22 days consumed
+against a 1.10-day budget; `cash_ledger_integrity` at 0.454545 — both breached
+by design, because the defect injector is doing its job (D-011), and both left
+visibly red rather than exempted. `gold_freshness` came back with one day of
+history and no verdict, which is the third state working: `bronze_days_behind`
+is published as a single as-of-now row rather than a series, so it *cannot*
+have seven days to judge. A real limitation of that metric's shape, surfaced
+rather than smoothed into a fake 100%.
+
+Both designed edge cases behaved on live data: an objective of 1.0 produced a
+zero error budget and a NULL remaining-percentage (a budget that does not exist
+cannot be part-spent), and insufficient history produced a NULL verdict in grey
+rather than a green pass.
+
+Checks: governance 48 (5 new), ingest 118, reference 40(+1), export 50, alts-hitl
+65, ruff clean on all five; serving `mvn verify` 32/32 with V11 replaying
+through jOOQ's H2 and every tenant schema migrating for real; internal 22/22
+(3 new), typecheck, prettier and build clean. Gate: **353 published / 353
+classified, 35 critical, 30 controlled (85.7%), 5 stated gaps.**
+
+## 2026-08-29 — Four personas, and a roadmap with a review date on it
+
+Two documents, no code. `docs/PERSONAS.md` names the four people the platform
+already serves — consumer, producer, operator, analyst — and gives each a
+surface, an enablement path, and a **self-serve ceiling**. The ceiling is the
+interesting column: what a persona cannot do for themselves is the design
+decision, and a consumer's inability to ask a new question is deliberate rather
+than a gap.
+
+`docs/ROADMAP.md` publishes the plan with a named next review date
+(2026-10-01), a changelog, a parked list where every entry carries the trigger
+that would revive it, and an **explicitly not doing** section — real client
+data, production-scale benchmarks, a second orchestrator. Parked and refused
+are different commitments, and a roadmap that only ever grows is a wish list.
+
+An executive persona is named as a deliberate omission rather than left out
+silently: real in a bigger organisation, architecture theatre at this size.
+
+D-076. Both linked from the README and from `RUNBOOK.md`.
+
+## 2026-08-29 — Contracts the gate checks, instead of comments that rot
+
+The register knew what each column meant and who owned it, and nothing about
+how the tables fit together: what one row represents, which columns join to
+which, whether a join can fan out. That is exactly the metadata an analyst
+needs before using a dataset unaided and a model needs before generating a
+correct join — and the conventional home for it is a catalog comment, which is
+also the problem. A comment saying "joins to silver_account_owners" reads as
+authoritative, is checked by nothing, and rots the moment a column is renamed.
+
+Tables now declare `grain`, `foreign_keys` (with a cardinality from a closed
+set) and a `context` sentence, and a seventh gate rule, `broken_contract`,
+resolves every one of them against the scanned inventory on each pull request.
+Sixteen tables — the ones carrying a critical element — got a paragraph saying
+what they are for; the rest owe nothing, because requiring it everywhere is how
+a metadata field becomes noise.
+
+**Proven by negative control, not just by tests.** Renaming one end of a real
+declared join in a copy of the register (`gold_ownership.account_id` →
+`.acct_id`) produced exactly one finding naming the broken reference. Five new
+unit tests pin the rest: a resolving contract passes; a phantom grain column, a
+foreign key to a column nobody publishes, an unknown cardinality, and a missing
+context each fail.
+
+Writing the base test fixture's own `context` was itself the rule working — the
+fixture publishes a critical element, so it owed one like any other table.
+
+Held honestly: the contracts are verified in CI and stop there. Pushing them
+into `COLUMN_COMMENTS` so an AI reading Unity Catalog inherits them is the
+obvious next step and is not claimed. D-077. governance 53 tests (5 new).
+
+## 2026-08-29 — Two control gaps closed, two deliberately left open
+
+The register's work list had five critical elements with no control, collapsing
+into two root causes it had named since D-067. Both are now addressed.
+
+The alts chain has validated every document against the rest of its fund since
+D-050 — commitment continuity, call sequencing, statement chaining — and none
+of it reached the rollup. `dq_recon` now publishes
+`alts_cross_document_valid_rate` and `alts_documents_unconfirmed_count`. Live:
+**39 of 64 documents reconcile**, and 27 have no confirmed values because gold
+is correctly declining to report them. Red, and correctly so — green there
+would mean the defect injector had stopped.
+
+FX had nothing checking it at all, which is uncomfortable for the one input
+every non-USD figure is multiplied by. `dq_fx_plausibility` applies a
+day-over-day band and measures how far each published rate was carried forward,
+with a new `fx_integrity` service level that `fx_rate_used` is now held to.
+
+**Both thresholds were calibrated against the real distribution first.** The
+largest daily move in this project's own series is 2.72% against a 5% band; the
+ECB calendar produces carries of at most 4 days (four times in 2.5 years, over
+Christmas and Easter) against a 4-day threshold. Neither can fire on a real
+market or a real holiday.
+
+**Two gaps were not closed, and that is the point.** Citing the new alts rule
+against all four columns carrying the alts gap would have read 100%. Applying
+D-073's test — *which specific row of this check fails if this column is
+wrong?* — only two survive. `moic` is a ratio and the check does not evaluate
+ratios; D-072 proves the distinction is real, because every input was
+individually confirmed and the multiple was still four times wrong.
+`alts_usd`'s risks are proration and forward-fill, which the check does not
+touch. Both gaps kept and rewritten to say exactly what is still missing.
+
+**34 of 36 critical elements controlled, 94.4%, two stated gaps.**
+
+A false alarm worth recording: the first FX run showed 33 stale days. That was
+the *local* rate file being a month old, not the lakehouse — production carry
+is 1 day with 0 stale, checked against `gold_client_wealth`. The check was
+right; the input was stale. Reporting it would have been a fabricated finding.
+
+D-078. governance 53 tests, gate 363/363 classified.
+
+## 2026-08-29 — Two more metric views, one refusal, and the gate reaching the semantic layer
+
+D-074 left two things open in writing: the semantic layer covered one gold
+table, and its measures were not governed. Both now closed, and the second was
+the more interesting half.
+
+`allocation_metrics` and `performance_metrics` join `wealth_metrics`. The
+performance one matters for what it **refuses** to expose: `daily_twr_return`
+and `twr_index_since_inception` are not measures. A time-weighted return is a
+chain-linked product, not a sum or an average, and a metric view measure is an
+aggregate expression — so `AVG(daily_twr_return)` would return a plausible
+number at any grain and be wrong in a way nothing on screen would show. The
+view exposes the additive components a return is built from and leaves the
+chained figures in `gold_performance_summary`. `allocation_metrics` refuses
+`weight` for the same reason.
+
+An eighth gate rule, `undefined_measure`, fails the build when a metric view
+publishes a measure or dimension with no business definition. `Total wealth`
+looks self-explanatory and is owner-prorated, forward-filled and FX-converted;
+an AI binds a term to whatever text sits beside it, so an uncommented measure
+is one a model guesses about, plausibly.
+
+Verified live — all three views applied and queried through `MEASURE()`.
+`performance_metrics` returns Hartwell's restatement adjustment as exactly
+$178,175,109.88, matching D-070. `allocation_metrics` totals $231,306,079
+across four asset classes on the latest date, which is the three clients'
+wealth to the dollar. Summing `Wealth` across 95 days gives $5.9bn — meaningless
+and exactly what that measure's comment warns about, which is the argument for
+putting the warning in the comment rather than a wiki.
+
+D-079. governance 58 tests (5 new), gate 363/363 with 21 governed measures and
+dimensions across three views.
+
+## 2026-08-29 — Our own number for what the metadata is worth: 88% → 100%
+
+The governance layer has been resting on an assumption carried by other
+people's measurements. `parvum-governance-eval` replaces it with ours: eight
+questions with hand-written ground-truth SQL, each asked twice at temperature 0
+— once with column names only, once with the descriptions, register definitions
+and governed measures — both executed against the real warehouse and compared
+at the cent.
+
+**bare 7/8 (88%), governed 8/8 (100%).** One question of eight, which is a much
+smaller gap than the figures usually quoted, and publishing it that way is the
+point of measuring instead of asserting.
+
+The one failure is the argument in miniature. Asked for dividend income, the
+bare arm wrote `type = 'dividend'` and matched nothing; the governed arm wrote
+`'DIVIDEND'` because the column comment names the vocabulary. A schema says a
+column exists; it does not say what values it takes. And the failure returned
+*no* answer rather than a confident wrong one — the benign case, said plainly
+rather than implied otherwise.
+
+The write-up also records why the result understates the value: the bare arm is
+not as bare as a real ungoverned warehouse, because these column names are
+clear — and they are clear because the gate has demanded a description on every
+column since D-067. Naming discipline is itself an output of the governance
+work, so the experiment is partly measuring against its own effect.
+
+Built to be able to fail: every question records the trap it tests, a
+wrong-but-runnable answer scores wrong rather than erroring, ground truth is
+checkable SQL, and the limits section names the sample size and the author bias.
+
+Run against Anthropic because OpenRouter returned HTTP 402 mid-session — two
+providers behind one interface, same prompt and temperature, mirroring D-052.
+
+D-080. `docs/GOVERNANCE_EVAL.md`, governance 66 tests (8 new).
+
+## 2026-08-29 — Two agent skills, versioned like everything else
+
+Two procedures had been repeated often enough in this project to be worth
+writing down, and lived only as habit: working out what an unfamiliar table
+means and is safe for, and investigating a figure that looks wrong.
+
+`skills/dataset-discovery-brief` produces a stakeholder-facing account of a
+table — what it is, what it answers alone, **what it cannot**, what becomes
+answerable combined, how it is really used, what is measured about it, and who
+owns it. The third section is the one that earns the brief: a dataset handed
+over without its limits gets used past them.
+
+`skills/wrong-number-triage` is the method derived from D-070, D-072 and D-073
+— three defects that reached a live dashboard and were all found by a person
+rather than a control, all with the same shape. It carries the question that
+found D-072 (*does this number move when the thing it claims to measure has not
+moved?*), the "looks wrong, isn't" table, and D-073's citation test.
+
+Both start from the estate's own metadata — the register, the jobs'
+`COLUMN_COMMENTS`, the metric views. That is deliberate: the governance work
+exists so a person or a model arriving cold can find out what a figure means
+without asking anyone, and a skill that guessed instead would be evidence the
+metadata was not worth writing.
+
+In the repo rather than in personal configuration, for the same reason the
+register puts ownership in git: a procedure in one person's tooling is a habit,
+one in the repo is a method.
+
+D-081.
