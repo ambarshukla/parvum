@@ -456,9 +456,10 @@ spark.sql(  # noqa: F821
         FROM governance_counts
     ),
     governance_control AS (
-        -- 0.8 is a stated target the estate does not currently meet, and
-        -- saying so is the point: an admitted control gap is manageable, a
-        -- target quietly set to today's number is not.
+        -- 0.8 is a stated target, set when the estate delivered 0.357 and
+        -- unmoved since; it was crossed at D-073. The point stands: a target
+        -- quietly set to today's number is not a target, and an admitted
+        -- control gap is manageable where a hidden one is not.
         SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'critical_control_coverage_rate' AS metric,
                CAST(controlled / NULLIF(critical, 0) AS DECIMAL(14,6)) AS value,
                controlled >= 0.8 * critical AS passed,
