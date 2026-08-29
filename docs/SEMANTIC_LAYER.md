@@ -94,11 +94,48 @@ the data does.
 
 ![parvum-ingest run history — bronze, silver, silver_cash, dq_recon, gold, all green](img/pipeline-run-history.png)
 
+## The other two views, and one deliberate refusal
+
+`allocation_metrics` covers what the wealth is made of; `performance_metrics`
+covers the daily performance series. The second is the interesting one, for
+what it does **not** expose.
+
+`gold_performance` carries `daily_twr_return` and `twr_index_since_inception`,
+and neither is a measure here. A time-weighted return over a period is the
+**chain-linked product** of its daily factors — not their sum, and not their
+average. A metric view measure is an aggregate expression, so
+`AVG(daily_twr_return)` would happily produce a number at any grain a consumer
+picked, and that number would be wrong in a way nothing on the screen would
+reveal. The view therefore exposes the additive components a return is built
+from (wealth, flows, restatement adjustment) and leaves the chained figures in
+`gold_performance_summary`, computed once by the job that knows how.
+
+`allocation_metrics` makes the same refusal about `weight`: a share is only
+meaningful at the grain it was computed for, so the additive component is
+exposed and the ratio is left to be derived at whatever grain the consumer
+picked.
+
+**A semantic layer that declines to expose a measure it cannot make safe is
+doing its job.** The alternative — a measure that is correct at one grain and
+silently wrong at others — is worse than no measure, because it looks like an
+answer.
+
+## The gate governs the semantic layer too
+
+An eighth gate rule, `undefined_measure`, fails the build when a metric view
+publishes a measure or dimension with no business definition. A measure called
+`Total wealth` looks self-explanatory and is nothing of the sort — an AI
+reading the catalog binds the term to whatever text sits beside it, so an
+uncommented measure is one a model will guess about. This is what makes the
+semantic contract a contract rather than a naming convention.
+
 ## Limits (Free Edition, and honest scope)
 
-- The metric view's measures are not themselves in the CDE register yet; they
-  inherit classification from their source columns. Bringing the semantic layer
-  under the same gate is a natural extension, not done here.
+- Three metric views over three gold tables. Income, top holdings, ownership
+  and alts are still reachable only as raw tables, which is the honest limit of
+  the governed vocabulary today.
+- The measures are governed for *definition* (every one must carry one) but not
+  yet *classified* in the register's tier model the way columns are.
 - The Genie space is configured in the workspace; the metric view it reads is
   in git, its instruction text is not.
 - Free Edition provides a single serverless warehouse with daily usage limits —

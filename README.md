@@ -92,7 +92,7 @@ own tests and CI.
 | Reconciliation & data quality | **PySpark**, findings graded against defect manifests | [`spark/dq_recon.py`](spark/dq_recon.py) |
 | Alts documents & HITL review | **Python**, **reportlab**, **LLM extraction (Anthropic Claude / OpenRouter)** — swappable behind one interface — synthetic capital-call/distribution/capital-account PDFs with defect injection, extraction + cross-document validation + a human review queue | [`alts-hitl/`](alts-hitl/) |
 | Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column; named SLOs with measured attainment and error budgets; column contracts (grain, joins, cardinality) the gate verifies | [`governance/`](governance/) |
-| Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
+| Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog, definitions enforced by the governance gate), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
@@ -105,7 +105,7 @@ Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
 guardrail, not free-tier-and-forget.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-078); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-079); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 

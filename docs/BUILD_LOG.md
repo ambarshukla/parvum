@@ -1410,3 +1410,36 @@ is 1 day with 0 stale, checked against `gold_client_wealth`. The check was
 right; the input was stale. Reporting it would have been a fabricated finding.
 
 D-078. governance 53 tests, gate 363/363 classified.
+
+## 2026-08-29 — Two more metric views, one refusal, and the gate reaching the semantic layer
+
+D-074 left two things open in writing: the semantic layer covered one gold
+table, and its measures were not governed. Both now closed, and the second was
+the more interesting half.
+
+`allocation_metrics` and `performance_metrics` join `wealth_metrics`. The
+performance one matters for what it **refuses** to expose: `daily_twr_return`
+and `twr_index_since_inception` are not measures. A time-weighted return is a
+chain-linked product, not a sum or an average, and a metric view measure is an
+aggregate expression — so `AVG(daily_twr_return)` would return a plausible
+number at any grain and be wrong in a way nothing on screen would show. The
+view exposes the additive components a return is built from and leaves the
+chained figures in `gold_performance_summary`. `allocation_metrics` refuses
+`weight` for the same reason.
+
+An eighth gate rule, `undefined_measure`, fails the build when a metric view
+publishes a measure or dimension with no business definition. `Total wealth`
+looks self-explanatory and is owner-prorated, forward-filled and FX-converted;
+an AI binds a term to whatever text sits beside it, so an uncommented measure
+is one a model guesses about, plausibly.
+
+Verified live — all three views applied and queried through `MEASURE()`.
+`performance_metrics` returns Hartwell's restatement adjustment as exactly
+$178,175,109.88, matching D-070. `allocation_metrics` totals $231,306,079
+across four asset classes on the latest date, which is the three clients'
+wealth to the dollar. Summing `Wealth` across 95 days gives $5.9bn — meaningless
+and exactly what that measure's comment warns about, which is the argument for
+putting the warning in the comment rather than a wiki.
+
+D-079. governance 58 tests (5 new), gate 363/363 with 21 governed measures and
+dimensions across three views.

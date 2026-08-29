@@ -1,6 +1,6 @@
 """The gate: reconcile the register against what the platform actually publishes.
 
-Seven rules, each of which fails the build. Together they are the mechanical
+Eight rules, each of which fails the build. Together they are the mechanical
 form of a publisher's responsibilities — the point being that nobody has to
 remember them, and nobody can quietly skip them:
 
@@ -54,6 +54,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from parvum_governance.metric_views import MetricViewField, scan_metric_views
 from parvum_governance.registry import (
     CARDINALITIES,
     TIER_OBLIGATIONS,
@@ -118,6 +119,7 @@ def check(
     columns: list[PublishedColumn],
     registry: Registry,
     dq_metric_names: set[str],
+    metric_view_fields: list[MetricViewField] | None = None,
 ) -> GateResult:
     """Run every rule and summarise coverage."""
     findings: list[Finding] = []
@@ -180,6 +182,18 @@ def check(
             )
 
     findings.extend(_check_contracts(registry, columns))
+
+    for field in metric_view_fields or []:
+        if not field.description.strip():
+            findings.append(
+                Finding(
+                    "undefined_measure",
+                    field.key,
+                    f"declared in {field.source_file} with no business definition — add a "
+                    f"COMMENT ON COLUMN for it. An uncommented {field.kind} is one an AI "
+                    f"reading the catalog will guess the meaning of",
+                )
+            )
 
     for name in sorted(set(registry.slos) - slos_held):
         findings.append(
@@ -348,6 +362,7 @@ def check_repo(repo_root: Path) -> GateResult:
         dq_metric_names=scan_dq_metric_names(
             spark_dir / "dq_recon.py", spark_dir / "gold_reports.py"
         ),
+        metric_view_fields=scan_metric_views(spark_dir / "metric_views"),
     )
 
 
