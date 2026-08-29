@@ -1478,3 +1478,33 @@ Run against Anthropic because OpenRouter returned HTTP 402 mid-session — two
 providers behind one interface, same prompt and temperature, mirroring D-052.
 
 D-080. `docs/GOVERNANCE_EVAL.md`, governance 66 tests (8 new).
+
+## 2026-08-29 — Two agent skills, versioned like everything else
+
+Two procedures had been repeated often enough in this project to be worth
+writing down, and lived only as habit: working out what an unfamiliar table
+means and is safe for, and investigating a figure that looks wrong.
+
+`skills/dataset-discovery-brief` produces a stakeholder-facing account of a
+table — what it is, what it answers alone, **what it cannot**, what becomes
+answerable combined, how it is really used, what is measured about it, and who
+owns it. The third section is the one that earns the brief: a dataset handed
+over without its limits gets used past them.
+
+`skills/wrong-number-triage` is the method derived from D-070, D-072 and D-073
+— three defects that reached a live dashboard and were all found by a person
+rather than a control, all with the same shape. It carries the question that
+found D-072 (*does this number move when the thing it claims to measure has not
+moved?*), the "looks wrong, isn't" table, and D-073's citation test.
+
+Both start from the estate's own metadata — the register, the jobs'
+`COLUMN_COMMENTS`, the metric views. That is deliberate: the governance work
+exists so a person or a model arriving cold can find out what a figure means
+without asking anyone, and a skill that guessed instead would be evidence the
+metadata was not worth writing.
+
+In the repo rather than in personal configuration, for the same reason the
+register puts ownership in git: a procedure in one person's tooling is a habit,
+one in the repo is a method.
+
+D-081.
