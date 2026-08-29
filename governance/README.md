@@ -53,8 +53,9 @@ much it matters, is not.
 `spark/dq_recon.py` reads the landed snapshot into `governance_cde_registry`
 and rolls four metrics into `dq_metrics` under a `governance` dimension:
 `columns_classified_rate`, `critical_control_coverage_rate` (against a stated
-80% target the estate does not currently meet), `critical_element_count` and
-`control_gap_count`. See D-068.
+80% target — set when the estate delivered 35.7% and unmoved since; the estate
+crossed it at D-073), `critical_element_count` and `control_gap_count`. See
+D-068.
 
 Note the recursion: `governance_cde_registry` is a published table, so the
 register has to classify its own columns. The gate enforces that like any
