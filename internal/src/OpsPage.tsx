@@ -83,6 +83,70 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
             .values(),
     ];
 
+    const pipelineTiles = [
+        freshness ? (
+            <Tile
+                key="freshness"
+                label="Freshness"
+                value={`${freshness.value.toFixed(0)}d behind`}
+                sub={freshness.detail}
+                ok={freshness.passed}
+            />
+        ) : null,
+        completeness ? (
+            <Tile
+                key="completeness"
+                label="Completeness"
+                value={percent(completeness.value, 0)}
+                sub={`${longDate(completeness.asOf)} — ${completeness.detail}`}
+                ok={completeness.passed}
+            />
+        ) : null,
+        ...accuracyMetrics.map((metric) => {
+            const series = accuracy.filter((r) => r.metric === metric);
+            // These tiles render SLA *attainment* — the share of days the
+            // metric passed — under a label that names the metric. That reads
+            // correctly over a long series and lies over a short one: a metric
+            // published as a single as-of-now row renders 0% or 100% directly
+            // beneath a label naming a rate, and those are different numbers.
+            // Below the threshold, show the metric's own latest value instead,
+            // which is the same honesty the Service levels table applies one
+            // section down.
+            const latest = [...series].sort((a, b) => b.asOf.localeCompare(a.asOf))[0];
+            if (latest && series.length < MIN_DAYS_FOR_ATTAINMENT) {
+                return (
+                    <Tile
+                        key={metric}
+                        label={dqMetricLabel(metric)}
+                        value={percent(latest.value, 0)}
+                        sub={`${longDate(latest.asOf)} — ${latest.detail}`}
+                        ok={latest.passed}
+                    />
+                );
+            }
+            const attained = series.filter((r) => r.passed).length;
+            return (
+                <Tile
+                    key={metric}
+                    label={dqMetricLabel(metric)}
+                    value={percent(attained / series.length, 0)}
+                    sub={`SLA attained ${attained} of ${series.length} days`}
+                    ok={attained === series.length}
+                />
+            );
+        }),
+    ].filter(Boolean);
+
+    const governanceTiles = governance.map((r) => (
+        <Tile
+            key={r.metric}
+            label={dqMetricLabel(r.metric)}
+            value={r.metric.endsWith("_rate") ? percent(r.value, 0) : r.value.toFixed(0)}
+            sub={r.detail}
+            ok={r.passed}
+        />
+    ));
+
     if (rows.length === 0) {
         return <div className="center-state">No DQ metrics recorded yet.</div>;
     }
@@ -99,72 +163,29 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                 </div>
             </div>
 
-            <div className="grid tiles" style={{ marginBottom: 18 }}>
-                {freshness && (
-                    <Tile
-                        label="Freshness"
-                        value={`${freshness.value.toFixed(0)}d behind`}
-                        sub={freshness.detail}
-                        ok={freshness.passed}
-                    />
-                )}
-                {completeness && (
-                    <Tile
-                        label="Completeness"
-                        value={percent(completeness.value, 0)}
-                        sub={`${longDate(completeness.asOf)} — ${completeness.detail}`}
-                        ok={completeness.passed}
-                    />
-                )}
-                {accuracyMetrics.map((metric) => {
-                    const series = accuracy.filter((r) => r.metric === metric);
-                    // These tiles render SLA *attainment* — the share of days
-                    // the metric passed — under a label that names the metric.
-                    // That reads correctly over a long series and lies over a
-                    // short one: a metric published as a single as-of-now row
-                    // renders 0% or 100% directly beneath a label naming a
-                    // rate, and those are different numbers. Below the
-                    // threshold, show the metric's own latest value instead,
-                    // which is the same honesty the Service levels table
-                    // applies one section down.
-                    const latest = [...series].sort((a, b) => b.asOf.localeCompare(a.asOf))[0];
-                    if (latest && series.length < MIN_DAYS_FOR_ATTAINMENT) {
-                        return (
-                            <Tile
-                                key={metric}
-                                label={dqMetricLabel(metric)}
-                                value={percent(latest.value, 0)}
-                                sub={`${longDate(latest.asOf)} — ${latest.detail}`}
-                                ok={latest.passed}
-                            />
-                        );
-                    }
-                    const attained = series.filter((r) => r.passed).length;
-                    return (
-                        <Tile
-                            key={metric}
-                            label={dqMetricLabel(metric)}
-                            value={percent(attained / series.length, 0)}
-                            sub={`SLA attained ${attained} of ${series.length} days`}
-                            ok={attained === series.length}
-                        />
-                    );
-                })}
-                {/* Register coverage and control coverage belong in this strip
-                    for the same reason the others do: they are facts about the
-                    estate right now, not promises measured over a window. */}
-                {governance.map((r) => (
-                    <Tile
-                        key={r.metric}
-                        label={dqMetricLabel(r.metric)}
-                        value={
-                            r.metric.endsWith("_rate") ? percent(r.value, 0) : r.value.toFixed(0)
-                        }
-                        sub={r.detail}
-                        ok={r.passed}
-                    />
-                ))}
-            </div>
+            {/* One strip, two named groups. Merging the governance tiles in
+                here was right -- they are current facts like the rest -- but it
+                cost them their label, and "register coverage" reading as a
+                pipeline statistic undersells what it is. A group heading is
+                cheaper than a second strip and keeps the row scannable. */}
+            {governanceTiles.length > 0 ? (
+                <div className="tile-groups" style={{ marginBottom: 18 }}>
+                    <section className="tile-group" style={{ flexGrow: pipelineTiles.length }}>
+                        <div className="group-label">Pipeline</div>
+                        <div className="grid tiles">{pipelineTiles}</div>
+                    </section>
+                    <section className="tile-group" style={{ flexGrow: governanceTiles.length }}>
+                        <div className="group-label">Governance</div>
+                        <div className="grid tiles">{governanceTiles}</div>
+                    </section>
+                </div>
+            ) : (
+                // No governance metrics: a lone "Pipeline" heading with nothing
+                // to distinguish itself from is worse than no heading.
+                <div className="grid tiles" style={{ marginBottom: 18 }}>
+                    {pipelineTiles}
+                </div>
+            )}
 
             {slos.length > 0 && (
                 <>

@@ -309,8 +309,10 @@ describe("OpsPage", () => {
                 dark={false}
             />,
         );
-        expect(screen.queryByText(/^Governance/)).not.toBeInTheDocument();
-        // The coverage tiles remain — they are a fact whether or not there is work.
+        // The section heading is gone. The tile strip's "Governance" group
+        // label is not the section — it is still there, correctly, because the
+        // coverage tiles are a fact whether or not there is work to do.
+        expect(screen.queryByRole("heading", { name: /^Governance/ })).not.toBeInTheDocument();
         expect(screen.getByText("Register coverage")).toBeInTheDocument();
     });
 
@@ -504,5 +506,30 @@ describe("OpsPage density", () => {
         // "36" is already inside "34 of 36"; "2" is the heading of the list below.
         expect(screen.queryByText("Critical elements")).not.toBeInTheDocument();
         expect(screen.queryByText("Stated control gaps")).not.toBeInTheDocument();
+    });
+});
+
+describe("OpsPage tile groups", () => {
+    it("labels the two groups when both are present", () => {
+        render(
+            <OpsPage
+                rows={[...rows, ...governanceRows]}
+                registry={registry}
+                slos={[]}
+                dark={false}
+            />,
+        );
+        expect(screen.getByText("Pipeline")).toBeInTheDocument();
+        // The group label, distinct from the section heading below it.
+        expect(screen.getAllByText("Governance").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText("Register coverage")).toBeInTheDocument();
+    });
+
+    it("drops the group labels when there is nothing to distinguish", () => {
+        // A lone "Pipeline" heading with no second group to contrast with
+        // labels nothing and just adds a line.
+        render(<OpsPage rows={rows} registry={registry} slos={[]} dark={false} />);
+        expect(screen.queryByText("Pipeline")).not.toBeInTheDocument();
+        expect(screen.getByText("Freshness")).toBeInTheDocument();
     });
 });
