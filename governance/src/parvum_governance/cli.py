@@ -90,5 +90,37 @@ def publish(argv: list[str] | None = None) -> int:
     return 0
 
 
+def evaluate(argv: list[str] | None = None) -> int:
+    """Measure whether the governance metadata changes an AI's answers.
+
+    Asks the same questions twice — once with column names alone, once with
+    every description, definition and governed measure the estate publishes —
+    executes both answers against the warehouse, and scores them against
+    hand-written ground truth. Needs DATABRICKS_HOST and OPENROUTER_API_KEY.
+    """
+    from parvum_governance.evaluation import render, run_eval
+
+    parser = argparse.ArgumentParser(description=evaluate.__doc__.splitlines()[0])
+    parser.add_argument("--repo-root", type=Path, default=None)
+    parser.add_argument("--provider", default="openrouter", choices=("openrouter", "anthropic"))
+    parser.add_argument("--model", default=None, help="override the provider's default model")
+    parser.add_argument("--out", type=Path, default=None, help="also write the report to this file")
+    args = parser.parse_args(argv)
+
+    from functools import partial
+
+    from parvum_governance.evaluation import PROVIDERS
+
+    ask = PROVIDERS[args.provider]
+    if args.model:
+        ask = partial(ask, model=args.model)
+    result = run_eval(args.repo_root or find_repo_root(), ask=ask)
+    report = render(result)
+    print(report)
+    if args.out:
+        args.out.write_text(report + "\n", encoding="utf-8")
+    return 0
+
+
 if __name__ == "__main__":  # pragma: no cover - module entry point
     sys.exit(main())

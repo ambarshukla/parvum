@@ -24,6 +24,14 @@ plus the gate that keeps the register honest.
   JSON Lines for the lakehouse (`make land-registry`). One record per
   column the platform *publishes*, so coverage can be computed from the
   rows rather than asserted. Refuses to write if the gate fails.
+- `metric_views.py` — reads the semantic layer's declared measures and their
+  business definitions out of `spark/metric_views/*.sql`, so the gate can
+  govern the measures too, not only the columns.
+- `evaluation.py` — `parvum-governance-eval`: does any of this actually help
+  an AI? Eight questions asked twice, with column names alone and with the
+  full metadata, both executed against the warehouse and scored against
+  hand-written ground truth. Our own number rather than someone else's; see
+  `docs/GOVERNANCE_EVAL.md`.
 
 ## Why this is a package and not a folder
 

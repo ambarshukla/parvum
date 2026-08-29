@@ -54,7 +54,7 @@ first, then make it visible, then make it consumable.
 | Column contracts in the register | Declared foreign keys and join cardinality, **verified** by the gate rather than described in a comment | ✅ done (D-077) |
 | Close the two remaining control-gap root causes | Alts validation now rolls up; FX has a plausibility and staleness check. Two element-level gaps deliberately kept — see D-078 | ✅ done (D-078) |
 | Semantic layer beyond one table | Metric views for allocation and performance; every measure now needs a definition to pass the gate | ✅ done (D-079) |
-| Governance eval | Measure answer accuracy with vs. without the register and semantic layer — our own number | ⬜ planned |
+| Governance eval | Measured: 88% bare vs 100% governed — [GOVERNANCE_EVAL.md](GOVERNANCE_EVAL.md) | ✅ done (D-080) |
 
 ## Q4 2026 — next
 

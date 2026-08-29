@@ -1443,3 +1443,38 @@ putting the warning in the comment rather than a wiki.
 
 D-079. governance 58 tests (5 new), gate 363/363 with 21 governed measures and
 dimensions across three views.
+
+## 2026-08-29 — Our own number for what the metadata is worth: 88% → 100%
+
+The governance layer has been resting on an assumption carried by other
+people's measurements. `parvum-governance-eval` replaces it with ours: eight
+questions with hand-written ground-truth SQL, each asked twice at temperature 0
+— once with column names only, once with the descriptions, register definitions
+and governed measures — both executed against the real warehouse and compared
+at the cent.
+
+**bare 7/8 (88%), governed 8/8 (100%).** One question of eight, which is a much
+smaller gap than the figures usually quoted, and publishing it that way is the
+point of measuring instead of asserting.
+
+The one failure is the argument in miniature. Asked for dividend income, the
+bare arm wrote `type = 'dividend'` and matched nothing; the governed arm wrote
+`'DIVIDEND'` because the column comment names the vocabulary. A schema says a
+column exists; it does not say what values it takes. And the failure returned
+*no* answer rather than a confident wrong one — the benign case, said plainly
+rather than implied otherwise.
+
+The write-up also records why the result understates the value: the bare arm is
+not as bare as a real ungoverned warehouse, because these column names are
+clear — and they are clear because the gate has demanded a description on every
+column since D-067. Naming discipline is itself an output of the governance
+work, so the experiment is partly measuring against its own effect.
+
+Built to be able to fail: every question records the trap it tests, a
+wrong-but-runnable answer scores wrong rather than erroring, ground truth is
+checkable SQL, and the limits section names the sample size and the author bias.
+
+Run against Anthropic because OpenRouter returned HTTP 402 mid-session — two
+providers behind one interface, same prompt and temperature, mirroring D-052.
+
+D-080. `docs/GOVERNANCE_EVAL.md`, governance 66 tests (8 new).
