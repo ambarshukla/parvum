@@ -1,6 +1,11 @@
 import type { CdeRegistryRow, DqMetricRow, SloAttainmentRow } from "./types";
-import { dqMetricLabel, longDate, percent } from "./format";
+import { dqMetricLabel, longDate, percent, sloLabel } from "./format";
 import { AccuracyTrendChart, ExceptionsChart } from "./components/Charts";
+
+/** Below this many days, attainment is not a service level and is not shown
+ *  as one. Mirrors MIN_DAYS_FOR_VERDICT in spark/gold_reports.py, which makes
+ *  the same call for dq_slo_attainment.meets_objective. */
+const MIN_DAYS_FOR_ATTAINMENT = 7;
 
 interface Props {
     rows: DqMetricRow[];
@@ -84,6 +89,27 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                 )}
                 {accuracyMetrics.map((metric) => {
                     const series = accuracy.filter((r) => r.metric === metric);
+                    // These tiles render SLA *attainment* — the share of days
+                    // the metric passed — under a label that names the metric.
+                    // That reads correctly over a long series and lies over a
+                    // short one: a metric published as a single as-of-now row
+                    // renders 0% or 100% directly beneath a label naming a
+                    // rate, and those are different numbers. Below the
+                    // threshold, show the metric's own latest value instead,
+                    // which is the same honesty the Service levels table
+                    // applies one section down.
+                    const latest = [...series].sort((a, b) => b.asOf.localeCompare(a.asOf))[0];
+                    if (latest && series.length < MIN_DAYS_FOR_ATTAINMENT) {
+                        return (
+                            <Tile
+                                key={metric}
+                                label={dqMetricLabel(metric)}
+                                value={percent(latest.value, 0)}
+                                sub={`${longDate(latest.asOf)} — ${latest.detail}`}
+                                ok={latest.passed}
+                            />
+                        );
+                    }
                     const attained = series.filter((r) => r.passed).length;
                     return (
                         <Tile
@@ -232,14 +258,6 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
             </div>
         </>
     );
-}
-
-/** `cash_ledger_integrity` -> "Cash ledger integrity". Same humanising rule
- *  as dqMetricLabel: an SLO added in the register should read as a blemish at
- *  worst, never as a raw identifier (the lesson from the unlabelled metrics). */
-function sloLabel(slo: string): string {
-    const words = slo.replace(/_/g, " ");
-    return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /** Three states, not two. An SLO with too little history to judge is neither

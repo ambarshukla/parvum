@@ -62,6 +62,27 @@ const DQ_METRIC_LABELS: Record<string, string> = {
     return_plausibility_breaks_count: "Plausibility breaks",
     cross_field_invariant_rate: "Cross-field invariants",
     cross_field_invariant_breaks_count: "Invariant breaks",
+    alts_cross_document_valid_rate: "Alts document validity",
+    alts_documents_unconfirmed_count: "Alts awaiting review",
+    fx_rate_plausibility_rate: "FX rate plausibility",
+    fx_rate_stale_days_count: "FX stale days",
+};
+
+// The register's SLO names, same problem and same treatment. The humanising
+// fallback below cannot capitalise an acronym, so `fx_integrity` reads "Fx
+// integrity" without an entry here — which is how it shipped, and is why the
+// governance gate now refuses a service level nobody has named.
+const SLO_LABELS: Record<string, string> = {
+    feed_completeness: "Feed completeness",
+    // Not "Gold freshness": `gold` is a medallion layer, which is the
+    // pipeline's vocabulary and not the reader's.
+    gold_freshness: "Data freshness",
+    holdings_agreement: "Holdings agreement",
+    cash_ledger_integrity: "Cash ledger integrity",
+    cash_continuity: "Cash continuity",
+    cross_field_consistency: "Cross-field consistency",
+    return_plausibility: "Return plausibility",
+    fx_integrity: "FX integrity",
 };
 
 /** A dq_metrics `metric` identifier → its display label.
@@ -80,8 +101,20 @@ const DQ_METRIC_LABELS: Record<string, string> = {
  * match" rather than "Holdings cross format match rate".
  */
 export function dqMetricLabel(metric: string): string {
-    const known = DQ_METRIC_LABELS[metric];
-    if (known) return known;
-    const humanised = metric.replace(/_/g, " ").trim();
-    return humanised.charAt(0).toUpperCase() + humanised.slice(1);
+    return DQ_METRIC_LABELS[metric] ?? humanise(metric);
+}
+
+/** A service level's identifier → its display label. Same contract as
+ *  `dqMetricLabel`, for the same reason: the register names SLOs for the gate,
+ *  not for a screen. */
+export function sloLabel(slo: string): string {
+    return SLO_LABELS[slo] ?? humanise(slo);
+}
+
+/** Last resort, not a substitute for a curated label. It cannot know that
+ *  `fx` is an acronym or that `gold` is a layer name rather than a quality —
+ *  which is exactly why the gate requires the curated entry. */
+function humanise(identifier: string): string {
+    const words = identifier.replace(/_/g, " ").trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
 }

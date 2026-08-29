@@ -1,6 +1,6 @@
 """The gate: reconcile the register against what the platform actually publishes.
 
-Eight rules, each of which fails the build. Together they are the mechanical
+Nine rules, each of which fails the build. Together they are the mechanical
 form of a publisher's responsibilities — the point being that nobody has to
 remember them, and nobody can quietly skip them:
 
@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from parvum_governance.metric_views import MetricViewField, scan_metric_views
+from parvum_governance.ops_labels import scan_ops_labels
 from parvum_governance.registry import (
     CARDINALITIES,
     TIER_OBLIGATIONS,
@@ -120,6 +121,7 @@ def check(
     registry: Registry,
     dq_metric_names: set[str],
     metric_view_fields: list[MetricViewField] | None = None,
+    ops_labels: dict[str, set[str]] | None = None,
 ) -> GateResult:
     """Run every rule and summarise coverage."""
     findings: list[Finding] = []
@@ -192,6 +194,28 @@ def check(
                     f"declared in {field.source_file} with no business definition — add a "
                     f"COMMENT ON COLUMN for it. An uncommented {field.kind} is one an AI "
                     f"reading the catalog will guess the meaning of",
+                )
+            )
+
+    if ops_labels is not None:
+        for metric in sorted(dq_metric_names - ops_labels.get("DQ_METRIC_LABELS", set())):
+            findings.append(
+                Finding(
+                    "unlabelled_metric",
+                    metric,
+                    "published by the DQ layer but has no display label — add one to "
+                    "DQ_METRIC_LABELS in internal/src/format.ts. The fallback humanises "
+                    "the identifier, which is a blemish rather than a name",
+                )
+            )
+        for slo in sorted(set(registry.slos) - ops_labels.get("SLO_LABELS", set())):
+            findings.append(
+                Finding(
+                    "unlabelled_metric",
+                    slo,
+                    "declared as a service level but has no display label — add one to "
+                    "SLO_LABELS in internal/src/format.ts. The fallback cannot capitalise "
+                    "an acronym or spot a layer name",
                 )
             )
 
@@ -363,6 +387,7 @@ def check_repo(repo_root: Path) -> GateResult:
             spark_dir / "dq_recon.py", spark_dir / "gold_reports.py"
         ),
         metric_view_fields=scan_metric_views(spark_dir / "metric_views"),
+        ops_labels=scan_ops_labels(repo_root / "internal" / "src" / "format.ts"),
     )
 
 

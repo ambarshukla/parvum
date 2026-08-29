@@ -156,16 +156,18 @@ const slos: SloAttainmentRow[] = [
 ];
 
 describe("OpsPage", () => {
-    it("shows the freshness and completeness tiles, and per-metric SLA attainment", () => {
+    it("shows the freshness and completeness tiles, and a short series by value", () => {
         render(<OpsPage rows={rows} registry={[]} slos={[]} dark={false} />);
         expect(screen.getByText("Data Operations")).toBeInTheDocument();
         expect(screen.getByText("1d behind")).toBeInTheDocument();
-        expect(screen.getByText("100%")).toBeInTheDocument(); // completeness, latest day
-        // Cross-format match: 1 of 2 days passed = 50%. The label also shows
-        // up in the chart legend, so there are two matches by design.
+        // The label also shows up in the chart legend, so there are two
+        // matches by design.
         expect(screen.getAllByText("Cross-format match").length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText("50%")).toBeInTheDocument();
-        expect(screen.getByText("SLA attained 1 of 2 days")).toBeInTheDocument();
+        // Two days is below the attainment threshold, so the tile reports the
+        // metric's own latest value and its detail rather than "1 of 2 days",
+        // which would put a number under a label that does not mean it.
+        expect(screen.queryByText("SLA attained 1 of 2 days")).not.toBeInTheDocument();
+        expect(screen.getByText(/0 cross-format findings across 60 positions/)).toBeInTheDocument();
     });
 
     it("renders each service level with its attainment, and breaches sort first", () => {
@@ -173,7 +175,7 @@ describe("OpsPage", () => {
         expect(screen.getByText("Service levels")).toBeInTheDocument();
         // Identifiers are humanised, never rendered raw.
         expect(screen.getByText("Holdings agreement")).toBeInTheDocument();
-        expect(screen.getByText("Cross field consistency")).toBeInTheDocument();
+        expect(screen.getByText("Cross-field consistency")).toBeInTheDocument();
         expect(screen.queryByText(/holdings_agreement/)).not.toBeInTheDocument();
         expect(screen.getByText("0.0%")).toBeInTheDocument();
         expect(screen.getByText("0/20 days")).toBeInTheDocument();
@@ -295,5 +297,45 @@ describe("OpsPage", () => {
     it("shows a placeholder when there is no DQ data yet", () => {
         render(<OpsPage rows={[]} registry={[]} slos={[]} dark={false} />);
         expect(screen.getByText("No DQ metrics recorded yet.")).toBeInTheDocument();
+    });
+});
+
+describe("OpsPage accuracy tiles", () => {
+    // The tiles render SLA *attainment*, which is not the metric's value. Over
+    // a long series that reads correctly; over a one-row series it put "0%"
+    // directly beneath a label naming a rate whose actual value was 60.9%.
+    const singleRow: DqMetricRow[] = [
+        {
+            asOf: "2026-08-29",
+            dimension: "accuracy",
+            metric: "alts_cross_document_valid_rate",
+            value: 0.609375,
+            passed: false,
+            detail: "39 of 64 private-fund documents reconcile against the rest of their fund",
+        },
+    ];
+
+    it("shows the metric's own value when there is too little history for attainment", () => {
+        render(<OpsPage rows={singleRow} registry={[]} slos={[]} dark={false} />);
+        expect(screen.getAllByText("Alts document validity").length).toBeGreaterThanOrEqual(1);
+        // 61%, the real rate — not 0%, which is what attainment over one
+        // failing day would have said.
+        expect(screen.getByText("61%")).toBeInTheDocument();
+        expect(screen.queryByText("0%")).not.toBeInTheDocument();
+        expect(screen.queryByText(/SLA attained/)).not.toBeInTheDocument();
+    });
+
+    it("still reports attainment once a real series exists", () => {
+        const series: DqMetricRow[] = Array.from({ length: 10 }, (_, i) => ({
+            asOf: `2026-08-${String(i + 1).padStart(2, "0")}`,
+            dimension: "accuracy" as const,
+            metric: "fx_rate_plausibility_rate",
+            value: 1,
+            passed: i > 1,
+            detail: "rate moved 0.1% and was carried 1 day(s)",
+        }));
+        render(<OpsPage rows={series} registry={[]} slos={[]} dark={false} />);
+        expect(screen.getAllByText("FX rate plausibility").length).toBeGreaterThanOrEqual(1);
+        expect(screen.getByText("SLA attained 8 of 10 days")).toBeInTheDocument();
     });
 });
