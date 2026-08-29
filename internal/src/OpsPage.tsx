@@ -150,6 +150,20 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                         />
                     );
                 })}
+                {/* Register coverage and control coverage belong in this strip
+                    for the same reason the others do: they are facts about the
+                    estate right now, not promises measured over a window. */}
+                {governance.map((r) => (
+                    <Tile
+                        key={r.metric}
+                        label={dqMetricLabel(r.metric)}
+                        value={
+                            r.metric.endsWith("_rate") ? percent(r.value, 0) : r.value.toFixed(0)
+                        }
+                        sub={r.detail}
+                        ok={r.passed}
+                    />
+                ))}
             </div>
 
             {slos.length > 0 && (
@@ -208,72 +222,49 @@ export function OpsPage({ rows, registry, slos, dark }: Props) {
                 </>
             )}
 
-            {governance.length > 0 && (
+            {gaps.length > 0 && (
                 <>
                     <div className="client-header" style={{ marginTop: 26 }}>
                         <div>
-                            <h1>Governance</h1>
+                            <h1>Governance — {gaps.length} uncovered</h1>
                             <div className="asof">
-                                The register, as of the last rebuild — a fact about the estate now,
-                                not about a business day
+                                Critical elements with no automated control, as of the last register
+                                rebuild. Each carries a written statement of what is missing —
+                                recorded rather than papered over. This is the work list.
                             </div>
                         </div>
                     </div>
 
-                    <div className="grid tiles" style={{ marginBottom: 18 }}>
-                        {governance.map((r) => (
-                            <Tile
-                                key={r.metric}
-                                label={dqMetricLabel(r.metric)}
-                                value={
-                                    r.metric.endsWith("_rate")
-                                        ? percent(r.value, 0)
-                                        : r.value.toFixed(0)
-                                }
-                                sub={r.detail}
-                                ok={r.passed}
-                            />
-                        ))}
-                    </div>
-
-                    {gaps.length > 0 && (
-                        <div className="card" style={{ marginBottom: 18 }}>
-                            <h2>Critical elements with no automated control ({gaps.length})</h2>
-                            <div className="asof" style={{ marginBottom: 10 }}>
-                                Each of these is classified critical and carries a written statement
-                                of what is missing. Recorded rather than papered over — this is the
-                                work list.
-                            </div>
-                            <table className="data">
-                                <thead>
-                                    <tr>
-                                        <th>Element{gaps.length > gapGroups.length ? "s" : ""}</th>
-                                        <th>Owner</th>
-                                        <th>What is missing</th>
+                    <div className="card" style={{ marginBottom: 18 }}>
+                        <table className="data">
+                            <thead>
+                                <tr>
+                                    <th>Element{gaps.length > gapGroups.length ? "s" : ""}</th>
+                                    <th>Owner</th>
+                                    <th>What is missing</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {gapGroups.map((g) => (
+                                    <tr key={g.controlGap}>
+                                        <td>
+                                            {g.elements.map((r) => (
+                                                <div key={`${r.tableName}.${r.columnName}`}>
+                                                    <code>
+                                                        {r.tableName}.{r.columnName}
+                                                    </code>
+                                                </div>
+                                            ))}
+                                        </td>
+                                        <td>{g.owners.join(", ")}</td>
+                                        <td>
+                                            <ExpandableText text={g.controlGap} />
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {gapGroups.map((g) => (
-                                        <tr key={g.controlGap}>
-                                            <td>
-                                                {g.elements.map((r) => (
-                                                    <div key={`${r.tableName}.${r.columnName}`}>
-                                                        <code>
-                                                            {r.tableName}.{r.columnName}
-                                                        </code>
-                                                    </div>
-                                                ))}
-                                            </td>
-                                            <td>{g.owners.join(", ")}</td>
-                                            <td>
-                                                <ExpandableText text={g.controlGap} />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </>
             )}
 

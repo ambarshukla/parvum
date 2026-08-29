@@ -213,14 +213,13 @@ describe("OpsPage", () => {
                 dark={false}
             />,
         );
-        expect(screen.getByText("Governance")).toBeInTheDocument();
+        // The coverage tiles now sit in the top strip; the Governance section
+        // is the work list and says how much work there is.
         expect(screen.getByText("Register coverage")).toBeInTheDocument();
         expect(screen.getByText("36%")).toBeInTheDocument();
 
         // One of the two critical elements has a rule, so only the other is a gap.
-        expect(
-            screen.getByText("Critical elements with no automated control (1)"),
-        ).toBeInTheDocument();
+        expect(screen.getByText("Governance — 1 uncovered")).toBeInTheDocument();
         expect(screen.getByText("gold_client_wealth.fx_rate_used")).toBeInTheDocument();
         expect(screen.queryByText("gold_client_wealth.total_wealth_usd")).not.toBeInTheDocument();
         expect(
@@ -278,9 +277,7 @@ describe("OpsPage", () => {
         );
 
         // Three gapped columns, but only two distinct causes.
-        expect(
-            screen.getByText("Critical elements with no automated control (3)"),
-        ).toBeInTheDocument();
+        expect(screen.getByText("Governance — 3 uncovered")).toBeInTheDocument();
         // The shared statement is written once, not once per column.
         expect(screen.getAllByText(shared)).toHaveLength(1);
         // And both columns it covers are still named.
@@ -288,10 +285,33 @@ describe("OpsPage", () => {
         expect(screen.getByText("gold_alts_holdings.current_nav_usd")).toBeInTheDocument();
     });
 
-    it("hides the governance section entirely when the dimension has no rows", () => {
-        // A pipeline whose gold job predates D-068 still renders the rest.
+    it("shows the work list even when the governance rollup is missing", () => {
+        // The gap list comes from the register projection, not from dq_metrics,
+        // so gating it on those metrics hid real work whenever the rollup was
+        // absent. A pipeline whose gold job predates D-068 has no coverage
+        // tiles and still has uncovered elements worth showing.
         render(<OpsPage rows={rows} registry={registry} slos={[]} dark={false} />);
-        expect(screen.queryByText("Governance")).not.toBeInTheDocument();
+        expect(screen.getByText("Governance — 1 uncovered")).toBeInTheDocument();
+        expect(screen.queryByText("Register coverage")).not.toBeInTheDocument();
+    });
+
+    it("hides the governance section when nothing is uncovered", () => {
+        const allCovered = registry.map((r) => ({
+            ...r,
+            qualityRuleCount: 1,
+            controlGap: null,
+        }));
+        render(
+            <OpsPage
+                rows={[...rows, ...governanceRows]}
+                registry={allCovered}
+                slos={[]}
+                dark={false}
+            />,
+        );
+        expect(screen.queryByText(/^Governance/)).not.toBeInTheDocument();
+        // The coverage tiles remain — they are a fact whether or not there is work.
+        expect(screen.getByText("Register coverage")).toBeInTheDocument();
     });
 
     it("shows a placeholder when there is no DQ data yet", () => {

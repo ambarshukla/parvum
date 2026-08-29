@@ -1664,3 +1664,30 @@ page stays as tall while the most actionable section drops below two charts.
 Both recorded in D-084 rather than left as unexplained absences.
 
 `internal` 38/38 (7 new), typecheck, prettier, build clean. D-084.
+
+## 2026-08-29 — Two tile strips, one kind of fact
+
+With the page readable, the remaining oddity was structural: two governance
+tiles sat below the Service levels table under their own heading, while three
+tiles of the same kind sat at the top — two strips answering "what is true
+now", separated by the longest block on the page.
+
+The coverage tiles join the top strip. The Governance section becomes the gap
+list and nothing else.
+
+**This is what D-069 actually asked for.** Its principle was that the section
+should lead with the gaps, not the score, and it has been doing the opposite
+since: score in tiles, then gaps. Moving the tiles up delivers it.
+
+Three headings for one table became one — the count moved into the section
+heading ("Governance — 2 uncovered") and the two subtitles merged.
+
+**A coupling bug fell out of it.** The section rendered only when `dq_metrics`
+carried governance rows, but the gap list comes from the *register projection*,
+not that rollup. A pipeline whose gold job had not yet published the governance
+metrics would have hidden genuine uncovered elements — real work, silently
+absent because a different table was missing. Now gated on the gaps themselves:
+work shows whether or not the rollup exists, and the section disappears when
+there is none. Two tests pin both directions.
+
+`internal` 39/39 (1 new), typecheck, prettier, build clean. D-085.
