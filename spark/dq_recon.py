@@ -259,6 +259,9 @@ REGISTRY_SCHEMA = StructType(
         StructField("slo_objective", StringType(), nullable=True),
         StructField("slo_measured_by", StringType(), nullable=True),
         StructField("slo_target", StringType(), nullable=True),
+        # Double on the way IN because that is what a JSON number is on the
+        # wire — but it is CAST to DECIMAL before it is published, and it has
+        # to be. See the projection below.
         StructField("slo_attainment_objective", DoubleType(), nullable=True),
         StructField("slo_window_days", LongType(), nullable=True),
     ]
@@ -287,7 +290,17 @@ spark.sql(  # noqa: F821
         slo_objective,
         slo_measured_by,
         slo_target,
-        slo_attainment_objective,
+        -- DECIMAL, not the DOUBLE it arrives as. Three reasons, and the first
+        -- one bit: the exporter's wire-type converter map is deliberately
+        -- closed, so an unknown type stops the export loudly rather than
+        -- guessing (which is what it did -- "no converter for
+        -- slo_attainment_objective: DOUBLE"). Second, the Postgres column
+        -- this lands in is numeric(14,6) (V11), and the types should agree.
+        -- Third, nothing else this platform publishes is a float: the estate
+        -- is Decimal throughout, deliberately, and one DOUBLE would be the
+        -- exception that teaches the wrong lesson. Do not "simplify" this
+        -- cast away.
+        CAST(slo_attainment_objective AS DECIMAL(14,6)) AS slo_attainment_objective,
         slo_window_days,
         current_timestamp() AS rebuilt_at
     FROM cde_registry_landed"""

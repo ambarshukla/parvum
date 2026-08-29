@@ -48,6 +48,18 @@ def _parse_timestamp(raw: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+# The set is deliberately closed: an unfamiliar wire type stops the export
+# rather than being guessed at, because a silently mis-typed column reaches a
+# client screen looking like a number.
+#
+# **DOUBLE is absent on purpose, and it is the one people will want to add.**
+# This estate is Decimal end to end (D-029) — money compared at the cent, and
+# fractions that must round-trip exactly. Mapping DOUBLE to `float` would let a
+# binary approximation into a column that lands in `numeric`, and mapping it to
+# `Decimal` would preserve the approximation while looking exact. The right fix
+# when this fires is to CAST at the source, in the Spark job that publishes the
+# column — which is what `governance_cde_registry.slo_attainment_objective`
+# does, after this guard caught it publishing a DOUBLE.
 _CONVERTERS = {
     "STRING": str,
     "INT": int,
@@ -88,7 +100,12 @@ def convert_rows(
     for column in schema_columns:
         type_name = column["type_name"]
         if type_name not in _CONVERTERS:
-            raise ExportError(f"no converter for {column['name']}: {type_name}")
+            raise ExportError(
+                f"no converter for {column['name']}: {type_name}. The converter set is "
+                f"closed on purpose — fix this by CASTing the column in the Spark job "
+                f"that publishes it, not by widening the set here "
+                f"(known: {', '.join(sorted(_CONVERTERS))})"
+            )
         converters.append(_CONVERTERS[type_name])
     rows = tuple(
         tuple(None if raw is None else fn(raw) for fn, raw in zip(converters, row, strict=True))

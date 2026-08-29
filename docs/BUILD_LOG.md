@@ -1508,3 +1508,45 @@ register puts ownership in git: a procedure in one person's tooling is a habit,
 one in the repo is a method.
 
 D-081.
+
+## 2026-08-29 — The export refused a DOUBLE, and was right to
+
+The first `export-gold` run after Phase 9 merged failed:
+
+```
+export failed: no converter for slo_attainment_objective: DOUBLE
+```
+
+The exporter's wire-type converter map is deliberately closed — an unfamiliar
+type stops the export rather than being guessed at, because a silently
+mis-typed column reaches a client screen looking like a number. It did exactly
+that, on a column added hours earlier.
+
+**Root cause:** `governance_cde_registry.slo_attainment_objective` was read
+from the landed JSON as `DoubleType` and published unchanged, making it the
+only DOUBLE in the entire exported estate. A probe of
+`information_schema.columns` across all twelve exported tables confirmed that:
+one DOUBLE, everything else STRING / INT / LONG / DECIMAL / DATE / TIMESTAMP /
+BOOLEAN, all of which the map already handles.
+
+**Fixed at the source, not by widening the map.** The column is now
+`CAST(... AS DECIMAL(14,6))` where it is published, which matches the Postgres
+column `V11` creates (`numeric(14,6)`), matches the cast `dq_slo_attainment`
+already applies to the same value, and keeps the estate Decimal throughout.
+Widening the map was the tempting repair and the wrong one: `float` would let a
+binary approximation into a `numeric` column, and `Decimal(float)` would
+preserve the approximation while looking exact.
+
+The error message now names the remedy rather than only the symptom — an error
+that says "no converter for X" sends the next person to add a converter, which
+is the repair this note exists to prevent. Two tests pin it: DOUBLE
+specifically is rejected, and the message must mention `CAST`.
+
+**Worth recording about the sequencing.** The gold column, the migration and
+the DTO were all verified before merge — but the *wire conversion between them*
+was not, because the export tests build synthetic Postgres from the Flyway DDL
+and never see a Databricks type name. That gap is exactly what D-029 accepted
+when it pinned the conversion against a live probe instead of a fixture, and it
+is why the loud stop matters more here than a wider type map would.
+
+`export` 52 tests (2 new).

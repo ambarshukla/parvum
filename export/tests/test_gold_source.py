@@ -58,6 +58,26 @@ def test_unknown_wire_type_is_a_loud_stop():
         convert_rows([{"name": "v", "type_name": "INTERVAL"}], [])
 
 
+def test_double_is_rejected_rather_than_quietly_accepted():
+    """DOUBLE is the one a future reader will want to add to the map.
+
+    It reached production once (`governance_cde_registry.slo_attainment_objective`,
+    D-075) and this guard is what caught it. Mapping it to `float` would let a
+    binary approximation into a `numeric` column; mapping it to `Decimal` would
+    preserve the approximation while looking exact. The fix belongs in the Spark
+    job that publishes the column.
+    """
+    with pytest.raises(ExportError, match="DOUBLE"):
+        convert_rows([{"name": "some_rate", "type_name": "DOUBLE"}], [])
+
+
+def test_the_stop_says_where_to_fix_it():
+    # An error that names the offending column but not the remedy sends the
+    # next person to widen the converter map, which is the wrong repair.
+    with pytest.raises(ExportError, match="CAST"):
+        convert_rows([{"name": "v", "type_name": "DOUBLE"}], [])
+
+
 def test_filtered_keeps_only_the_tenants_clients():
     table = GoldTable(
         name="gold_client_wealth",
