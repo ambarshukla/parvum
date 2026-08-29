@@ -1691,3 +1691,29 @@ work shows whether or not the rollup exists, and the section disappears when
 there is none. Two tests pin both directions.
 
 `internal` 39/39 (1 new), typecheck, prettier, build clean. D-085.
+
+## 2026-08-29 — Two named groups in one row
+
+D-085's merge of the governance tiles into the top strip was right and cost
+them their label — "Register coverage" under a "Data Operations" heading reads
+as a pipeline statistic, and the governance story ended up split between two
+unlabelled tiles at the top and a work list at the bottom.
+
+One row, two groups, each with a small uppercase label: **Pipeline** and
+**Governance**. Each grows in proportion to how many tiles it holds so a tile is
+about the same width in either, because the labels are there to say what the
+numbers are and not to carve the row into unequal halves.
+
+The labels vanish when there is only one group — a lone "Pipeline" heading with
+nothing to contrast against labels nothing. A test pins that, since "the heading
+is missing" and "the heading was never rendered" look identical in a screenshot.
+
+Third pass over the same twenty pixels: D-083 removed duplicate tiles, D-084 cut
+the prose, D-085 merged the strips, this names them. Each was a real fix and
+none was the whole answer, because the page accumulated across four slices
+without anyone asking what a reader was meant to do with it. **A screen
+assembled one slice at a time needs a periodic pass with the whole thing in
+view** — the cost of skipping it is paid by the reader, in confusion rather than
+in defects.
+
+`internal` 41/41 (2 new), typecheck, prettier, build clean. D-086.
