@@ -10,13 +10,13 @@ DOUBLE case just for this one column.
 """
 
 import json
-import urllib.request
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from parvum_export.gold_source import ExportError, convert_rows
+from parvum_export.gold_source import convert_rows
+from parvum_export.sql_api import ExportError, post_statement
 
 _QUERY = """
 SELECT s.fund_id, s.document, s.doc_type, s.sequence_number, s.period_end,
@@ -59,14 +59,7 @@ def row_to_review_item(row: tuple) -> ReviewItem:
 
 def fetch_needs_review(host: str, token: str, warehouse_id: str) -> tuple[ReviewItem, ...]:
     body = {"warehouse_id": warehouse_id, "wait_timeout": "50s", "statement": _QUERY}
-    request = urllib.request.Request(
-        host.rstrip("/") + "/api/2.0/sql/statements",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.loads(response.read())
+    result = post_statement(host, token, body, what="reading the needs_review queue")
 
     state = result.get("status", {}).get("state")
     if state != "SUCCEEDED":

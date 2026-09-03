@@ -12,7 +12,8 @@ import json
 import urllib.request
 from dataclasses import dataclass
 
-from parvum_export.gold_source import ExportError, convert_rows
+from parvum_export.gold_source import convert_rows
+from parvum_export.sql_api import ExportError, post_statement
 
 # Only documents the pipeline actually routed to review -- the queue is the
 # only thing that shows a PDF today, so mirroring the other 14 would be bytes
@@ -40,14 +41,7 @@ class DocumentRef:
 
 def fetch_document_index(host: str, token: str, warehouse_id: str) -> tuple[DocumentRef, ...]:
     body = {"warehouse_id": warehouse_id, "wait_timeout": "50s", "statement": _INDEX_QUERY}
-    request = urllib.request.Request(
-        host.rstrip("/") + "/api/2.0/sql/statements",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.loads(response.read())
+    result = post_statement(host, token, body, what="reading the alts document index")
 
     if result.get("status", {}).get("state") != "SUCCEEDED":
         raise ExportError(
