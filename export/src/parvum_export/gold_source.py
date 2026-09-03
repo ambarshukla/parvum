@@ -11,11 +11,12 @@ be a loud stop rather than a silently truncated export.
 """
 
 import json
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
+
+from parvum_export.sql_api import ExportError, post_statement
 
 GOLD_TABLES = (
     "gold_client_wealth",
@@ -37,10 +38,6 @@ GOLD_TABLES = (
 UNSCOPED_TABLES = ("dq_metrics", "governance_cde_registry", "dq_slo_attainment")
 
 SOURCE_TABLES = GOLD_TABLES + UNSCOPED_TABLES
-
-
-class ExportError(RuntimeError):
-    """The export cannot proceed safely; nothing has been written."""
 
 
 def _parse_timestamp(raw: str) -> datetime:
@@ -122,14 +119,7 @@ def fetch_table(host: str, token: str, warehouse_id: str, table: str) -> GoldTab
         "wait_timeout": "50s",
         "statement": f"SELECT * FROM workspace.parvum.{table}",
     }
-    request = urllib.request.Request(
-        host.rstrip("/") + "/api/2.0/sql/statements",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.loads(response.read())
+    result = post_statement(host, token, body, what=f"reading {table}")
 
     state = result.get("status", {}).get("state")
     if state != "SUCCEEDED":

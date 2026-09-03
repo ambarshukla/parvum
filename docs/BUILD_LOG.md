@@ -1744,3 +1744,23 @@ exporter and three consumers, and the threshold covers the symptom everywhere
 today.
 
 `internal` 43/43 (2 new), typecheck, prettier, build clean. D-087.
+
+---
+
+## 2026-09-03 — A transient SQL API outage, and the gate that slept through it
+
+**What happened:** all three scheduled readers of the Databricks SQL Statements API took an immediate `HTTP 400` within one window — the freshness gate inside Daily feeds (11:08 UTC), `export-gold` (12:22) and `sync-review-queue` (12:47). Nothing had changed: same code (`main` untouched in `export/` since 2026-08-29), same secrets, PAT valid for another 41 days, warehouse present and correct. A manual probe at 16:30 read all twelve source tables and both joined queries successfully, and re-running both failed workflows that evening succeeded with nothing altered. Transient, at least 100 minutes, cause still unknown — because the response body was thrown away.
+
+**Done:**
+- New `parvum_export.sql_api` — one `post_statement` for the three readers (`gold_source`, `review_queue_source`, `alts_document_source`), replacing three hand-rolled POSTs that each let a non-2xx escape as a bare `urllib.HTTPError`. A failure now carries the operation, the status, the warehouse id and the API's own `error_code`/`message`. `ExportError` moved here and is re-exported from `gold_source`, so no import in the tree changed.
+- Bounded retry (4 attempts, ~30s) on transient statuses, in both the exporter and the freshness gate. **`400` is in the retry set** — counterintuitive, evidence-backed, and argued at the constant (D-088). `401`/`403`/`404` are not.
+- The freshness gate now **fails the run** when it cannot get an answer, instead of warning and exiting 0. This reverses part of its own founding design rule; the docstring records the reversal rather than quietly dropping it.
+- Net −23 lines across the three readers despite the added behaviour.
+
+**The finding that mattered more than the outage:** `export-gold` and `sync-review-queue` went red and were noticed the same day. The freshness gate hit the identical 400 and reported **green** — it caught `urllib.error.URLError`, and `HTTPError` subclasses `URLError`, so a rejected request was indistinguishable from a flaky socket. Daily feeds passed having never checked freshness. Had bronze actually gone stale that morning, the one control built to catch it would have said nothing. A dead canary is worse than a red build.
+
+**A diagnostic error worth recording:** the first diagnosis was "the `DATABRICKS_WAREHOUSE_ID` secret is malformed", reached by reproducing each failure mode against the live API — bad token 403, absent warehouse 404, malformed warehouse 400, bad SQL 200+`FAILED`. The elimination was sound in method and wrong in conclusion: showing a malformed parameter is *sufficient* to produce a 400 never showed it was *necessary*. The user's objection — "I didn't touch any secrets" — was the actual evidence, and the reruns settled it, since no configuration error repairs itself.
+
+**Checks:** ingest 123 (+5) · reference 40 (+1 skip) · export 64 (+6, 0 skipped, Postgres up) · alts-hitl 65 · governance 73 · governance gate PASS 363/363, 94.4% · ruff format + check clean on all five packages.
+
+**Not done, deliberately:** the Files API PDF download in `alts_document_source` keeps the same blindness (different endpoint, uninvolved here). A second scheduled attempt for the two exporters is the obvious next step if this recurs — both are idempotent — but is unwarranted on one occurrence.
