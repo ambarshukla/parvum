@@ -1764,3 +1764,21 @@ today.
 **Checks:** ingest 123 (+5) · reference 40 (+1 skip) · export 64 (+6, 0 skipped, Postgres up) · alts-hitl 65 · governance 73 · governance gate PASS 363/363, 94.4% · ruff format + check clean on all five packages.
 
 **Not done, deliberately:** the Files API PDF download in `alts_document_source` keeps the same blindness (different endpoint, uninvolved here). A second scheduled attempt for the two exporters is the obvious next step if this recurs — both are idempotent — but is unwarranted on one occurrence.
+
+---
+
+## 2026-09-03 (later) — the sweep for everything else that could fail quietly
+
+**Why:** D-088 was one gate swallowing one failure. The obvious next question is where else that shape lives.
+
+**Audited, and clean:** Spark jobs raise rather than catch (`bronze_ingest` records parse failures as queryable `status='FAILED'` registry rows — failures as data, not as silence); all three export CLIs `sys.exit` on error; the serving app's one broad `catch` rethrows as a 400; every `catch` in `web/` and `internal/` sets visible error state; no `|| true` or leading-dash recipes in the Makefile; `sync-review-queue`'s `if: always()` does not mask the preceding step's failure.
+
+**Done:**
+- **`daily-feeds.yml`** — the four `continue-on-error: true` steps (FX fetch, FX landing, CDE-register landing, restatement-register landing) now report into a **"Delivered, but degraded"** block in the run summary. They stay non-fatal, which is correct; what changes is that a failure is no longer visible only as a warning marker on a green run nobody opens. Verified by extracting the step's own shell and running it for a healthy run and a two-failure run.
+- **`registry_snapshot_stale_days`** — a new governance metric in `dq_recon`, from `_metadata.file_modification_time` on the landed snapshot. Of the four non-fatal steps this was the only one with no downstream detector, and `governance_cde_registry.rebuilt_at` was actively masking it (`current_timestamp()` at rebuild, so a stale file rebuilt today looks fresh). New `dq_metrics` **row**, not column — no migration, no exporter change, no D-071 coupling.
+
+**Verified live before merge**, by extracting the new CTE from the job rather than retyping it: today's snapshot reads `0.000000, passed=true`, detail "register snapshot landed 2026-09-03". Negative control across the threshold: `3d → pass · 4d → pass · 5d → fail · 10d → fail` (a long weekend is three days). The `unlabelled_metric` gate rule was confirmed to cover the new metric by deleting its label and watching the gate fail naming it, then restoring — a green gate on its own would not have proved it was looking.
+
+**Checks:** ingest 123 · reference 40 (+1 skip) · export 64 · alts-hitl 65 · governance 73 · gate PASS 363/363, 94.4% · internal 43/43 + tsc + prettier + build · ruff clean on all five packages. `spark/` is deliberately not ruff-formatted (CI does not lint it); `dq_recon.py` compile-checked instead.
+
+**After merge:** `make run-job` to publish the new metric (no `bundle deploy` — no bundle change), then dispatch `export-gold.yml` so it reaches the Ops page. The `internal` Vercel app redeploys on merge for the label.

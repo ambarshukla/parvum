@@ -66,6 +66,7 @@ const DQ_METRIC_LABELS: Record<string, string> = {
     alts_documents_unconfirmed_count: "Alts awaiting review",
     fx_rate_plausibility_rate: "FX rate plausibility",
     fx_rate_stale_days_count: "FX stale days",
+    registry_snapshot_stale_days: "Register snapshot age",
 };
 
 // The register's SLO names, same problem and same treatment. The humanising

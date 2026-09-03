@@ -76,6 +76,7 @@ jobs:
       # (The dependency sync above covered the whole uv workspace, reference
       # included — one lockfile, one environment.)
       - name: Fetch FX reference rates
+        id: fetch_fx
         continue-on-error: true
         run: make fetch-fx
 
@@ -101,6 +102,7 @@ jobs:
       # job, gold already sees today's rate. Non-fatal, same reasoning as the
       # fetch: carry-forward covers a stale day; a blocked delivery does not.
       - name: Land the FX rates
+        id: land_fx
         continue-on-error: true
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -115,6 +117,7 @@ jobs:
       # rather than starting one of its own. Non-fatal for the same reason as
       # the FX landing: the previous snapshot is still a usable register.
       - name: Land the CDE register snapshot
+        id: land_registry
         continue-on-error: true
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -128,6 +131,7 @@ jobs:
       # every restatement up to yesterday, and an undeclared one is caught
       # independently by dq_return_plausibility rather than by this step.
       - name: Land the book-restatement register
+        id: land_restatements
         continue-on-error: true
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -168,11 +172,37 @@ jobs:
       # The run log is as much the deliverable as the files: "what ran, what
       # changed, what failed" is what a data-ops reader needs, without them
       # having to open Databricks to find out.
+      #
+      # That last clause is why the degraded block exists. The four steps above
+      # are continue-on-error, so a failure shows only as a small warning
+      # marker on a run that is otherwise green — and nobody opens a green run.
+      # It is the same reasoning that let the freshness gate report green
+      # through an outage it had actually hit (D-088). Non-fatal is the right
+      # call for those steps; invisible is not.
       - name: Summarise the run
         if: always()
         env:
           FILES: ${{ steps.generate.outputs.files || '0' }}
+          FETCH_FX: ${{ steps.fetch_fx.outcome }}
+          LAND_FX: ${{ steps.land_fx.outcome }}
+          LAND_REGISTRY: ${{ steps.land_registry.outcome }}
+          LAND_RESTATEMENTS: ${{ steps.land_restatements.outcome }}
         run: |
+          # Collected in a file rather than a shell variable: accumulating
+          # markdown in a variable inside an indented YAML block drags the
+          # indentation into the value, and four leading spaces turn the whole
+          # list into a code block.
+          degraded="$RUNNER_TEMP/degraded.md"
+          : > "$degraded"
+          note() {
+            if [ -n "$2" ] && [ "$2" != "success" ]; then
+              echo "- **$1** did not succeed (\`$2\`)" >> "$degraded"
+            fi
+          }
+          note "FX fetch" "$FETCH_FX"
+          note "FX landing" "$LAND_FX"
+          note "CDE register landing" "$LAND_REGISTRY"
+          note "Restatement register landing" "$LAND_RESTATEMENTS"
           {
             echo "### Daily feed delivery"
             echo
@@ -187,5 +217,18 @@ jobs:
               for d in data/raw/date=*; do
                 echo "| ${d#data/raw/date=} | $(find "$d" -type f | wc -l) |"
               done
+            fi
+            if [ -s "$degraded" ]; then
+              echo
+              echo "#### Delivered, but degraded"
+              echo
+              cat "$degraded"
+              echo
+              echo "Each of these is deliberately non-fatal — the feed must not be blocked"
+              echo "by an ECB outage or a reference-landing hiccup, and the pipeline"
+              echo "degrades gracefully (carry-forward FX, the previous register snapshot)."
+              echo "They are named here because a repeat across several days is a real"
+              echo "problem, and a warning marker inside a green run is not something"
+              echo "anyone sees."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

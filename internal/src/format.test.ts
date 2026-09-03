@@ -58,6 +58,7 @@ describe("dqMetricLabel — the metrics added after the last labelling miss", ()
         expect(dqMetricLabel("alts_documents_unconfirmed_count")).toBe("Alts awaiting review");
         expect(dqMetricLabel("fx_rate_plausibility_rate")).toBe("FX rate plausibility");
         expect(dqMetricLabel("fx_rate_stale_days_count")).toBe("FX stale days");
+        expect(dqMetricLabel("registry_snapshot_stale_days")).toBe("Register snapshot age");
     });
 });
 

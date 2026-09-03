@@ -267,9 +267,17 @@ REGISTRY_SCHEMA = StructType(
     ]
 )
 
-spark.read.schema(REGISTRY_SCHEMA).json(REGISTRY_PATH).createOrReplaceTempView(  # noqa: F821
-    "cde_registry_landed"
-)
+# _metadata.file_modification_time is when the snapshot LANDED, and it is the
+# only thing that can tell a stale register from a current one: the published
+# table's rebuilt_at is current_timestamp(), so a stale file rebuilt today
+# looks perfectly fresh. The daily Action lands this on a continue-on-error
+# step -- a failed reference landing must not block the feed -- which makes a
+# quietly repeated failure possible, and this the only thing that would show
+# it (D-089). The column stays on the temp view: the CREATE TABLE below names
+# its columns explicitly, so the published schema is unchanged.
+spark.read.schema(REGISTRY_SCHEMA).json(REGISTRY_PATH).selectExpr(  # noqa: F821
+    "*", "_metadata.file_modification_time AS landed_at"
+).createOrReplaceTempView("cde_registry_landed")
 
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TABLE {SCHEMA}.governance_cde_registry
@@ -500,6 +508,21 @@ spark.sql(  # noqa: F821
                       ' critical elements have a stated control gap and no automated rule') AS detail
         FROM governance_counts
     ),
+    -- The register snapshot lands on a non-fatal step, so it can go stale
+    -- without anything failing. governance_cde_registry cannot reveal that
+    -- (its rebuilt_at is the rebuild, not the landing), so the landed
+    -- timestamp is carried on the temp view purely to be checked here. Four
+    -- days, matching the bronze freshness threshold: a long weekend is three.
+    governance_snapshot AS (
+        SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension,
+               'registry_snapshot_stale_days' AS metric,
+               CAST(DATEDIFF(CURRENT_DATE(), CAST(MAX(landed_at) AS DATE)) AS DECIMAL(14,6)) AS value,
+               DATEDIFF(CURRENT_DATE(), CAST(MAX(landed_at) AS DATE)) <= 4 AS passed,
+               CONCAT('register snapshot landed ',
+                      CAST(CAST(MAX(landed_at) AS DATE) AS STRING),
+                      '; the daily landing is non-fatal, so a rising number means it has been failing') AS detail
+        FROM cde_registry_landed
+    ),
     -- The alts chain has validated every document against the rest of its
     -- fund since D-050 -- commitment continuity, call sequencing, statement
     -- chaining -- and none of that reached the rollup, which is what the
@@ -545,6 +568,7 @@ spark.sql(  # noqa: F821
     UNION ALL SELECT *, current_timestamp() FROM governance_control
     UNION ALL SELECT *, current_timestamp() FROM governance_critical
     UNION ALL SELECT *, current_timestamp() FROM governance_gaps
+    UNION ALL SELECT *, current_timestamp() FROM governance_snapshot
     UNION ALL SELECT *, current_timestamp() FROM accuracy_alts
     UNION ALL SELECT *, current_timestamp() FROM exceptions_alts"""
 )
