@@ -62,7 +62,7 @@ owners:
 # stated objective into a measured one: the share of days in the trailing
 # window on which `measured_by` must have passed, and how long that window
 # is. `gold_reports.py` computes attainment and the error budget from these
-# into `dq_slo_attainment` (D-075).
+# into `dq.slo_attainment` (D-075).
 #
 # Two of these ship breached, and deliberately. The feed generator injects
 # defects at a rate no real custodian would (D-011), so holdings agreement
@@ -220,7 +220,7 @@ common_columns:
       Content hash of the landed file; restatement is detected by this, not by path.
 
 tables:
-  bronze_alts_documents:
+  bronze.alts_documents:
     owner: alts-operations
     default_tier: supporting
     columns:
@@ -232,7 +232,7 @@ tables:
       sha256:
       status:
       ingested_at:
-  bronze_alts_extractions:
+  bronze.alts_extractions:
     owner: alts-operations
     default_tier: supporting
     columns:
@@ -249,7 +249,7 @@ tables:
       confidence:
       sha256:
       ingested_at:
-  bronze_alts_review_decisions:
+  bronze.alts_review_decisions:
     owner: alts-operations
     default_tier: supporting
     columns:
@@ -264,7 +264,7 @@ tables:
       decided_at:
       sha256:
       ingested_at:
-  bronze_cash_balances:
+  bronze.cash_balances:
     owner: custody-ingestion
     default_tier: supporting
     columns:
@@ -276,7 +276,7 @@ tables:
       amount:
       currency:
       ingested_at:
-  bronze_cash_entries:
+  bronze.cash_entries:
     owner: custody-ingestion
     default_tier: supporting
     columns:
@@ -292,7 +292,7 @@ tables:
       currency:
       description:
       ingested_at:
-  bronze_file_registry:
+  bronze.file_registry:
     owner: platform-ops
     default_tier: operational
     columns:
@@ -305,7 +305,7 @@ tables:
       status:
       error:
       ingested_at:
-  bronze_holdings:
+  bronze.holdings:
     owner: custody-ingestion
     default_tier: supporting
     columns:
@@ -330,7 +330,7 @@ tables:
   # two exceptions: `attainment` and `meets_objective` are what an operator
   # actually decides on, so they carry the obligations of an element the
   # business consumes directly. The rest are the workings behind those two.
-  dq_slo_attainment:
+  dq.slo_attainment:
     owner: data-quality
     default_tier: supporting
     context: >-
@@ -374,7 +374,7 @@ tables:
       budget_consumed_days:
       budget_remaining_pct:
       rebuilt_at:
-  dq_cash_continuity:
+  dq.cash_continuity:
     owner: data-quality
     default_tier: supporting
     columns:
@@ -386,7 +386,7 @@ tables:
       continuous:
       currency:
       rebuilt_at:
-  dq_cross_field_invariants:
+  dq.cross_field_invariants:
     owner: data-quality
     default_tier: supporting
     context: >-
@@ -413,7 +413,7 @@ tables:
         quality_rules:
           - cross_field_invariant_rate
       rebuilt_at:
-  dq_return_plausibility:
+  dq.return_plausibility:
     owner: data-quality
     default_tier: supporting
     context: >-
@@ -423,7 +423,7 @@ tables:
     grain: [as_of, client_id]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -455,7 +455,7 @@ tables:
         quality_rules:
           - daily_return_plausibility_rate
       rebuilt_at:
-  dq_cash_integrity:
+  dq.cash_integrity:
     owner: data-quality
     default_tier: supporting
     columns:
@@ -471,7 +471,7 @@ tables:
       conformed_consistent:
       currency:
       rebuilt_at:
-  dq_fx_plausibility:
+  dq.fx_plausibility:
     owner: data-quality
     default_tier: supporting
     context: >-
@@ -502,7 +502,7 @@ tables:
         quality_rules:
           - fx_rate_plausibility_rate
       rebuilt_at:
-  dq_holdings_recon:
+  dq.holdings_recon:
     owner: data-quality
     default_tier: supporting
     columns:
@@ -515,7 +515,7 @@ tables:
       semt002_value:
       mt535_value:
       rebuilt_at:
-  dq_metrics:
+  dq.metrics:
     owner: data-quality
     default_tier: supporting
     columns:
@@ -532,7 +532,7 @@ tables:
         owner: data-quality
       detail:
       rebuilt_at:
-  gold_alts_holdings:
+  gold.alts_holdings:
     owner: alts-operations
     default_tier: supporting
     context: >-
@@ -543,10 +543,10 @@ tables:
     grain: [client_id, fund_id]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
       - column: account_id
-        references: gold_ownership.account_id
+        references: gold.ownership.account_id
         cardinality: many_to_one
     columns:
       client_id:
@@ -636,18 +636,18 @@ tables:
       pending_review_documents:
       pending_review_latest_period:
       rebuilt_at:
-  gold_asset_allocation:
+  gold.asset_allocation:
     owner: client-reporting
     default_tier: supporting
     context: >-
       What the wealth is made of: one row per client per date per asset class, reconstructing the
-      same total gold_client_wealth reports by a different aggregation path. Cash is an asset
+      same total gold.client_wealth reports by a different aggregation path. Cash is an asset
       class here, and so are Alternatives, which is why the weights sum to one against total
       wealth rather than against positions.
     grain: [as_of, client_id, asset_class]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -671,7 +671,7 @@ tables:
         quality_rules:
           - holdings_cross_format_match_rate
       rebuilt_at:
-  gold_client_wealth:
+  gold.client_wealth:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -683,7 +683,7 @@ tables:
     grain: [as_of, client_id]
     foreign_keys:
       - column: client_id
-        references: gold_ownership.client_id
+        references: gold.ownership.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -760,7 +760,7 @@ tables:
       reconcile_break_accounts:
       reconcile_variance_usd:
       rebuilt_at:
-  gold_income:
+  gold.income:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -769,7 +769,7 @@ tables:
     grain: [client_id, month, type]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
     columns:
       client_id:
@@ -787,7 +787,7 @@ tables:
           - cash_integrity_breaks_count
       movements:
       rebuilt_at:
-  gold_ownership:
+  gold.ownership:
     owner: reference-data
     default_tier: supporting
     context: >-
@@ -797,10 +797,10 @@ tables:
     grain: [account_id, client_id]
     foreign_keys:
       - column: account_id
-        references: silver_account_owners.account_id
+        references: silver.account_owners.account_id
         cardinality: many_to_one
       - column: client_id
-        references: silver_account_owners.client_id
+        references: silver.account_owners.client_id
         cardinality: many_to_one
     columns:
       account_id:
@@ -810,7 +810,7 @@ tables:
       owner_count:
       is_shared:
       rebuilt_at:
-  gold_performance:
+  gold.performance:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -821,7 +821,7 @@ tables:
     grain: [as_of, client_id]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -893,7 +893,7 @@ tables:
           Closing that needs the independent re-derivation from silver, which is now a
           second-order gap rather than the only line of defence.
       rebuilt_at:
-  gold_performance_summary:
+  gold.performance_summary:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -904,7 +904,7 @@ tables:
     grain: [client_id]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: one_to_one
     columns:
       client_id:
@@ -981,7 +981,7 @@ tables:
           Closing that needs the independent re-derivation from silver, which is now a
           second-order gap rather than the only line of defence.
       rebuilt_at:
-  gold_reconciliation_exceptions:
+  gold.reconciliation_exceptions:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -991,10 +991,10 @@ tables:
     grain: [client_id, account_id]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
       - column: account_id
-        references: gold_ownership.account_id
+        references: gold.ownership.account_id
         cardinality: many_to_one
     columns:
       client_id:
@@ -1013,7 +1013,7 @@ tables:
           - cash_integrity_breaks_count
           - cash_conformed_consistency_rate
       rebuilt_at:
-  gold_top_holdings:
+  gold.top_holdings:
     owner: client-reporting
     default_tier: supporting
     context: >-
@@ -1023,7 +1023,7 @@ tables:
     grain: [as_of, client_id, rank]
     foreign_keys:
       - column: client_id
-        references: gold_client_wealth.client_id
+        references: gold.client_wealth.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -1044,7 +1044,7 @@ tables:
           - holdings_cross_format_match_rate
       weight:
       rebuilt_at:
-  governance_cde_registry:
+  governance.cde_registry:
     owner: data-governance
     default_tier: supporting
     columns:
@@ -1065,7 +1065,7 @@ tables:
       slo_attainment_objective:
       slo_window_days:
       rebuilt_at:
-  silver_account_owners:
+  silver.account_owners:
     owner: reference-data
     default_tier: supporting
     context: >-
@@ -1078,7 +1078,7 @@ tables:
       client_id:
       client_name:
       ownership_pct:
-  silver_alts_documents:
+  silver.alts_documents:
     owner: alts-operations
     default_tier: supporting
     columns:
@@ -1098,7 +1098,7 @@ tables:
       final_fields_json:
       reviewed_at:
       confirmed_fields_json:
-  silver_cash_balance_owners:
+  silver.cash_balance_owners:
     owner: custody-ingestion
     default_tier: supporting
     context: >-
@@ -1107,10 +1107,10 @@ tables:
     grain: [as_of, account_id, balance_type, client_id]
     foreign_keys:
       - column: account_id
-        references: silver_account_owners.account_id
+        references: silver.account_owners.account_id
         cardinality: many_to_one
       - column: client_id
-        references: silver_account_owners.client_id
+        references: silver.account_owners.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -1122,7 +1122,7 @@ tables:
       owned_amount:
       currency:
       rebuilt_at:
-  silver_cash_balances:
+  silver.cash_balances:
     owner: custody-ingestion
     default_tier: supporting
     columns:
@@ -1133,7 +1133,7 @@ tables:
       currency:
       source_file:
       rebuilt_at:
-  silver_cash_transaction_owners:
+  silver.cash_transaction_owners:
     owner: custody-ingestion
     default_tier: supporting
     context: >-
@@ -1142,10 +1142,10 @@ tables:
     grain: [as_of, account_id, transaction_id, client_id]
     foreign_keys:
       - column: account_id
-        references: silver_account_owners.account_id
+        references: silver.account_owners.account_id
         cardinality: many_to_one
       - column: client_id
-        references: silver_account_owners.client_id
+        references: silver.account_owners.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -1158,7 +1158,7 @@ tables:
       owned_amount:
       currency:
       rebuilt_at:
-  silver_cash_transactions:
+  silver.cash_transactions:
     owner: custody-ingestion
     default_tier: supporting
     columns:
@@ -1176,21 +1176,21 @@ tables:
       source_disagrees:
       source_file:
       rebuilt_at:
-  silver_position_owners:
+  silver.position_owners:
     owner: custody-ingestion
     default_tier: supporting
     context: >-
-      Positions attributed to owners. Deliberately a separate table from silver_positions rather
+      Positions attributed to owners. Deliberately a separate table from silver.positions rather
       than extra columns on it: exploding owners into the positions table would make a naive SUM
       over a shared account double-count, and separate grains make the safe query the obvious one
       (D-023).
     grain: [as_of, account_id, security_scheme, security_id, client_id]
     foreign_keys:
       - column: account_id
-        references: silver_account_owners.account_id
+        references: silver.account_owners.account_id
         cardinality: many_to_one
       - column: client_id
-        references: silver_account_owners.client_id
+        references: silver.account_owners.client_id
         cardinality: many_to_one
     columns:
       as_of:
@@ -1204,7 +1204,7 @@ tables:
       owned_value:
       market_value_ccy:
       rebuilt_at:
-  silver_positions:
+  silver.positions:
     owner: custody-ingestion
     default_tier: supporting
     columns:

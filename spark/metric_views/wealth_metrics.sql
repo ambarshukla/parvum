@@ -1,4 +1,4 @@
--- wealth_metrics — the governed semantic layer over gold_client_wealth.
+-- wealth_metrics — the governed semantic layer over gold.client_wealth.
 --
 -- A Unity Catalog metric view: a YAML spec of dimensions and measures over one
 -- source table. It stores no data — it is a governed query surface. The
@@ -9,12 +9,12 @@
 -- Query it through MEASURE(); see spark/metric_views/README.md and
 -- docs/SEMANTIC_LAYER.md.
 
-CREATE OR REPLACE VIEW workspace.parvum.wealth_metrics
+CREATE OR REPLACE VIEW parvum.gold.wealth_metrics
 WITH METRICS
 LANGUAGE YAML
 AS $$
 version: 0.1
-source: workspace.parvum.gold_client_wealth
+source: parvum.gold.client_wealth
 dimensions:
   - name: Client
     expr: client_name
@@ -41,24 +41,24 @@ $$;
 -- object, so these run every apply. The comment is the *business* definition,
 -- not the technical one (see docs/GLOSSARY.md, "business definition vs. catalog
 -- description").
-COMMENT ON VIEW workspace.parvum.wealth_metrics IS
-  'Governed client-wealth measures, one row per client per valuation date. Semantic layer over gold_client_wealth — see docs/SEMANTIC_LAYER.md.';
+COMMENT ON VIEW parvum.gold.wealth_metrics IS
+  'Governed client-wealth measures, one row per client per valuation date. Semantic layer over gold.client_wealth — see docs/SEMANTIC_LAYER.md.';
 
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Total wealth` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Total wealth` IS
   'positions + cash + alts, owner-prorated, USD — the headline number a client statement leads with';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Positions` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Positions` IS
   'Owner-prorated securities value in USD, converted at the day''s ECB rate';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Cash` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Cash` IS
   'Owner-prorated closing cash in USD';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Alts NAV` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Alts NAV` IS
   'Owner-prorated private-fund NAV in USD, forward-filled from the most recent confirmed capital account statement';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Reconcile variance` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Reconcile variance` IS
   'USD arithmetic gap on accounts failing the conformed cash check; 0 when the client''s books reconcile';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Clients` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Clients` IS
   'Distinct client families in scope for the selected slice';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Client` IS
-  'Client family display name (gold_client_wealth.client_name)';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`As of` IS
-  'Valuation date (gold_client_wealth.as_of); grain is one row per client per date';
-COMMENT ON COLUMN workspace.parvum.wealth_metrics.`Books reconcile` IS
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Client` IS
+  'Client family display name (gold.client_wealth.client_name)';
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`As of` IS
+  'Valuation date (gold.client_wealth.as_of); grain is one row per client per date';
+COMMENT ON COLUMN parvum.gold.wealth_metrics.`Books reconcile` IS
   'TRUE when the conformed cash check passes for every account this client owns on this date';

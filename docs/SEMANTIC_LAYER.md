@@ -15,7 +15,7 @@ each to a governed column.
 
 `workspace.parvum.wealth_metrics` is a Unity Catalog **metric view** — a YAML
 spec of dimensions and measures over a single source table
-(`gold_client_wealth`). It stores no data; it is a governed query surface. Six
+(`gold.client_wealth`). It stores no data; it is a governed query surface. Six
 measures, three dimensions, each carrying a column comment that is the
 *business* definition, not the technical one.
 
@@ -36,7 +36,7 @@ re-writes the `SUM`:
 ```sql
 SELECT `Client`, MEASURE(`Total wealth`) AS aum
 FROM   workspace.parvum.wealth_metrics
-WHERE  `As of` = (SELECT MAX(as_of) FROM workspace.parvum.gold_client_wealth)
+WHERE  `As of` = (SELECT MAX(as_of) FROM parvum.gold.client_wealth)
 GROUP  BY `Client`
 ORDER  BY aum DESC;
 ```
@@ -45,18 +45,18 @@ ORDER  BY aum DESC;
 
 ## It is lineage-tracked
 
-Unity Catalog treats the metric view like any other object. `gold_client_wealth`
-shows it downstream — with its nine columns — alongside `dq_cross_field_invariants`,
-`gold_performance`, and the consumers that read it; the silver tables the gold
+Unity Catalog treats the metric view like any other object. `gold.client_wealth`
+shows it downstream — with its nine columns — alongside `dq.cross_field_invariants`,
+`gold.performance`, and the consumers that read it; the silver tables the gold
 table is built from sit upstream. The semantic layer is inside the lineage
 graph, not bolted onto its edge.
 
-![Visual lineage graph for gold_client_wealth: silver tables upstream, the wealth_metrics metric view and downstream tables/consumers on the right](img/lineage-graph.png)
+![Visual lineage graph for gold.client_wealth: silver tables upstream, the wealth_metrics metric view and downstream tables/consumers on the right](img/lineage-graph.png)
 
 The table view names the Genie space as its own object type ("Genie Agent"),
 downstream of the metric view it reads:
 
-![Lineage table for gold_client_wealth listing the metric view and Genie agent as downstream assets](img/metric-view-lineage.png)
+![Lineage table for gold.client_wealth listing the metric view and Genie agent as downstream assets](img/metric-view-lineage.png)
 
 ## AI/BI Genie over the layer
 
@@ -88,7 +88,7 @@ each term (the column comments). That set is the whole content of
 "AI-ready" — which is why the semantic-layer work and the governance work are
 the same work.
 
-It sits on top of a live pipeline: `gold_client_wealth` is rebuilt by the
+It sits on top of a live pipeline: `gold.client_wealth` is rebuilt by the
 `parvum-ingest` job on every custodial-feed arrival, so the measures move when
 the data does.
 
@@ -100,7 +100,7 @@ the data does.
 covers the daily performance series. The second is the interesting one, for
 what it does **not** expose.
 
-`gold_performance` carries `daily_twr_return` and `twr_index_since_inception`,
+`gold.performance` carries `daily_twr_return` and `twr_index_since_inception`,
 and neither is a measure here. A time-weighted return over a period is the
 **chain-linked product** of its daily factors — not their sum, and not their
 average. A metric view measure is an aggregate expression, so
@@ -108,7 +108,7 @@ average. A metric view measure is an aggregate expression, so
 picked, and that number would be wrong in a way nothing on the screen would
 reveal. The view therefore exposes the additive components a return is built
 from (wealth, flows, restatement adjustment) and leaves the chained figures in
-`gold_performance_summary`, computed once by the job that knows how.
+`gold.performance_summary`, computed once by the job that knows how.
 
 `allocation_metrics` makes the same refusal about `weight`: a share is only
 meaningful at the grain it was computed for, so the additive component is

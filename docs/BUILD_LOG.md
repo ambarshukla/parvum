@@ -1782,3 +1782,25 @@ today.
 **Checks:** ingest 123 · reference 40 (+1 skip) · export 64 · alts-hitl 65 · governance 73 · gate PASS 363/363, 94.4% · internal 43/43 + tsc + prettier + build · ruff clean on all five packages. `spark/` is deliberately not ruff-formatted (CI does not lint it); `dq_recon.py` compile-checked instead.
 
 **After merge:** `make run-job` to publish the new metric (no `bundle deploy` — no bundle change), then dispatch `export-gold.yml` so it reaches the Ops page. The `internal` Vercel app redeploys on merge for the label.
+
+---
+
+## 2026-09-06 — Medallion layers as Unity Catalog schemas
+
+**Why:** the lakehouse had one schema (`workspace.parvum`) with the layer baked into every table name (`gold_client_wealth`, `dq_metrics`). That is the pre-Unity-Catalog two-level pattern; the standard three-level layout — and the sibling `intus` project — put a schema per layer. D-090.
+
+**Done:**
+- New `parvum` catalog with schemas `bronze` / `silver` / `gold` / `dq` / `governance`. Tables lose the prefix: `parvum.gold.client_wealth`, `parvum.dq.metrics`, `parvum.governance.cde_registry`.
+- **`spark/`** (7 jobs + 3 metric-view SQL): `SCHEMA = "workspace.parvum"` → `CATALOG = "parvum"`; every `{SCHEMA}.gold_x` → `{CATALOG}.gold.x`; `COLUMN_COMMENTS` keys and the ALTER / DELETE / `saveAsTable` loops re-keyed to `<layer>.<name>`. Metric views are now `parvum.gold.<view>`.
+- **`governance/`**: `schema_scan.layer_for` derives the layer from the `<layer>.<name>` identifier instead of a name prefix; the foreign-key reference parser takes `<layer>.<table>.<column>`; `cde_registry.yml` re-keyed (33 table keys + 15 `references:` values); the affected tests updated.
+- **`export/`**: `gold_source.py` gains an explicit logical→physical FQN map for the `FROM` clause. `PROJECTION_TABLES` and everything downstream — Postgres, jOOQ, serving, web — untouched; that is the boundary. Three raw alts joins repointed.
+- Landing volume unchanged (`workspace.parvum.landing`); `databricks.yml` unchanged (no catalog parameter reaches the notebooks).
+- Docs: ARCHITECTURE ("The shape"), GLOSSARY ("Layer as schema"), `spark/README.md` (catalog layout), RUNBOOK / SEMANTIC_LAYER / PERFORMANCE_METHODOLOGY table names, and the serving migration lineage comments.
+
+**Checks:** ingest 123 · reference 40 (+1 skip) · alts-hitl 65 · export 64 · governance 73 · gate **PASS 363/363, 94.4%** (identical to pre-change — it is a rename) · serving `mvn verify` green (the V-migrations replay through jOOQ's in-memory H2 unchanged) · internal 43 + web 14 + tsc + prettier + builds · ruff format + check clean on all five packages · `spark/*.py` compile.
+
+**After merge (in order):**
+1. `CREATE TABLE parvum.bronze.<t> DEEP CLONE workspace.parvum.bronze_<t>` for the 7 bronze / alts-bronze tables (keeps the incremental file registry), then `make run-job` + `make run-alts-job` — silver/dq/gold rebuild from there. No `bundle deploy`.
+2. `make metric-views` (workspace objects, re-applied; not merge-gated) and re-point the Genie space at `parvum.gold.wealth_metrics`.
+3. Dispatch `export-gold.yml` — no Postgres migration, projection mapping unchanged.
+4. Verify against the documented figures (wealth $221.17M / $6.58M / $3.57M, TWR −4.167%, 363 registry rows, coverage 94.4%, 0 breaks), then drop the old `workspace.parvum.*` tables.

@@ -21,8 +21,8 @@ from parvum_export.sql_api import ExportError, post_statement
 _QUERY = """
 SELECT s.fund_id, s.document, s.doc_type, s.sequence_number, s.period_end,
        b.fields_json, CAST(s.confidence AS DECIMAL(5, 4)), s.validation_notes
-FROM workspace.parvum.silver_alts_documents s
-JOIN workspace.parvum.bronze_alts_extractions b
+FROM parvum.silver.alts_documents s
+JOIN parvum.bronze.alts_extractions b
   ON b.fund_id = s.fund_id AND b.document = s.document
 WHERE s.routing = 'needs_review'
 """

@@ -1,6 +1,6 @@
 # Performance methodology: three answers to "how did this account do?"
 
-`gold_performance` and `gold_performance_summary` (added alongside this doc)
+`gold.performance` and `gold.performance_summary` (added alongside this doc)
 compute the same client's since-inception return three different ways. They
 disagree on purpose. This doc explains why, using the actual figures the
 pipeline produces.
@@ -31,7 +31,7 @@ out? Every performance methodology is a different answer to that split.
   manager's report card.
 
 If a period has no flows, all three collapse to the same number. They only
-diverge when money moves mid-period — which is why `gold_performance`'s test
+diverge when money moves mid-period — which is why `gold.performance`'s test
 data deliberately puts flows in the *middle* of each month (see D-040) rather
 than at the boundaries.
 
@@ -43,7 +43,7 @@ those exact values; the book has since been restated (see "Restatements"
 below) and every figure here has moved. Read the live API before quoting any
 headline number.
 
-From the `gold_performance_summary` table (D-040's cash-continuity fix
+From the `gold.performance_summary` table (D-040's cash-continuity fix
 and D-041's holdings-dedupe fix both applied, materialized), for the
 ~three-month window 2026-04-20 → 2026-07-17:
 
@@ -78,7 +78,7 @@ difference a report has to be able to explain, not paper over.
 
 ## How each is actually computed
 
-**TWR** (`gold_performance.daily_twr_return`, `twr_index_since_inception`):
+**TWR** (`gold.performance.daily_twr_return`, `twr_index_since_inception`):
 for each business day, `daily_return = (wealth_today − external_flow_today)
 / wealth_yesterday − 1`. The flow is entirely excluded from the numerator so
 it contributes nothing to the return, only to the portfolio's size for the
@@ -89,13 +89,13 @@ performance systems for the same reason: geometric chaining as repeated
 multiplication is numerically worse-conditioned over long series than a
 sum-then-exponentiate.
 
-**Modified Dietz** (`gold_performance_summary.dietz_since_inception`):
+**Modified Dietz** (`gold.performance_summary.dietz_since_inception`):
 `(wealth_end − wealth_begin − net_flow) / (wealth_begin + Σ flow_i × w_i)`,
 where `w_i = (period_days − days_since_period_start_i) / period_days`. A
 flow on the inception day itself is treated as already inside
 `wealth_begin` (see below) rather than double-counted as a separate flow.
 
-**IRR** (`gold_performance_summary.irr_since_inception_annualized`): solved
+**IRR** (`gold.performance_summary.irr_since_inception_annualized`): solved
 by bisection on the NPV-at-rate-r function over the client's actual cash
 flow dates — `wealth_begin` as an outflow at inception, each subsequent flow
 as its own signed cash flow, `wealth_end` as an inflow at the final date.
@@ -109,7 +109,7 @@ dependency isn't worth adding for something this small.
 
 Every method above needs one convention decision that's easy to get subtly
 wrong: what happens to the flow on the very first day of the measured
-period? `gold_performance`'s daily TWR chain starts at index 1 (the second
+period? `gold.performance`'s daily TWR chain starts at index 1 (the second
 row), leaving `daily_twr_return` `NULL` on the client's first date — there's
 no prior day to compare against, so no return can be attributed to that day
 at all. Its flow is simply *inside* `wealth_begin_usd`, the same way a real
@@ -160,7 +160,7 @@ How each method treats a declared restatement:
 - **IRR** takes it as a cash flow at its effective date, same reasoning.
 
 But it is reported in its own column (`restatement_adjustment_usd`, in both
-`gold_performance` and `gold_performance_summary`) rather than folded into
+`gold.performance` and `gold.performance_summary`) rather than folded into
 `net_external_flow_usd`, because semantically it is the opposite of a flow:
 it is not the client's money, and a client reconciling reported flows against
 their own records must not find $178M they never sent.
@@ -176,11 +176,11 @@ crediting it; forfeiting one day's genuine return is the cheaper error.
 
 **Declaration is only half a control.** A book able to label any
 inconvenient number a restatement, with nothing arguing back, is worse than
-no mechanism at all. `dq_return_plausibility` is the other half: it
+no mechanism at all. `dq.return_plausibility` is the other half: it
 recomputes the raw non-flow move for every client-day **from the wealth
 series rather than from the published return** — so a restatement cannot
 hide inside the NULL it causes — and flags anything outside a stated 25%
-band that has no declaration on file, rolling up into `dq_metrics` as
+band that has no declaration on file, rolling up into `dq.metrics` as
 `daily_return_plausibility_rate`.
 
 ### What the restatement did to the reported figures
@@ -213,7 +213,7 @@ of one.
 
 ## Why this data needed two upstream fixes first
 
-Both `gold_performance` and this doc's example figures came *after*
+Both `gold.performance` and this doc's example figures came *after*
 discovering and fixing two data-integrity bugs in the same session, in the
 order the actual work happened:
 
@@ -222,7 +222,7 @@ order the actual work happened:
    opening balance. Computing TWR against that data would have shown a
    phantom, constant daily bleed purely from the inconsistency, unrelated to
    any real return.
-2. **D-041**: `silver_positions`'s holdings dedupe let a `MISTYPED_ISIN`
+2. **D-041**: `silver.positions`'s holdings dedupe let a `MISTYPED_ISIN`
    defect double-count a position's market value (the corrupted copy and its
    correct sibling in the other format no longer shared a dedupe key, so
    both survived). This showed up as single-day wealth spikes that fully

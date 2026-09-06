@@ -68,7 +68,7 @@ jobs:
       # first, so they are in the volume before this run's load reads
       # current state. Landing decisions is what feeds the widened
       # parvum-alts-ingest file-arrival trigger (databricks.yml) that
-      # re-validates and re-routes them into silver_alts_documents — that
+      # re-validates and re-routes them into silver.alts_documents — that
       # reprocessing happens on Databricks' own schedule, not this step, so
       # today's newly-synced decisions typically show up as
       # reviewed_status/confirmed_fields_json starting tomorrow's run, same

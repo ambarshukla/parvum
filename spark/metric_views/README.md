@@ -9,9 +9,9 @@ same way instead of each re-expressing it. Full write-up with screenshots:
 
 | File | What it is |
 |------|------------|
-| `wealth_metrics.sql` | Metric view over `gold_client_wealth` — the headline figures. |
-| `allocation_metrics.sql` | Metric view over `gold_asset_allocation` — what the wealth is made of. |
-| `performance_metrics.sql` | Metric view over `gold_performance` — the additive components a return is built from. Deliberately does **not** expose the returns themselves; see the file's own header for why. |
+| `wealth_metrics.sql` | Metric view over `gold.client_wealth` — the headline figures. |
+| `allocation_metrics.sql` | Metric view over `gold.asset_allocation` — what the wealth is made of. |
+| `performance_metrics.sql` | Metric view over `gold.performance` — the additive components a return is built from. Deliberately does **not** expose the returns themselves; see the file's own header for why. |
 | `apply.py` | (Re)creates every `*.sql` here on the lakehouse via the SQL Statements API. |
 
 Each file is a YAML spec of measures and dimensions plus the `COMMENT`
@@ -42,8 +42,8 @@ re-writes the `SUM`:
 
 ```sql
 SELECT `Client`, MEASURE(`Total wealth`) AS aum
-FROM   workspace.parvum.wealth_metrics
-WHERE  `As of` = (SELECT MAX(as_of) FROM workspace.parvum.gold_client_wealth)
+FROM   parvum.gold.wealth_metrics
+WHERE  `As of` = (SELECT MAX(as_of) FROM parvum.gold.client_wealth)
 GROUP  BY `Client`
 ORDER  BY aum DESC;
 ```

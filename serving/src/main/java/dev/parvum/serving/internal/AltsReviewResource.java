@@ -24,7 +24,7 @@ import java.util.Map;
 import org.jooq.JSON;
 
 /**
- * The alts HITL review queue: documents {@code silver_alts_documents} routed to {@code
+ * The alts HITL review queue: documents {@code silver.alts_documents} routed to {@code
  * needs_review}, loaded from Databricks (a later export-side slice), reviewed here, and eventually
  * reverse-synced back (also later). This resource only reads/writes the queue and its append-only
  * audit trail — it never talks to Databricks directly.

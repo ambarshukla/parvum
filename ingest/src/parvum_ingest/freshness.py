@@ -40,7 +40,7 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 
-_REGISTRY = "workspace.parvum.bronze_file_registry"
+_REGISTRY = "parvum.bronze.file_registry"
 _DEFAULT_MAX_AGE_DAYS = 4
 
 # Deliberately a copy of the policy in parvum_export.sql_api, not an import:

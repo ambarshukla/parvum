@@ -1,4 +1,4 @@
--- The ownership graph, projected from gold_ownership. Structural, not
+-- The ownership graph, projected from parvum.gold.ownership. Structural, not
 -- monetary: the account→client edges and whether each account is shared.
 -- Like the V1 tables it is rebuilt by the exporter (truncate-and-reload) and
 -- unqualified, so the same migration runs in every tenant schema.

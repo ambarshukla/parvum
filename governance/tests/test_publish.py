@@ -19,7 +19,7 @@ def test_the_snapshot_covers_every_published_column():
 
 def test_a_critical_row_carries_its_whole_obligation():
     rows = {(r.table_name, r.column_name): r for r in build_snapshot(find_repo_root())}
-    wealth = rows[("gold_client_wealth", "total_wealth_usd")]
+    wealth = rows[("gold.client_wealth", "total_wealth_usd")]
     assert wealth.tier == "critical"
     assert wealth.owner == "client-reporting"
     assert wealth.definition
@@ -40,7 +40,7 @@ def test_a_gapped_element_carries_the_gap_and_no_rules():
     # the documents its inputs come from, but nothing evaluates the ratio, and
     # D-072 is the proof that the distinction is real rather than pedantic.
     rows = {(r.table_name, r.column_name): r for r in build_snapshot(find_repo_root())}
-    moic = rows[("gold_alts_holdings", "moic")]
+    moic = rows[("gold.alts_holdings", "moic")]
     assert moic.tier == "critical"
     assert moic.quality_rules == ""
     assert moic.quality_rule_count == 0
@@ -51,7 +51,7 @@ def test_the_register_classifies_its_own_table():
     # governance_cde_registry is published like any other table, so the gate
     # requires it to appear in the very file it describes.
     tables = {r.table_name for r in build_snapshot(find_repo_root())}
-    assert "governance_cde_registry" in tables
+    assert "governance.cde_registry" in tables
 
 
 def test_render_is_json_lines_spark_can_read_without_a_multiline_flag():
@@ -95,7 +95,7 @@ def test_publishing_is_refused_when_the_gate_fails(tmp_path, monkeypatch, capsys
     from parvum_governance.check import Coverage, Finding, GateResult
 
     broken = GateResult(
-        findings=[Finding("unclassified", "gold_thing.new_column", "absent from the register")],
+        findings=[Finding("unclassified", "gold.thing.new_column", "absent from the register")],
         coverage=Coverage(
             published=1,
             registered=0,

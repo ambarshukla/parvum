@@ -22,7 +22,7 @@
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_holdings_recon` — where the two copies disagree
+# MAGIC %md ## `dq.holdings_recon` — where the two copies disagree
 # MAGIC
 # MAGIC Grain: one row per finding. `MISSING_IN_*` = the position exists in
 # MAGIC one format only (a mistyped identifier splits a pair into two of
@@ -33,17 +33,17 @@
 
 from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_holdings_recon
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.holdings_recon
     COMMENT 'Cross-format reconciliation findings: one row per disagreement between the semt.002 and MT535 copies of a position. cost_basis is not compared (structurally absent from semt.002).'
     AS
     WITH semt AS (
-        SELECT * FROM {SCHEMA}.bronze_holdings WHERE source_format = 'semt.002'
+        SELECT * FROM {CATALOG}.bronze.holdings WHERE source_format = 'semt.002'
     ),
     mt AS (
-        SELECT * FROM {SCHEMA}.bronze_holdings WHERE source_format = 'MT535'
+        SELECT * FROM {CATALOG}.bronze.holdings WHERE source_format = 'MT535'
     ),
     joined AS (
         SELECT
@@ -100,7 +100,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_cash_integrity` — does each account-day's cash add up?
+# MAGIC %md ## `dq.cash_integrity` — does each account-day's cash add up?
 # MAGIC
 # MAGIC The camt.053 invariant: opening + sum(movements) = closing. Checked
 # MAGIC twice per account-day: against the **raw** bronze rows (duplicates and
@@ -122,7 +122,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_cash_integrity
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.cash_integrity
     COMMENT 'Per account-day cash invariant check: opening + movements = closing, evaluated against raw bronze and conformed silver separately. A raw break with a conformed pass validates the duplicate collapse; a conformed break means a movement is missing from the feed.'
     AS
     WITH bal AS (
@@ -130,21 +130,21 @@ spark.sql(  # noqa: F821
                MAX(CASE WHEN balance_type = 'OPENING' THEN amount END) AS opening,
                MAX(CASE WHEN balance_type = 'CLOSING' THEN amount END) AS closing,
                MAX(currency) AS currency
-        FROM {SCHEMA}.silver_cash_balances
+        FROM {CATALOG}.silver.cash_balances
         GROUP BY as_of, account_id
     ),
     raw_mov AS (
         SELECT as_of, account_id,
                SUM(CASE WHEN type IN ('BUY', 'FEE', 'TRANSFER_OUT')
                         THEN -amount ELSE amount END) AS movements_raw
-        FROM {SCHEMA}.bronze_cash_entries
+        FROM {CATALOG}.bronze.cash_entries
         GROUP BY as_of, account_id
     ),
     conf_mov AS (
         -- silver already applies the direction (signed_amount); only the raw
         -- side needs the CASE, because bronze is as-received by definition.
         SELECT as_of, account_id, SUM(signed_amount) AS movements_conformed
-        FROM {SCHEMA}.silver_cash_transactions
+        FROM {CATALOG}.silver.cash_transactions
         GROUP BY as_of, account_id
     )
     SELECT
@@ -169,9 +169,9 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_cash_continuity` — does each account's ledger carry over?
+# MAGIC %md ## `dq.cash_continuity` — does each account's ledger carry over?
 # MAGIC
-# MAGIC A different question from `dq_cash_integrity`'s: that check asks
+# MAGIC A different question from `dq.cash_integrity`'s: that check asks
 # MAGIC whether *one day's own arithmetic* adds up (opening + movements =
 # MAGIC closing); this one asks whether *consecutive days agree* — does
 # MAGIC today's opening equal yesterday's closing? D-040 gave the clean book
@@ -184,7 +184,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_cash_continuity
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.cash_continuity
     COMMENT 'Per account-day: does the opening balance equal the previous business day''s closing? continuous is NULL on an account''s first date (nothing to compare).'
     AS
     WITH bal AS (
@@ -192,7 +192,7 @@ spark.sql(  # noqa: F821
                MAX(CASE WHEN balance_type = 'OPENING' THEN amount END) AS opening,
                MAX(CASE WHEN balance_type = 'CLOSING' THEN amount END) AS closing,
                MAX(currency) AS currency
-        FROM {SCHEMA}.silver_cash_balances
+        FROM {CATALOG}.silver.cash_balances
         GROUP BY as_of, account_id
     ),
     chained AS (
@@ -214,7 +214,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `governance_cde_registry` — the register, queryable
+# MAGIC %md ## `governance.cde_registry` — the register, queryable
 # MAGIC
 # MAGIC The Critical Data Element register (D-067) lives in the repo as YAML,
 # MAGIC because an ownership change should be a reviewable diff rather than an
@@ -232,7 +232,7 @@ spark.sql(  # noqa: F821
 # MAGIC
 # MAGIC It lives in the `governance_` layer rather than under `dq_` because it
 # MAGIC is not a check — it is the statement of accountability the checks are
-# MAGIC measured against. It is built here only because `dq_metrics`, two
+# MAGIC measured against. It is built here only because `dq.metrics`, two
 # MAGIC cells down, is the natural consumer.
 
 # COMMAND ----------
@@ -280,7 +280,7 @@ spark.read.schema(REGISTRY_SCHEMA).json(REGISTRY_PATH).selectExpr(  # noqa: F821
 ).createOrReplaceTempView("cde_registry_landed")
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.governance_cde_registry
+    f"""CREATE OR REPLACE TABLE {CATALOG}.governance.cde_registry
     COMMENT 'The Critical Data Element register, resolved: one row per column the platform publishes, with its tier, owner, business definition, service level, and either the quality rules that test it or a stated control gap. Source of truth is governance/cde_registry.yml in the repo; this is a landed snapshot of it.'
     AS
     SELECT
@@ -315,20 +315,20 @@ spark.sql(  # noqa: F821
 )
 
 print(
-    "governance_cde_registry rows:",
-    spark.table(f"{SCHEMA}.governance_cde_registry").count(),  # noqa: F821
+    "governance.cde_registry rows:",
+    spark.table(f"{CATALOG}.governance.cde_registry").count(),  # noqa: F821
 )
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_metrics` — the whole quality layer, one declarative table
+# MAGIC %md ## `dq.metrics` — the whole quality layer, one declarative table
 # MAGIC
 # MAGIC Every check above lives in its own table, at its own grain, because
 # MAGIC each one needs different detail to be useful for tracing a specific
 # MAGIC break back to its cause. But a Data Operations KPI dashboard doesn't
 # MAGIC want detail — it wants a trend: is the pipeline healthy today, was it
 # MAGIC healthy last week, which dimension is driving the exception count.
-# MAGIC `dq_metrics` is that rollup: one row per (date, dimension, metric),
+# MAGIC `dq.metrics` is that rollup: one row per (date, dimension, metric),
 # MAGIC declarative in the sense that adding a new check later means adding
 # MAGIC one more `SELECT` to the `UNION ALL`, never a schema change.
 # MAGIC
@@ -361,28 +361,28 @@ print(
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_metrics
-    COMMENT 'Declarative DQ rollup: one row per (date, dimension, metric). freshness/completeness/accuracy/exceptions/governance, aggregated from the detail tables above plus bronze_file_registry. passed is NULL where no fixed threshold applies (exception counts).'
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.metrics
+    COMMENT 'Declarative DQ rollup: one row per (date, dimension, metric). freshness/completeness/accuracy/exceptions/governance, aggregated from the detail tables above plus bronze.file_registry. passed is NULL where no fixed threshold applies (exception counts).'
     AS
     WITH days AS (
-        SELECT DISTINCT statement_date AS as_of FROM {SCHEMA}.bronze_file_registry
+        SELECT DISTINCT statement_date AS as_of FROM {CATALOG}.bronze.file_registry
     ),
     file_counts AS (
         SELECT statement_date AS as_of, SUM(CASE WHEN status = 'PARSED' THEN 1 ELSE 0 END) AS parsed
-        FROM {SCHEMA}.bronze_file_registry
+        FROM {CATALOG}.bronze.file_registry
         GROUP BY statement_date
     ),
     position_counts AS (
-        SELECT as_of, COUNT(*) AS n FROM {SCHEMA}.silver_positions GROUP BY as_of
+        SELECT as_of, COUNT(*) AS n FROM {CATALOG}.silver.positions GROUP BY as_of
     ),
     holdings_findings AS (
-        SELECT as_of, COUNT(*) AS n FROM {SCHEMA}.dq_holdings_recon GROUP BY as_of
+        SELECT as_of, COUNT(*) AS n FROM {CATALOG}.dq.holdings_recon GROUP BY as_of
     ),
     cash_integrity_counts AS (
         SELECT as_of, COUNT(*) AS total,
                SUM(CASE WHEN conformed_consistent THEN 1 ELSE 0 END) AS ok,
                SUM(CASE WHEN NOT conformed_consistent THEN 1 ELSE 0 END) AS breaks
-        FROM {SCHEMA}.dq_cash_integrity
+        FROM {CATALOG}.dq.cash_integrity
         GROUP BY as_of
     ),
     cash_continuity_counts AS (
@@ -391,7 +391,7 @@ spark.sql(  # noqa: F821
         SELECT as_of, COUNT(*) AS checked,
                SUM(CASE WHEN continuous THEN 1 ELSE 0 END) AS ok,
                SUM(CASE WHEN continuous = FALSE THEN 1 ELSE 0 END) AS breaks
-        FROM {SCHEMA}.dq_cash_continuity
+        FROM {CATALOG}.dq.cash_continuity
         WHERE continuous IS NOT NULL
         GROUP BY as_of
     ),
@@ -461,7 +461,7 @@ spark.sql(  # noqa: F821
                CAST(DATEDIFF(CURRENT_DATE(), MAX(statement_date)) AS DECIMAL(14,6)) AS value,
                DATEDIFF(CURRENT_DATE(), MAX(statement_date)) <= 3 AS passed,
                CONCAT('bronze last landed ', CAST(MAX(statement_date) AS STRING)) AS detail
-        FROM {SCHEMA}.bronze_file_registry
+        FROM {CATALOG}.bronze.file_registry
     ),
     -- Governance: facts about the register, not about a business day, so
     -- dated at the rebuild's own run date exactly like freshness above.
@@ -472,7 +472,7 @@ spark.sql(  # noqa: F821
                SUM(CASE WHEN tier = 'critical' AND quality_rule_count > 0 THEN 1 ELSE 0 END) AS controlled,
                SUM(CASE WHEN tier = 'critical' AND quality_rule_count = 0
                              AND control_gap IS NOT NULL THEN 1 ELSE 0 END) AS gapped
-        FROM {SCHEMA}.governance_cde_registry
+        FROM {CATALOG}.governance.cde_registry
     ),
     governance_classified AS (
         SELECT CURRENT_DATE() AS as_of, 'governance' AS dimension, 'columns_classified_rate' AS metric,
@@ -509,7 +509,7 @@ spark.sql(  # noqa: F821
         FROM governance_counts
     ),
     -- The register snapshot lands on a non-fatal step, so it can go stale
-    -- without anything failing. governance_cde_registry cannot reveal that
+    -- without anything failing. governance.cde_registry cannot reveal that
     -- (its rebuilt_at is the rebuild, not the landing), so the landed
     -- timestamp is carried on the temp view purely to be checked here. Four
     -- days, matching the bronze freshness threshold: a long weekend is three.
@@ -534,7 +534,7 @@ spark.sql(  # noqa: F821
         SELECT COUNT(*) AS documents,
                SUM(CASE WHEN cross_document_valid THEN 1 ELSE 0 END) AS valid,
                SUM(CASE WHEN confirmed_fields_json IS NULL THEN 1 ELSE 0 END) AS unconfirmed
-        FROM {SCHEMA}.silver_alts_documents
+        FROM {CATALOG}.silver.alts_documents
     ),
     accuracy_alts AS (
         SELECT CURRENT_DATE() AS as_of, 'accuracy' AS dimension,
@@ -580,7 +580,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "dq_holdings_recon": {
+    "dq.holdings_recon": {
         "as_of": "Position date of the disagreeing copies",
         "account_id": "Custodial account the position sits in",
         "security_scheme": "Identifier scheme of security_id",
@@ -591,7 +591,7 @@ COLUMN_COMMENTS = {
         "mt535_value": "The MT535 copy's value, as text (ABSENT for presence findings)",
         "rebuilt_at": "When this reconciliation rebuild ran (UTC)",
     },
-    "dq_cash_integrity": {
+    "dq.cash_integrity": {
         "as_of": "Statement date being checked",
         "account_id": "Custodial account being checked",
         "opening": "Opening balance the file reported",
@@ -605,7 +605,7 @@ COLUMN_COMMENTS = {
         "currency": "Native currency of the balances",
         "rebuilt_at": "When this reconciliation rebuild ran (UTC)",
     },
-    "dq_cash_continuity": {
+    "dq.cash_continuity": {
         "as_of": "Statement date being checked",
         "account_id": "Custodial account being checked",
         "opening": "Opening balance this statement reported",
@@ -615,26 +615,26 @@ COLUMN_COMMENTS = {
         "currency": "Native currency of the balances",
         "rebuilt_at": "When this reconciliation rebuild ran (UTC)",
     },
-    "governance_cde_registry": {
+    "governance.cde_registry": {
         "table_name": "The table this column belongs to. Grain: one row per (table, column) the platform publishes",
         "column_name": "The column being classified",
-        "layer": "Medallion layer, derived from the table-name prefix (bronze/silver/dq/gold/governance)",
+        "layer": "Medallion layer — the Unity Catalog schema the table sits in (bronze/silver/dq/gold/governance)",
         "description": "The catalog description the publishing Spark job applies to this column",
         "tier": "critical (the business consumes it directly), supporting (feeds or qualifies a critical element), or operational (pipeline plumbing). NULL means published but unclassified — the CI gate blocks that, so it should never appear here",
         "owner": "The role accountable for this column's meaning and quality — a role, never a person, so ownership survives people changing jobs",
         "definition": "What this element means in business terms and why a wrong value matters. Required for critical, optional below it",
-        "quality_rules": "Comma-separated dq_metrics metric names that test this element; empty when none does",
+        "quality_rules": "Comma-separated dq.metrics metric names that test this element; empty when none does",
         "quality_rule_count": "How many quality rules cite this element — carried separately so counting needs no string parsing",
         "control_gap": "For a critical element with no quality rule: what is missing and what would close it. The register requires one or the other, never silence",
         "slo": "Name of the service level this element is held to (see slo_measured_by / slo_target)",
         "slo_objective": "What that service level promises, in one sentence — the thing the target is a threshold for",
-        "slo_measured_by": "The dq_metrics metric that evidences that service level",
+        "slo_measured_by": "The dq.metrics metric that evidences that service level",
         "slo_target": "The service level's stated objective, as a sentence — what the estate is held to, not a claim about current attainment",
-        "slo_attainment_objective": "The machine-readable half of that objective: the share of days in the window on which slo_measured_by must have passed. What dq_slo_attainment measures against",
+        "slo_attainment_objective": "The machine-readable half of that objective: the share of days in the window on which slo_measured_by must have passed. What dq.slo_attainment measures against",
         "slo_window_days": "How many trailing days the service level is judged over",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "dq_metrics": {
+    "dq.metrics": {
         "as_of": "The business day this metric covers; for dimension='freshness' this is instead the rebuild's own run date, since staleness is a fact about now",
         "dimension": "freshness | completeness | accuracy | exceptions",
         "metric": "The specific named check within the dimension (e.g. holdings_cross_format_match_rate)",
@@ -649,7 +649,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
     for _col, _comment in _comments.items():
         _escaped = _comment.replace("'", "''")
         spark.sql(  # noqa: F821
-            f"ALTER TABLE {SCHEMA}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
+            f"ALTER TABLE {CATALOG}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
         )
 print(f"column comments applied to {len(COLUMN_COMMENTS)} dq tables")
 
@@ -662,7 +662,7 @@ print(f"column comments applied to {len(COLUMN_COMMENTS)} dq tables")
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT finding, field, COUNT(*) AS findings
-        FROM {SCHEMA}.dq_holdings_recon
+        FROM {CATALOG}.dq.holdings_recon
         GROUP BY finding, field
         ORDER BY findings DESC"""
     )
@@ -678,7 +678,7 @@ display(  # noqa: F821
             SUM(CASE WHEN NOT conformed_consistent THEN 1 ELSE 0 END) AS conformed_breaks,
             SUM(CASE WHEN NOT raw_consistent AND conformed_consistent
                      THEN 1 ELSE 0 END)                         AS collapse_vindicated
-        FROM {SCHEMA}.dq_cash_integrity"""
+        FROM {CATALOG}.dq.cash_integrity"""
     )
 )
 
@@ -691,8 +691,8 @@ display(  # noqa: F821
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT dimension, metric, value, passed, detail
-        FROM {SCHEMA}.dq_metrics
-        WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.dq_metrics WHERE dimension != 'freshness')
+        FROM {CATALOG}.dq.metrics
+        WHERE as_of = (SELECT MAX(as_of) FROM {CATALOG}.dq.metrics WHERE dimension != 'freshness')
            OR dimension = 'freshness'
         ORDER BY dimension, metric"""
     )

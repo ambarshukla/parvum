@@ -30,7 +30,7 @@ being reproducible.
 ## Service levels, and what a breach means
 
 Attainment is on the internal app's Ops page under **Service levels**, and in
-the lakehouse as `workspace.parvum.dq_slo_attainment`. Objectives live in the
+the lakehouse as `parvum.dq.slo_attainment`. Objectives live in the
 register; nothing here restates them, because two copies of a target drift.
 
 **Reading the page:** the tiles at the top say what is true *now* — how stale
@@ -73,8 +73,8 @@ wrong data is being served — it is stale, and staleness is visible.
 
 **First three checks:**
 1. Which task? `bronze` implies a malformed or unexpected landed file; `silver`/`gold` implies a code or reference-data problem.
-2. Open the run in Databricks → the failing task's output. The parsers record failures as `FAILED` rows in `bronze_file_registry` rather than raising, so a *raise* is unusual and specific.
-3. `SELECT * FROM workspace.parvum.bronze_file_registry WHERE status <> 'PARSED' ORDER BY statement_date DESC LIMIT 20`.
+2. Open the run in Databricks → the failing task's output. The parsers record failures as `FAILED` rows in `bronze.file_registry` rather than raising, so a *raise* is unusual and specific.
+3. `SELECT * FROM parvum.bronze.file_registry WHERE status <> 'PARSED' ORDER BY statement_date DESC LIMIT 20`.
 
 **Do:** re-run the job (`make run-job`). It is idempotent end to end — bronze
 skips files already registered by digest, and silver/gold/dq are full rebuilds.
@@ -123,9 +123,9 @@ also produces nothing new.
 two that are breached by design above.
 
 **First three checks:**
-1. `SELECT * FROM workspace.parvum.dq_slo_attainment WHERE slo = '…'` — how many days, how much budget spent?
-2. The underlying series: `SELECT as_of, value, passed, detail FROM workspace.parvum.dq_metrics WHERE metric = '<measured_by>' ORDER BY as_of DESC LIMIT 30`. One bad day or a trend?
-3. The detail table behind that metric (`dq_cash_integrity`, `dq_holdings_recon`, `dq_cross_field_invariants`, `dq_return_plausibility`) for the failing dates.
+1. `SELECT * FROM parvum.dq.slo_attainment WHERE slo = '…'` — how many days, how much budget spent?
+2. The underlying series: `SELECT as_of, value, passed, detail FROM parvum.dq.metrics WHERE metric = '<measured_by>' ORDER BY as_of DESC LIMIT 30`. One bad day or a trend?
+3. The detail table behind that metric (`dq.cash_integrity`, `dq.holdings_recon`, `dq.cross_field_invariants`, `dq.return_plausibility`) for the failing dates.
 
 **Do:** one bad day inside budget is an observation, not an incident. A trend,
 or a budget going negative, is a producer conversation.
@@ -175,8 +175,8 @@ is the tell for a rates feed that stopped rather than a holiday.
 
 **First three checks:**
 1. Did the daily Action's `fetch-fx` step run and land a new file?
-2. `SELECT MAX(fx_rate_date), MAX(as_of) FROM workspace.parvum.gold_client_wealth` — how far behind is the newest published rate?
-3. `SELECT * FROM workspace.parvum.dq_fx_plausibility WHERE stale ORDER BY as_of DESC` — which dates, and by how much?
+2. `SELECT MAX(fx_rate_date), MAX(as_of) FROM parvum.gold.client_wealth` — how far behind is the newest published rate?
+3. `SELECT * FROM parvum.dq.fx_plausibility WHERE stale ORDER BY as_of DESC` — which dates, and by how much?
 
 **Do:** `make land-fx` to re-land the rates, then `make run-job`.
 

@@ -3,13 +3,13 @@
 # MAGIC # Silver — conformed positions, joined to what they mean
 # MAGIC
 # MAGIC Bronze answers *what did the custodian say*; silver answers *what do
-# MAGIC we hold, and whose is it*. This notebook joins `bronze_holdings` to
+# MAGIC we hold, and whose is it*. This notebook joins `bronze.holdings` to
 # MAGIC the two reference layers — the securities master (landed in the
 # MAGIC volume, since the workspace has no egress) and the ownership graph
 # MAGIC (code, imported from `parvum_reference` in this repo checkout).
 # MAGIC
 # MAGIC Principles:
-# MAGIC - **One grain per table.** `silver_positions` is one row per
+# MAGIC - **One grain per table.** `silver.positions` is one row per
 # MAGIC   (date, account, security); the owner attribution lives in separate
 # MAGIC   tables so summing market value can never double-count a
 # MAGIC   shared account.
@@ -44,7 +44,7 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "reference", "sr
 from parvum_reference.ownership import ownership_bridge
 from parvum_reference.securities_master import load_master
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 
 # The master is data, not code: it is *landed* into the volume by
 # `make land-master` (the workspace has no egress to call OpenFIGI itself).
@@ -79,7 +79,7 @@ print(f"master: {len(master_entries)} entries; bridge: {owners_df.count()} rows"
 
 # COMMAND ----------
 
-# MAGIC %md ## `silver_account_owners` — the bridge, materialised
+# MAGIC %md ## `silver.account_owners` — the bridge, materialised
 # MAGIC
 # MAGIC Tiny, but making the attribution *auditable*: which client owns which
 # MAGIC account, at what effective fraction, per the resolver. Downstream
@@ -88,7 +88,7 @@ print(f"master: {len(master_entries)} entries; bridge: {owners_df.count()} rows"
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_account_owners
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.account_owners
     COMMENT 'Effective account ownership per client (resolved through the entity graph). Fractions per account sum to 1.'
     AS SELECT account_id, client_id, client_name, ownership_pct
     FROM ref_owners"""
@@ -96,7 +96,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `silver_positions` — one row per (date, account, security)
+# MAGIC %md ## `silver.positions` — one row per (date, account, security)
 # MAGIC
 # MAGIC Bronze deliberately keeps one row per position *per file*, and every
 # MAGIC position arrives in two holdings formats — so the same Apple line
@@ -104,7 +104,7 @@ spark.sql(  # noqa: F821
 # MAGIC over MT535, chosen per (date, account) as a whole delivery**, file
 # MAGIC path as a final deterministic tie-break within that chosen format.
 # MAGIC Whether the two copies *agree* is a data-quality question for a later
-# MAGIC slice (`dq_holdings_recon`, which compares bronze directly) —
+# MAGIC slice (`dq.holdings_recon`, which compares bronze directly) —
 # MAGIC conforming the grain comes first, and conforming it *by row* rather
 # MAGIC than *by file* was a bug, not a milder version of the same choice: a
 # MAGIC row whose identifier a defect corrupted (MISTYPED_ISIN) no longer
@@ -116,13 +116,13 @@ spark.sql(  # noqa: F821
 # MAGIC defect's bumped check digit), $4,585,899.28 counted twice. Choosing
 # MAGIC the winning *file* first makes this structurally impossible — a
 # MAGIC corrupted identifier still lands under the wrong ISIN (a real,
-# MAGIC findable problem, exactly what `dq_holdings_recon` exists to catch),
+# MAGIC findable problem, exactly what `dq.holdings_recon` exists to catch),
 # MAGIC but never as a second copy of the same dollar.
 
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_positions
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.positions
     COMMENT 'Conformed positions: one row per (as_of, account, security), enriched from the securities master. instrument_status flags what the master could not identify.'
     AS
     WITH file_choice AS (
@@ -134,12 +134,12 @@ spark.sql(  # noqa: F821
                MIN_BY(source_format,
                       CASE source_format WHEN 'semt.002' THEN 1 WHEN 'MT535' THEN 2 ELSE 3 END
                ) AS source_format
-        FROM {SCHEMA}.bronze_holdings
+        FROM {CATALOG}.bronze.holdings
         GROUP BY as_of, account_id
     ),
     chosen AS (
         SELECT h.*
-        FROM {SCHEMA}.bronze_holdings h
+        FROM {CATALOG}.bronze.holdings h
         JOIN file_choice c USING (as_of, account_id, source_format)
     ),
     deduped AS (
@@ -191,7 +191,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `silver_position_owners` — the attribution
+# MAGIC %md ## `silver.position_owners` — the attribution
 # MAGIC
 # MAGIC Positions × ownership bridge: one row per (date, account, security,
 # MAGIC owning client), with the position's value prorated by the client's
@@ -201,7 +201,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_position_owners
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.position_owners
     COMMENT 'Owner-attributed positions: each silver position split across its ultimately-owning clients. owned_value = market_value × effective ownership fraction.'
     AS
     SELECT
@@ -216,8 +216,8 @@ spark.sql(  # noqa: F821
         CAST(p.market_value * o.ownership_pct AS DECIMAL(24,2)) AS owned_value,
         p.market_value_ccy,
         p.rebuilt_at
-    FROM {SCHEMA}.silver_positions p
-    JOIN {SCHEMA}.silver_account_owners o USING (account_id)"""
+    FROM {CATALOG}.silver.positions p
+    JOIN {CATALOG}.silver.account_owners o USING (account_id)"""
 )
 
 # COMMAND ----------
@@ -233,9 +233,9 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "silver_positions": {
+    "silver.positions": {
         "as_of": "Position date. Grain: one row per (as_of, account_id, security)",
-        "account_id": "Custodial account identifier (see silver_account_owners for whose it is)",
+        "account_id": "Custodial account identifier (see silver.account_owners for whose it is)",
         "security_scheme": "Identifier scheme of security_id (ISIN for anything the master can enrich)",
         "security_id": "Security identifier, from the preferred feed copy",
         "security_name": "Canonical name — the master's when mapped, else the feed's",
@@ -248,7 +248,7 @@ COLUMN_COMMENTS = {
         "quantity": "Units held, from the preferred feed copy",
         "price_amount": "Unit price, from the preferred feed copy",
         "price_currency": "Currency of price_amount",
-        "market_value": "Market value of the full position (NOT prorated — see silver_position_owners)",
+        "market_value": "Market value of the full position (NOT prorated — see silver.position_owners)",
         "market_value_ccy": "Currency of market_value",
         "cost_basis": "Cost basis, from the preferred feed copy",
         "cost_basis_ccy": "Currency of cost_basis",
@@ -256,18 +256,18 @@ COLUMN_COMMENTS = {
         "source_file": "Volume path of the winning file — lineage into bronze",
         "rebuilt_at": "When this silver rebuild ran (UTC); identical for all rows of a rebuild",
     },
-    "silver_account_owners": {
+    "silver.account_owners": {
         "account_id": "Custodial account identifier",
         "client_id": "Ultimately-owning client, resolved through the entity graph",
         "client_name": "Display name of the owning client",
         "ownership_pct": "Effective ownership fraction; per account these sum to exactly 1",
     },
-    "silver_position_owners": {
+    "silver.position_owners": {
         "as_of": "Position date. Grain: one row per (as_of, account_id, security, client)",
         "account_id": "Custodial account the position sits in",
         "security_scheme": "Identifier scheme of security_id",
         "security_id": "Security identifier",
-        "security_name": "Canonical security name (as in silver_positions)",
+        "security_name": "Canonical security name (as in silver.positions)",
         "client_id": "Ultimately-owning client this row attributes value to",
         "client_name": "Display name of the owning client",
         "ownership_pct": "This client's effective fraction of the account",
@@ -281,7 +281,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
     for _col, _comment in _comments.items():
         _escaped = _comment.replace("'", "''")
         spark.sql(  # noqa: F821
-            f"ALTER TABLE {SCHEMA}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
+            f"ALTER TABLE {CATALOG}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
         )
 print(f"column comments applied to {len(COLUMN_COMMENTS)} silver tables")
 
@@ -294,11 +294,11 @@ print(f"column comments applied to {len(COLUMN_COMMENTS)} silver tables")
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_positions)        AS positions,
-            (SELECT COUNT(DISTINCT as_of) FROM {SCHEMA}.silver_positions) AS days,
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_positions
+            (SELECT COUNT(*) FROM {CATALOG}.silver.positions)        AS positions,
+            (SELECT COUNT(DISTINCT as_of) FROM {CATALOG}.silver.positions) AS days,
+            (SELECT COUNT(*) FROM {CATALOG}.silver.positions
              WHERE instrument_status <> 'MAPPED')                   AS not_mapped,
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_position_owners)  AS owner_rows"""
+            (SELECT COUNT(*) FROM {CATALOG}.silver.position_owners)  AS owner_rows"""
     )
 )
 
@@ -307,7 +307,7 @@ display(  # noqa: F821
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT instrument_status, asset_class, COUNT(*) AS rows
-        FROM {SCHEMA}.silver_positions
+        FROM {CATALOG}.silver.positions
         GROUP BY instrument_status, asset_class
         ORDER BY rows DESC"""
     )

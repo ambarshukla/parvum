@@ -311,12 +311,12 @@ def _load_foreign_keys(raw: Any, path: Path, table: str) -> tuple[ForeignKey, ..
         if missing:
             raise RegistryError(f"{path.name}: {table!r} foreign key is missing {missing}")
         reference = item["references"]
-        if not isinstance(reference, str) or reference.count(".") != 1:
+        if not isinstance(reference, str) or reference.count(".") < 2:
             raise RegistryError(
                 f"{path.name}: {table!r} foreign key references {reference!r}; "
-                f"expected exactly one 'table.column'"
+                f"expected a '<layer>.<table>.<column>' identifier"
             )
-        referenced_table, referenced_column = reference.split(".")
+        referenced_table, referenced_column = reference.rsplit(".", 1)
         keys.append(
             ForeignKey(
                 column=item["column"],

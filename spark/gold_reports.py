@@ -46,7 +46,7 @@ from pyspark.sql.types import StringType, StructField, StructType
 from parvum_alts_hitl.parsing import parse_decimal
 from parvum_reference.ecb import fill_forward, load_rates
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 RATES_PATH = Path("/Volumes/workspace/parvum/landing/reference/fx_rates.json")
 
 # COMMAND ----------
@@ -62,7 +62,7 @@ RATES_PATH = Path("/Volumes/workspace/parvum/landing/reference/fx_rates.json")
 # MAGIC custodial feed's own window: the alts corpus's document history runs
 # MAGIC back to 2024, well before the feed's much shorter, more recent window,
 # MAGIC and a EUR-denominated fund needs a rate for every one of those earlier
-# MAGIC dates to convert its NAV. `silver_alts_documents.period_end` alone is
+# MAGIC dates to convert its NAV. `silver.alts_documents.period_end` alone is
 # MAGIC enough — by construction (`parvum_alts_hitl.book`'s quarter indices)
 # MAGIC every call/distribution date already falls within some statement's own
 # MAGIC period-end range.
@@ -71,9 +71,9 @@ RATES_PATH = Path("/Volumes/workspace/parvum/landing/reference/fx_rates.json")
 
 lo, hi = spark.sql(  # noqa: F821
     f"""SELECT MIN(d), MAX(d) FROM (
-        SELECT as_of AS d FROM {SCHEMA}.silver_positions
+        SELECT as_of AS d FROM {CATALOG}.silver.positions
         UNION ALL
-        SELECT CAST(period_end AS DATE) AS d FROM {SCHEMA}.silver_alts_documents
+        SELECT CAST(period_end AS DATE) AS d FROM {CATALOG}.silver.alts_documents
         WHERE period_end IS NOT NULL
     )"""
 ).first()
@@ -98,11 +98,11 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 # MAGIC and IRR sections use: a couple of funds and a few dozen documents,
 # MAGIC trivial to bring to the driver. Two things come out of it:
 # MAGIC
-# MAGIC - **`gold_alts_holdings`**, a standalone detail table (committed,
+# MAGIC - **`gold.alts_holdings`**, a standalone detail table (committed,
 # MAGIC   called, distributed, unfunded, NAV, MOIC per client per fund) — the
-# MAGIC   private-markets analogue of `gold_top_holdings`.
-# MAGIC - **`alts_daily`**, a per-client daily NAV series that `gold_client_wealth`
-# MAGIC   and `gold_asset_allocation` below both join into, so alts stop being
+# MAGIC   private-markets analogue of `gold.top_holdings`.
+# MAGIC - **`alts_daily`**, a per-client daily NAV series that `gold.client_wealth`
+# MAGIC   and `gold.asset_allocation` below both join into, so alts stop being
 # MAGIC   invisible to the headline wealth number.
 # MAGIC
 # MAGIC **Only confirmed values count.** A document still sitting in
@@ -113,7 +113,7 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 # MAGIC that omission is visible rather than silent.
 # MAGIC
 # MAGIC **NAV updates quarterly, wealth is reported daily.** Without
-# MAGIC forward-filling, alts would vanish from `gold_client_wealth` on every
+# MAGIC forward-filling, alts would vanish from `gold.client_wealth` on every
 # MAGIC date that isn't an exact statement date. The most recent confirmed NAV
 # MAGIC holds until the next statement supersedes it — exactly how a real
 # MAGIC reported mark behaves. Worth naming, not hiding: on the day a new
@@ -136,12 +136,12 @@ print(f"fx: {len(rates)} days, {lo} -> {hi}")
 
 _alts_confirmed = spark.sql(  # noqa: F821
     f"""SELECT fund_id, currency, doc_type, confirmed_fields_json
-    FROM {SCHEMA}.silver_alts_documents WHERE confirmed_fields_json IS NOT NULL"""
+    FROM {CATALOG}.silver.alts_documents WHERE confirmed_fields_json IS NOT NULL"""
 ).collect()
 
 _pending_docs_by_fund: dict[str, list] = {}
 for _row in spark.sql(  # noqa: F821
-    f"""SELECT fund_id, doc_type, period_end FROM {SCHEMA}.silver_alts_documents
+    f"""SELECT fund_id, doc_type, period_end FROM {CATALOG}.silver.alts_documents
     WHERE routing = 'needs_review' AND reviewed_status IS NULL"""
 ).collect():
     _pending_docs_by_fund.setdefault(_row.fund_id, []).append(_row)
@@ -238,7 +238,7 @@ for _fid in sorted(set(_calls) | set(_dists) | set(_stmts)):
 
     # A ratio, owner-invariant (proration cancels in both numerator and
     # denominator) — stored as text and CAST later, the same trick
-    # gold_performance_summary uses for IRR, since a Python Decimal division
+    # gold.performance_summary uses for IRR, since a Python Decimal division
     # can carry more digits than the target column.
     _moic = (_distributed + _nav) / _called if _called > 0 else None
 
@@ -311,13 +311,13 @@ spark.sql(  # noqa: F821
                * o.ownership_pct
            AS DECIMAL(24,2)) AS nav_usd
     FROM alts_nav_raw n
-    JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+    JOIN {CATALOG}.silver.account_owners o USING (account_id)
     JOIN fx f ON f.as_of = n.statement_date"""
 )
 
 # COMMAND ----------
 
-# MAGIC %md ### `gold_alts_holdings` — the detail behind the number
+# MAGIC %md ### `gold.alts_holdings` — the detail behind the number
 # MAGIC
 # MAGIC Grain: one row per (client, fund). Owner-prorated the same way
 # MAGIC everything else in gold is; `moic` and `pending_review_documents` are
@@ -328,7 +328,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_alts_holdings
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.alts_holdings
     COMMENT 'Owner-prorated private-fund holdings, one row per (client, fund): commitment, capital called and distributed to date, unfunded commitment, current NAV, and MOIC, converted to USD at the rate for each figure''s own as-of date. Only confirmed (auto-accepted or human-reviewed) documents are reflected -- pending_review_documents/_latest_period describe what is deliberately left out.'
     AS
     WITH rated AS (
@@ -372,14 +372,14 @@ spark.sql(  # noqa: F821
         r.pending_review_latest_period,
         current_timestamp()                                                AS rebuilt_at
     FROM rated r
-    JOIN {SCHEMA}.silver_account_owners o USING (account_id)"""
+    JOIN {CATALOG}.silver.account_owners o USING (account_id)"""
 )
 
 # COMMAND ----------
 
 # MAGIC %md ### `alts_daily` — forward-filled NAV, one row per (client, date)
 # MAGIC
-# MAGIC Reused by both `gold_client_wealth` and `gold_asset_allocation` below.
+# MAGIC Reused by both `gold.client_wealth` and `gold.asset_allocation` below.
 # MAGIC Forward-filled *per fund first, summed second* — not the other way
 # MAGIC round. A client holding more than one fund (Okafor: Bramwell and
 # MAGIC Alpenrose) will see each fund report its own statements on its own
@@ -387,7 +387,7 @@ spark.sql(  # noqa: F821
 # MAGIC fund's date range moves past the other's, the LAST_VALUE window picks
 # MAGIC up only the most-recently-reporting fund's contribution and silently
 # MAGIC drops the other's still-current mark. The date grid for each fund's
-# MAGIC own fill is every date `silver_position_owners` already reports on,
+# MAGIC own fill is every date `silver.position_owners` already reports on,
 # MAGIC UNIONed with that fund's own statement dates — a statement landing
 # MAGIC *before* the wealth-reporting window even starts still has to seed the
 # MAGIC forward fill, or its NAV would read as zero for the whole window
@@ -398,7 +398,7 @@ spark.sql(  # noqa: F821
 spark.sql(  # noqa: F821
     f"""CREATE OR REPLACE TEMP VIEW alts_daily AS
     WITH wealth_dates AS (
-        SELECT DISTINCT as_of, client_id, client_name FROM {SCHEMA}.silver_position_owners
+        SELECT DISTINCT as_of, client_id, client_name FROM {CATALOG}.silver.position_owners
     ),
     funds AS (
         SELECT DISTINCT client_id, fund_id FROM alts_nav_points
@@ -435,7 +435,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_client_wealth` — the headline number
+# MAGIC %md ## `gold.client_wealth` — the headline number
 # MAGIC
 # MAGIC Grain: one row per (client, date). Positions plus closing cash, each
 # MAGIC converted at that date's rate. Conversion is per-currency: USD passes
@@ -448,27 +448,27 @@ spark.sql(  # noqa: F821
 # not silently pass through at 1:1.
 unknown = spark.sql(  # noqa: F821
     f"""SELECT DISTINCT ccy FROM (
-        SELECT market_value_ccy AS ccy FROM {SCHEMA}.silver_position_owners
+        SELECT market_value_ccy AS ccy FROM {CATALOG}.silver.position_owners
         UNION ALL
-        SELECT currency FROM {SCHEMA}.silver_cash_balance_owners
+        SELECT currency FROM {CATALOG}.silver.cash_balance_owners
         UNION ALL
-        SELECT currency FROM {SCHEMA}.silver_cash_transaction_owners
+        SELECT currency FROM {CATALOG}.silver.cash_transaction_owners
         UNION ALL
-        SELECT currency FROM {SCHEMA}.silver_alts_documents WHERE currency IS NOT NULL
+        SELECT currency FROM {CATALOG}.silver.alts_documents WHERE currency IS NOT NULL
     ) WHERE ccy NOT IN ('USD', 'EUR')"""
 ).collect()
 if unknown:
     raise ValueError(f"currencies gold cannot convert: {[r['ccy'] for r in unknown]}")
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_client_wealth
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.client_wealth
     COMMENT 'Per client per day: total wealth in USD (positions + closing cash + forward-filled alts NAV, converted at that day''s ECB reference rate). books_reconcile is the DQ layer''s cash verdict across the client''s accounts; reconcile_break_accounts/_variance_usd give the detail behind a FALSE.'
     AS
     WITH pos AS (
         SELECT p.as_of, p.client_id, p.client_name,
                SUM(CASE WHEN p.market_value_ccy = 'USD' THEN p.owned_value
                         ELSE p.owned_value * f.eur_usd END) AS positions_usd
-        FROM {SCHEMA}.silver_position_owners p
+        FROM {CATALOG}.silver.position_owners p
         JOIN fx f USING (as_of)
         GROUP BY p.as_of, p.client_id, p.client_name
     ),
@@ -476,14 +476,14 @@ spark.sql(  # noqa: F821
         SELECT b.as_of, b.client_id,
                SUM(CASE WHEN b.currency = 'USD' THEN b.owned_amount
                         ELSE b.owned_amount * f.eur_usd END) AS cash_usd
-        FROM {SCHEMA}.silver_cash_balance_owners b
+        FROM {CATALOG}.silver.cash_balance_owners b
         JOIN fx f USING (as_of)
         WHERE b.balance_type = 'CLOSING'
         GROUP BY b.as_of, b.client_id
     ),
     quality AS (
         -- every() over the client's accounts: one broken account-day marks
-        -- the client's day unreconciled. Verdicts come from dq_cash_integrity;
+        -- the client's day unreconciled. Verdicts come from dq.cash_integrity;
         -- reconcile_break_accounts/_variance_usd are this client's prorated
         -- share of the broken accounts' own arithmetic gap (|delta_conformed|,
         -- converted to USD at the day's rate) -- so a FALSE verdict can say
@@ -496,8 +496,8 @@ spark.sql(  # noqa: F821
                              * (CASE WHEN d.currency = 'USD' THEN 1 ELSE f.eur_usd END)
                              * o.ownership_pct
                         ELSE 0 END)                                         AS reconcile_variance_usd
-        FROM {SCHEMA}.dq_cash_integrity d
-        JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+        FROM {CATALOG}.dq.cash_integrity d
+        JOIN {CATALOG}.silver.account_owners o USING (account_id)
         JOIN fx f USING (as_of)
         GROUP BY d.as_of, o.client_id
     )
@@ -525,14 +525,14 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_reconciliation_exceptions` — the accounts behind a FALSE
+# MAGIC %md ## `gold.reconciliation_exceptions` — the accounts behind a FALSE
 # MAGIC
 # MAGIC Grain: one row per (client, account) currently failing the conformed
-# MAGIC cash check, on the same latest date `gold_client_wealth`'s badge
-# MAGIC reflects — like `gold_top_holdings`, "latest date only" is baked in
+# MAGIC cash check, on the same latest date `gold.client_wealth`'s badge
+# MAGIC reflects — like `gold.top_holdings`, "latest date only" is baked in
 # MAGIC here rather than filtered at query time, so a client with a clean day
 # MAGIC simply has no rows. `reconcile_break_accounts`/`_variance_usd` on
-# MAGIC `gold_client_wealth` answer "how many, how much"; this answers "which
+# MAGIC `gold.client_wealth` answer "how many, how much"; this answers "which
 # MAGIC ones" -- the drill-down the aggregate alone can't provide. The delta
 # MAGIC is signed (unlike the aggregate's `ABS`, which has to be unsigned
 # MAGIC because summing signed gaps across accounts would let them cancel out
@@ -542,8 +542,8 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_reconciliation_exceptions
-    COMMENT 'Per client per currently-broken account: this client''s prorated share of the account''s conformed-cash arithmetic gap (opening + movements vs. closing), signed, in both the account''s native currency and USD. Latest date only, like gold_top_holdings -- a client with reconcile_break_accounts = 0 has no rows here.'
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.reconciliation_exceptions
+    COMMENT 'Per client per currently-broken account: this client''s prorated share of the account''s conformed-cash arithmetic gap (opening + movements vs. closing), signed, in both the account''s native currency and USD. Latest date only, like gold.top_holdings -- a client with reconcile_break_accounts = 0 has no rows here.'
     AS
     SELECT
         o.client_id,
@@ -556,16 +556,16 @@ spark.sql(  # noqa: F821
              * (CASE WHEN d.currency = 'USD' THEN 1 ELSE f.eur_usd END)
              AS DECIMAL(24,2))                                     AS delta_usd,
         current_timestamp()                                        AS rebuilt_at
-    FROM {SCHEMA}.dq_cash_integrity d
-    JOIN {SCHEMA}.silver_account_owners o USING (account_id)
+    FROM {CATALOG}.dq.cash_integrity d
+    JOIN {CATALOG}.silver.account_owners o USING (account_id)
     JOIN fx f USING (as_of)
-    WHERE d.as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_client_wealth)
+    WHERE d.as_of = (SELECT MAX(as_of) FROM {CATALOG}.gold.client_wealth)
       AND NOT d.conformed_consistent"""
 )
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_asset_allocation` — what the wealth is made of
+# MAGIC %md ## `gold.asset_allocation` — what the wealth is made of
 # MAGIC
 # MAGIC Grain: one row per (client, date, asset class). Positions carry the
 # MAGIC master's class ('Unknown' where the master couldn't say — those are
@@ -575,15 +575,15 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_asset_allocation
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.asset_allocation
     COMMENT 'Per client per day per asset class: USD value and share of that day''s total wealth. Cash is a class; Unknown is a class (unmapped instruments stay visible).'
     AS
     WITH classed AS (
         SELECT po.as_of, po.client_id, po.client_name, sp.asset_class,
                SUM(CASE WHEN po.market_value_ccy = 'USD' THEN po.owned_value
                         ELSE po.owned_value * f.eur_usd END) AS value_usd
-        FROM {SCHEMA}.silver_position_owners po
-        JOIN {SCHEMA}.silver_positions sp
+        FROM {CATALOG}.silver.position_owners po
+        JOIN {CATALOG}.silver.positions sp
             USING (as_of, account_id, security_scheme, security_id)
         JOIN fx f USING (as_of)
         GROUP BY po.as_of, po.client_id, po.client_name, sp.asset_class
@@ -591,7 +591,7 @@ spark.sql(  # noqa: F821
         SELECT b.as_of, b.client_id, b.client_name, 'Cash',
                SUM(CASE WHEN b.currency = 'USD' THEN b.owned_amount
                         ELSE b.owned_amount * f.eur_usd END)
-        FROM {SCHEMA}.silver_cash_balance_owners b
+        FROM {CATALOG}.silver.cash_balance_owners b
         JOIN fx f USING (as_of)
         WHERE b.balance_type = 'CLOSING'
         GROUP BY b.as_of, b.client_id, b.client_name
@@ -620,7 +620,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_income` — what the wealth earned
+# MAGIC %md ## `gold.income` — what the wealth earned
 # MAGIC
 # MAGIC Grain: one row per (client, month, income type). Dividends and
 # MAGIC interest only — fees and trades are flows, not income. Amounts are
@@ -629,7 +629,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_income
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.income
     COMMENT 'Per client per month: dividend and interest income in USD, owner-prorated, converted at each movement''s date. Grain: client × month × type.'
     AS
     SELECT
@@ -642,7 +642,7 @@ spark.sql(  # noqa: F821
              AS DECIMAL(24,2))                           AS income_usd,
         COUNT(*)                                         AS movements,
         current_timestamp()                              AS rebuilt_at
-    FROM {SCHEMA}.silver_cash_transaction_owners t
+    FROM {CATALOG}.silver.cash_transaction_owners t
     JOIN fx f USING (as_of)
     WHERE t.type IN ('DIVIDEND', 'INTEREST')
     GROUP BY t.client_id, t.client_name, DATE_TRUNC('month', t.as_of), t.type"""
@@ -716,7 +716,7 @@ print(
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_performance` — the daily return chain
+# MAGIC %md ## `gold.performance` — the daily return chain
 # MAGIC
 # MAGIC Grain: one row per (client, date). Separates market return from the
 # MAGIC client's own money: `external_flow_usd` is that day's net contribution
@@ -727,7 +727,7 @@ print(
 # MAGIC exact in Delta's window functions, no UDF needed) into a growth-of-$1
 # MAGIC index: 1.0 at inception, > 1.0 means the *market* grew the account,
 # MAGIC independent of what the client put in or took out. Inception is each
-# MAGIC client's first date in `gold_client_wealth`, so `daily_twr_return` is
+# MAGIC client's first date in `gold.client_wealth`, so `daily_twr_return` is
 # MAGIC NULL and the index is exactly 1.0 on that first row — there is no prior
 # MAGIC day to measure a return against.
 # MAGIC
@@ -752,14 +752,14 @@ print(
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_performance
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.performance
     COMMENT 'Daily time-weighted return chain per client. daily_twr_return excludes that day''s external_flow_usd from the market-return calculation; twr_index_since_inception chain-links the daily returns into a growth-of-$1 index starting at 1.0 on the client''s first date.'
     AS
     WITH flows AS (
         SELECT t.as_of, t.client_id,
                SUM(CASE WHEN t.currency = 'USD' THEN t.owned_amount
                         ELSE t.owned_amount * f.eur_usd END) AS flow_usd
-        FROM {SCHEMA}.silver_cash_transaction_owners t
+        FROM {CATALOG}.silver.cash_transaction_owners t
         JOIN fx f USING (as_of)
         WHERE t.type IN ('TRANSFER_IN', 'TRANSFER_OUT')
         GROUP BY t.as_of, t.client_id
@@ -775,7 +775,7 @@ spark.sql(  # noqa: F821
                           CAST(CAST(r.divisor_after AS DECIMAL(18,0)) AS STRING),
                           ' (', r.decision_ref, ')')))) AS restatement_detail
         FROM book_restatements r
-        JOIN {SCHEMA}.silver_account_owners o ON o.account_id = r.account_id
+        JOIN {CATALOG}.silver.account_owners o ON o.account_id = r.account_id
         GROUP BY r.effective_date, o.client_id
     ),
     joined AS (
@@ -784,7 +784,7 @@ spark.sql(  # noqa: F821
                rc.restatement_detail,
                LAG(w.total_wealth_usd) OVER (
                    PARTITION BY w.client_id ORDER BY w.as_of) AS prev_wealth_usd
-        FROM {SCHEMA}.gold_client_wealth w
+        FROM {CATALOG}.gold.client_wealth w
         LEFT JOIN flows fl USING (as_of, client_id)
         LEFT JOIN restated_clients rc USING (as_of, client_id)
     ),
@@ -825,13 +825,13 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_performance_summary` — the methodology comparison
+# MAGIC %md ## `gold.performance_summary` — the methodology comparison
 # MAGIC
 # MAGIC Grain: one row per client. Three answers to the same question —
 # MAGIC "how did this account do since inception?" — computed three different
 # MAGIC ways, on purpose:
 # MAGIC
-# MAGIC - **`twr_since_inception`** (time-weighted): `gold_performance`'s chained
+# MAGIC - **`twr_since_inception`** (time-weighted): `gold.performance`'s chained
 # MAGIC   index minus one. Judges the *market*, blind to when the client's money
 # MAGIC   moved — the fair way to grade a manager who doesn't control deposit
 # MAGIC   timing.
@@ -895,7 +895,7 @@ def _xirr(cashflows: list[tuple]) -> float | None:
 _perf_rows = spark.sql(  # noqa: F821
     f"SELECT as_of, client_id, total_wealth_usd, external_flow_usd, "
     f"restatement_adjustment_usd "
-    f"FROM {SCHEMA}.gold_performance ORDER BY client_id, as_of"
+    f"FROM {CATALOG}.gold.performance ORDER BY client_id, as_of"
 ).collect()
 _by_client: dict[str, list] = {}
 for _row in _perf_rows:
@@ -910,7 +910,7 @@ for _client_id, _series in _by_client.items():
     # The inception day's own flow is already reflected in v0 (a statement
     # balance is always ex-flow, i.e. after that day's activity settled), so
     # it must not also appear as a separate investor cash flow — the same
-    # boundary convention gold_performance's daily chain uses (its first
+    # boundary convention gold.performance's daily chain uses (its first
     # daily_twr_return is NULL for the identical reason).
     _cfs: list[tuple] = [(_d0, -float(_v0))]
     for _d, _, _flow, _restatement in _series[1:]:
@@ -931,12 +931,12 @@ spark.createDataFrame(  # noqa: F821
 ).createOrReplaceTempView("irr_raw")
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_performance_summary
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.performance_summary
     COMMENT 'One row per client: since-inception return by three methodologies (time-weighted, Modified Dietz, money-weighted IRR) — see docs/PERFORMANCE_METHODOLOGY.md for why they differ.'
     AS
     WITH bounds AS (
         SELECT client_id, client_name, MIN(as_of) AS inception_date, MAX(as_of) AS as_of
-        FROM {SCHEMA}.gold_performance
+        FROM {CATALOG}.gold.performance
         GROUP BY client_id, client_name
     ),
     endpoints AS (
@@ -945,8 +945,8 @@ spark.sql(  # noqa: F821
                vn.total_wealth_usd AS wealth_end_usd,
                vn.twr_index_since_inception - 1 AS twr_since_inception
         FROM bounds b
-        JOIN {SCHEMA}.gold_performance v0 ON v0.client_id = b.client_id AND v0.as_of = b.inception_date
-        JOIN {SCHEMA}.gold_performance vn ON vn.client_id = b.client_id AND vn.as_of = b.as_of
+        JOIN {CATALOG}.gold.performance v0 ON v0.client_id = b.client_id AND v0.as_of = b.inception_date
+        JOIN {CATALOG}.gold.performance vn ON vn.client_id = b.client_id AND vn.as_of = b.as_of
     ),
     flows AS (
         -- Modified Dietz: each flow weighted by the fraction of the period
@@ -967,7 +967,7 @@ spark.sql(  # noqa: F821
                SUM(p.restatement_adjustment_usd
                    * (DATEDIFF(e.as_of, p.as_of) / DATEDIFF(e.as_of, e.inception_date)))
                    AS dietz_weighted_restatement
-        FROM {SCHEMA}.gold_performance p
+        FROM {CATALOG}.gold.performance p
         JOIN endpoints e USING (client_id)
         WHERE p.as_of > e.inception_date
         GROUP BY p.client_id
@@ -997,7 +997,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_return_plausibility` — the half that does not trust the register
+# MAGIC %md ## `dq.return_plausibility` — the half that does not trust the register
 # MAGIC
 # MAGIC A declaration mechanism on its own is a licence: anything inconvenient
 # MAGIC can be labelled a restatement after the fact, and nothing argues back.
@@ -1036,7 +1036,7 @@ spark.sql(  # noqa: F821
 PLAUSIBILITY_BAND = 0.25
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_return_plausibility
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.return_plausibility
     COMMENT 'Per client per day: does the day-over-day wealth move, net of external flows, sit inside the stated plausibility band -- and if not, is there a declared book restatement that accounts for it? An implausible, undeclared move is a break. Computed from the raw wealth series rather than from daily_twr_return, so a restatement cannot hide inside its own NULL.'
     AS
     WITH moves AS (
@@ -1044,7 +1044,7 @@ spark.sql(  # noqa: F821
                restatement_detail,
                LAG(total_wealth_usd) OVER (
                    PARTITION BY client_id ORDER BY as_of) AS prev_wealth_usd
-        FROM {SCHEMA}.gold_performance
+        FROM {CATALOG}.gold.performance
     )
     SELECT
         as_of,
@@ -1060,7 +1060,7 @@ spark.sql(  # noqa: F821
         restatement_detail,
         -- Declared or small enough: plausible. NULL on a client's first date,
         -- where there is nothing to compare -- the same convention
-        -- dq_cash_continuity uses, so "no prior day" never reads as "clean".
+        -- dq.cash_continuity uses, so "no prior day" never reads as "clean".
         CASE WHEN prev_wealth_usd IS NULL THEN NULL
              WHEN restatement_detail IS NOT NULL THEN TRUE
              ELSE ABS((total_wealth_usd - prev_wealth_usd - external_flow_usd)
@@ -1072,7 +1072,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_cross_field_invariants` — quantities that must add up
+# MAGIC %md ## `dq.cross_field_invariants` — quantities that must add up
 # MAGIC
 # MAGIC Every check above validates a number against **its own** source: a
 # MAGIC position against the other feed's copy of it, a cash balance against its
@@ -1093,7 +1093,7 @@ spark.sql(  # noqa: F821
 # MAGIC and the parts that must reconstruct it, and every row records both
 # MAGIC sides, the gap, and the tolerance in force. Adding a new one later is
 # MAGIC one more `SELECT` in the `UNION ALL`, never a schema change — the same
-# MAGIC declarative shape `dq_metrics` uses.
+# MAGIC declarative shape `dq.metrics` uses.
 # MAGIC
 # MAGIC **These are cheap and they generalise.** No understanding of the
 # MAGIC underlying cause is required to write one: you do not need to know that
@@ -1124,11 +1124,11 @@ _FRACTION_TOLERANCE = "0.000001"
 _WEIGHT_TOLERANCE = "0.0001"
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_cross_field_invariants
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.cross_field_invariants
     COMMENT 'Cross-field consistency: one row per (date, invariant, scope) asserting that an aggregate equals the parts that should reconstruct it. Catches the class of defect where each figure is individually correct but two of them disagree about what happened -- the shape of D-072, which no single-source check could have found.'
     AS
     WITH wealth_dates AS (
-        SELECT MAX(as_of) AS latest FROM {SCHEMA}.gold_client_wealth
+        SELECT MAX(as_of) AS latest FROM {CATALOG}.gold.client_wealth
     ),
     wealth_components AS (
         -- The headline number is the sum of its three published parts, or one
@@ -1137,19 +1137,19 @@ spark.sql(  # noqa: F821
                CAST(total_wealth_usd AS DECIMAL(24,6)) AS expected,
                CAST(positions_usd + cash_usd + alts_usd AS DECIMAL(24,6)) AS actual,
                CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.gold_client_wealth
+        FROM {CATALOG}.gold.client_wealth
     ),
     ownership_totals AS (
         -- Closes the control gap the register has carried against
         -- ownership_pct since D-067: the graph proves itself fully allocated
         -- at build time, and a unit test holds a shared account to 100%, but
-        -- neither assertion ever reached dq_metrics. Now it does, daily.
+        -- neither assertion ever reached dq.metrics. Now it does, daily.
         SELECT (SELECT latest FROM wealth_dates) AS as_of,
                'account_ownership_totals_one' AS invariant, account_id AS scope,
                CAST(1 AS DECIMAL(24,6)) AS expected,
                CAST(SUM(ownership_pct) AS DECIMAL(24,6)) AS actual,
                CAST({_FRACTION_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.silver_account_owners
+        FROM {CATALOG}.silver.account_owners
         GROUP BY account_id
     ),
     proration_sums AS (
@@ -1161,8 +1161,8 @@ spark.sql(  # noqa: F821
                CAST(MAX(p.market_value) AS DECIMAL(24,6)) AS expected,
                CAST(SUM(o.owned_value) AS DECIMAL(24,6)) AS actual,
                CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.silver_position_owners o
-        JOIN {SCHEMA}.silver_positions p
+        FROM {CATALOG}.silver.position_owners o
+        JOIN {CATALOG}.silver.positions p
           ON p.as_of = o.as_of AND p.account_id = o.account_id
          AND p.security_id = o.security_id
         GROUP BY o.as_of, o.account_id, o.security_id
@@ -1172,7 +1172,7 @@ spark.sql(  # noqa: F821
                CAST(1 AS DECIMAL(24,6)) AS expected,
                CAST(SUM(weight) AS DECIMAL(24,6)) AS actual,
                CAST({_WEIGHT_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.gold_asset_allocation
+        FROM {CATALOG}.gold.asset_allocation
         GROUP BY as_of, client_id
     ),
     allocation_values AS (
@@ -1183,8 +1183,8 @@ spark.sql(  # noqa: F821
                CAST(MAX(w.total_wealth_usd) AS DECIMAL(24,6)) AS expected,
                CAST(SUM(a.value_usd) AS DECIMAL(24,6)) AS actual,
                CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.gold_asset_allocation a
-        JOIN {SCHEMA}.gold_client_wealth w USING (as_of, client_id)
+        FROM {CATALOG}.gold.asset_allocation a
+        JOIN {CATALOG}.gold.client_wealth w USING (as_of, client_id)
         GROUP BY a.as_of, a.client_id
     ),
     alts_commitment AS (
@@ -1199,7 +1199,7 @@ spark.sql(  # noqa: F821
                CAST(total_commitment_usd AS DECIMAL(24,6)) AS expected,
                CAST(called_to_date_usd + unfunded_commitment_usd AS DECIMAL(24,6)) AS actual,
                CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.gold_alts_holdings
+        FROM {CATALOG}.gold.alts_holdings
     ),
     reconcile_variance AS (
         -- The badge on the dashboard says "N accounts, $X". The drill-down
@@ -1209,8 +1209,8 @@ spark.sql(  # noqa: F821
                CAST(MAX(w.reconcile_variance_usd) AS DECIMAL(24,6)) AS expected,
                CAST(COALESCE(SUM(ABS(e.delta_usd)), 0) AS DECIMAL(24,6)) AS actual,
                CAST({_MONEY_TOLERANCE} AS DECIMAL(18,6)) AS tolerance
-        FROM {SCHEMA}.gold_client_wealth w
-        LEFT JOIN {SCHEMA}.gold_reconciliation_exceptions e
+        FROM {CATALOG}.gold.client_wealth w
+        LEFT JOIN {CATALOG}.gold.reconciliation_exceptions e
                ON e.client_id = w.client_id AND e.as_of = w.as_of
         WHERE w.as_of = (SELECT latest FROM wealth_dates)
         GROUP BY w.as_of, w.client_id
@@ -1239,9 +1239,9 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## Feeding both gold-side checks back into `dq_metrics`
+# MAGIC %md ## Feeding both gold-side checks back into `dq.metrics`
 # MAGIC
-# MAGIC `dq_metrics` is built in `dq_recon`, which runs *before* this job — so a
+# MAGIC `dq.metrics` is built in `dq_recon`, which runs *before* this job — so a
 # MAGIC metric derived from gold cannot be computed there without reading the
 # MAGIC previous run's numbers and reporting them as today's. Rather than add a
 # MAGIC sixth task to the bundle for two rows, gold appends the rows it alone
@@ -1264,17 +1264,17 @@ _GOLD_SIDE_METRICS = (
 )
 
 spark.sql(  # noqa: F821
-    f"""DELETE FROM {SCHEMA}.dq_metrics
+    f"""DELETE FROM {CATALOG}.dq.metrics
     WHERE metric IN {_GOLD_SIDE_METRICS}"""
 )
 
 spark.sql(  # noqa: F821
-    f"""INSERT INTO {SCHEMA}.dq_metrics
+    f"""INSERT INTO {CATALOG}.dq.metrics
     WITH counts AS (
         SELECT as_of, COUNT(*) AS checked,
                SUM(CASE WHEN plausible THEN 1 ELSE 0 END) AS ok,
                SUM(CASE WHEN plausible = FALSE THEN 1 ELSE 0 END) AS breaks
-        FROM {SCHEMA}.dq_return_plausibility
+        FROM {CATALOG}.dq.return_plausibility
         WHERE plausible IS NOT NULL
         GROUP BY as_of
     )
@@ -1300,11 +1300,11 @@ spark.sql(  # noqa: F821
 # invariant without visibly moving the number. "7 of 7 held" is a KPI; "10,807
 # of 10,808 rows held" is a shrug.
 spark.sql(  # noqa: F821
-    f"""INSERT INTO {SCHEMA}.dq_metrics
+    f"""INSERT INTO {CATALOG}.dq.metrics
     WITH per_invariant AS (
         SELECT as_of, invariant,
                SUM(CASE WHEN holds = FALSE THEN 1 ELSE 0 END) AS breaking_rows
-        FROM {SCHEMA}.dq_cross_field_invariants
+        FROM {CATALOG}.dq.cross_field_invariants
         GROUP BY as_of, invariant
     ),
     counts AS (
@@ -1333,7 +1333,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_fx_plausibility` — the one reference input nothing re-checked
+# MAGIC %md ## `dq.fx_plausibility` — the one reference input nothing re-checked
 # MAGIC
 # MAGIC Every non-USD figure in the estate is multiplied by this rate, so a
 # MAGIC wrong one misstates a whole client's report by a clean proportion and
@@ -1377,7 +1377,7 @@ FX_DAILY_BAND = 0.05
 FX_MAX_CARRY_DAYS = 4
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_fx_plausibility
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.fx_plausibility
     COMMENT 'Per-date plausibility check on the EUR/USD reference rate every non-USD figure is converted at: how far it moved from the previous business day, and how far the published rate had to be carried forward to cover this date. Catches corruption and silent staleness; does not re-fetch the rate from the ECB, which the cluster cannot reach (D-006).'
     AS
     WITH series AS (
@@ -1402,7 +1402,7 @@ spark.sql(  # noqa: F821
     FROM series"""
 )
 
-print("dq_fx_plausibility rows:", spark.table(f"{SCHEMA}.dq_fx_plausibility").count())  # noqa: F821
+print("dq.fx_plausibility rows:", spark.table(f"{CATALOG}.dq.fx_plausibility").count())  # noqa: F821
 
 # COMMAND ----------
 
@@ -1423,13 +1423,13 @@ print("dq_fx_plausibility rows:", spark.table(f"{SCHEMA}.dq_fx_plausibility").co
 # metric evidences is about the figures we publish, and stretching the ops
 # trend chart back two years to say so would be a worse answer.
 spark.sql(  # noqa: F821
-    f"""INSERT INTO {SCHEMA}.dq_metrics
+    f"""INSERT INTO {CATALOG}.dq.metrics
     WITH reported_days AS (
-        SELECT DISTINCT as_of FROM {SCHEMA}.gold_client_wealth
+        SELECT DISTINCT as_of FROM {CATALOG}.gold.client_wealth
     ),
     per_day AS (
         SELECT f.as_of, f.plausible, f.stale, f.daily_move, f.days_carried
-        FROM {SCHEMA}.dq_fx_plausibility f
+        FROM {CATALOG}.dq.fx_plausibility f
         JOIN reported_days d ON d.as_of = f.as_of
         WHERE f.plausible IS NOT NULL
     )
@@ -1460,7 +1460,7 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `dq_slo_attainment` — the service levels, measured
+# MAGIC %md ## `dq.slo_attainment` — the service levels, measured
 # MAGIC
 # MAGIC The register names seven service levels and says what each promises.
 # MAGIC Until now it said nothing about whether any of them were being *met*,
@@ -1494,8 +1494,8 @@ spark.sql(  # noqa: F821
 MIN_DAYS_FOR_VERDICT = 7
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.dq_slo_attainment
-    COMMENT 'Attainment and error-budget consumption for every named service level in the CDE register, over the trailing window each one declares. One row per service level. Objectives come from governance_cde_registry; the evidence comes from dq_metrics.'
+    f"""CREATE OR REPLACE TABLE {CATALOG}.dq.slo_attainment
+    COMMENT 'Attainment and error-budget consumption for every named service level in the CDE register, over the trailing window each one declares. One row per service level. Objectives come from governance.cde_registry; the evidence comes from dq.metrics.'
     AS
     WITH slo_defs AS (
         -- Only SLOs something is actually held to. The governance gate's
@@ -1509,13 +1509,13 @@ spark.sql(  # noqa: F821
             slo_target               AS target,
             slo_attainment_objective AS attainment_objective,
             slo_window_days          AS window_days
-        FROM {SCHEMA}.governance_cde_registry
+        FROM {CATALOG}.governance.cde_registry
         WHERE slo IS NOT NULL AND tier = 'critical'
     ),
     bounds AS (
         SELECT d.slo, MAX(m.as_of) AS window_end
         FROM slo_defs d
-        JOIN {SCHEMA}.dq_metrics m ON m.metric = d.measured_by
+        JOIN {CATALOG}.dq.metrics m ON m.metric = d.measured_by
         WHERE m.passed IS NOT NULL
         GROUP BY d.slo
     ),
@@ -1527,7 +1527,7 @@ spark.sql(  # noqa: F821
         SELECT d.slo, m.as_of, m.passed
         FROM slo_defs d
         JOIN bounds b ON b.slo = d.slo
-        JOIN {SCHEMA}.dq_metrics m ON m.metric = d.measured_by
+        JOIN {CATALOG}.dq.metrics m ON m.metric = d.measured_by
         WHERE m.passed IS NOT NULL
           AND DATEDIFF(b.window_end, m.as_of) BETWEEN 0 AND d.window_days - 1
     ),
@@ -1568,11 +1568,11 @@ spark.sql(  # noqa: F821
     JOIN agg a ON a.slo = d.slo"""
 )
 
-print("dq_slo_attainment rows:", spark.table(f"{SCHEMA}.dq_slo_attainment").count())  # noqa: F821
+print("dq.slo_attainment rows:", spark.table(f"{CATALOG}.dq.slo_attainment").count())  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_top_holdings` — the biggest positions, latest day
+# MAGIC %md ## `gold.top_holdings` — the biggest positions, latest day
 # MAGIC
 # MAGIC Grain: one row per (client, rank), top 10 by owned USD value on the
 # MAGIC most recent date. Weight is the share of the client's *positions*
@@ -1581,11 +1581,11 @@ print("dq_slo_attainment rows:", spark.table(f"{SCHEMA}.dq_slo_attainment").coun
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_top_holdings
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.top_holdings
     COMMENT 'Per client: top 10 positions by owned USD value on the latest date, with instrument identity and share of the client''s positions value.'
     AS
     WITH latest AS (
-        SELECT MAX(as_of) AS as_of FROM {SCHEMA}.silver_position_owners
+        SELECT MAX(as_of) AS as_of FROM {CATALOG}.silver.position_owners
     ),
     valued AS (
         SELECT po.as_of, po.client_id, po.client_name,
@@ -1593,9 +1593,9 @@ spark.sql(  # noqa: F821
                sp.asset_class, sp.instrument_status, po.account_id,
                CASE WHEN po.market_value_ccy = 'USD' THEN po.owned_value
                     ELSE po.owned_value * f.eur_usd END AS owned_usd
-        FROM {SCHEMA}.silver_position_owners po
+        FROM {CATALOG}.silver.position_owners po
         JOIN latest USING (as_of)
-        JOIN {SCHEMA}.silver_positions sp
+        JOIN {CATALOG}.silver.positions sp
             USING (as_of, account_id, security_scheme, security_id)
         JOIN fx f USING (as_of)
     ),
@@ -1633,9 +1633,9 @@ spark.sql(  # noqa: F821
 
 # COMMAND ----------
 
-# MAGIC %md ## `gold_ownership` — the ownership graph
+# MAGIC %md ## `gold.ownership` — the ownership graph
 # MAGIC
-# MAGIC The account→client edges from `silver_account_owners`, projected as-is
+# MAGIC The account→client edges from `silver.account_owners`, projected as-is
 # MAGIC with two derived columns: how many clients own each account, and whether
 # MAGIC it is shared. This is structure, not money — the monetary attribution is
 # MAGIC already prorated into wealth/allocation/holdings. It exists so the serving
@@ -1645,13 +1645,13 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.gold_ownership
+    f"""CREATE OR REPLACE TABLE {CATALOG}.gold.ownership
     COMMENT 'The ownership graph: one row per (account, owning client) with the effective fraction, the number of owners on the account, and whether it is shared. Structural — fractions per account sum to 1.'
     AS
     WITH counted AS (
         SELECT account_id, client_id, client_name, ownership_pct,
                COUNT(*) OVER (PARTITION BY account_id) AS owner_count
-        FROM {SCHEMA}.silver_account_owners
+        FROM {CATALOG}.silver.account_owners
     )
     SELECT
         account_id,
@@ -1671,7 +1671,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "gold_client_wealth": {
+    "gold.client_wealth": {
         "as_of": "Valuation date. Grain: one row per (client, date)",
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
@@ -1686,17 +1686,17 @@ COLUMN_COMMENTS = {
         "reconcile_variance_usd": "This client's prorated share of the broken accounts' own arithmetic gap (opening + movements vs. closing), summed in USD; 0 when books_reconcile is TRUE",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_reconciliation_exceptions": {
+    "gold.reconciliation_exceptions": {
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
-        "account_id": "The specific account failing the conformed cash check — the detail gold_client_wealth.reconcile_break_accounts can only count",
-        "as_of": "The date this exception is on — always the same latest date gold_client_wealth's badge reflects",
+        "account_id": "The specific account failing the conformed cash check — the detail gold.client_wealth.reconcile_break_accounts can only count",
+        "as_of": "The date this exception is on — always the same latest date gold.client_wealth's badge reflects",
         "currency": "ISO 4217 currency code the account's own ledger is denominated in",
         "delta_native": "This client's prorated share of the account's arithmetic gap (opening + movements vs. closing) in the account's own currency, signed",
         "delta_usd": "Same figure converted to USD at the day's rate, signed",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_asset_allocation": {
+    "gold.asset_allocation": {
         "as_of": "Valuation date. Grain: one row per (client, date, asset_class)",
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
@@ -1705,7 +1705,7 @@ COLUMN_COMMENTS = {
         "weight": "value_usd / the client's total wealth that date; weights per (client, date) sum to 1",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_income": {
+    "gold.income": {
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
         "month": "Calendar month of the income. Grain: one row per (client, month, type)",
@@ -1714,11 +1714,11 @@ COLUMN_COMMENTS = {
         "movements": "Number of underlying cash movements in the month",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_performance": {
+    "gold.performance": {
         "as_of": "Valuation date. Grain: one row per (client, date)",
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
-        "total_wealth_usd": "Same figure as gold_client_wealth.total_wealth_usd, carried for self-contained querying",
+        "total_wealth_usd": "Same figure as gold.client_wealth.total_wealth_usd, carried for self-contained querying",
         "external_flow_usd": "Net client contribution (positive) or withdrawal (negative) in USD that day; 0 on days with no flow",
         "restatement_adjustment_usd": "Value change on a declared book-restatement day that the market did not produce — the day's whole non-flow move, booked here instead of to return. 0 on every other day, so the column is safe to sum",
         "restatement_detail": "Which account was restated, from which divisor to which, and the decision that authorised it; NULL on days with no declared restatement",
@@ -1726,21 +1726,21 @@ COLUMN_COMMENTS = {
         "twr_index_since_inception": "Chain-linked growth-of-$1 index from the client's first date (1.0 there); > 1.0 means the market grew the account net of the client's own flows. Links straight through a restatement day rather than compounding it",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_performance_summary": {
+    "gold.performance_summary": {
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
-        "inception_date": "The client's first date in gold_performance — the start of the since-inception window",
-        "as_of": "The latest date in gold_performance — the end of the since-inception window",
+        "inception_date": "The client's first date in gold.performance — the start of the since-inception window",
+        "as_of": "The latest date in gold.performance — the end of the since-inception window",
         "wealth_begin_usd": "total_wealth_usd on inception_date",
         "wealth_end_usd": "total_wealth_usd on as_of",
         "net_external_flow_usd": "Sum of external_flow_usd strictly after inception_date (inception day's flow is already inside wealth_begin_usd)",
         "restatement_adjustment_usd": "Sum of restatement_adjustment_usd over the window — total value change from declared book restatements, removed from all three return figures and disclosed separately because it is not the client's money and not the market's doing",
-        "twr_since_inception": "Time-weighted return over the window: gold_performance's chained index minus 1. Not annualized (GIPS convention for sub-annual periods)",
+        "twr_since_inception": "Time-weighted return over the window: gold.performance's chained index minus 1. Not annualized (GIPS convention for sub-annual periods)",
         "dietz_since_inception": "Modified Dietz return over the same window: (end − begin − net flow − restatement adjustment) / (begin + day-weighted flow + day-weighted restatement). Not annualized; tracks TWR closely when flows are small relative to wealth",
         "irr_since_inception_annualized": "Money-weighted return (XIRR) over the same cash flows, solved by bisection and reported ANNUALIZED (the standard IRR convention) — diverges from the two return-based figures above on a short period by construction, not by error. NULL when no root exists in [-99.99%, +1000%]",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "dq_cross_field_invariants": {
+    "dq.cross_field_invariants": {
         "as_of": "The date this assertion pertains to. Grain: one row per (date, invariant, scope). Latest-state tables (ownership, alts, reconciliation exceptions) are dated at the most recent business day rather than at a period end, so every row lands on the daily series",
         "invariant": "Which identity is being asserted, e.g. wealth_components_sum or alts_commitment_splits",
         "scope": "What is being checked — a client, an account, or a pipe-joined compound key such as account|security",
@@ -1751,7 +1751,7 @@ COLUMN_COMMENTS = {
         "holds": "TRUE when ABS(delta) is within tolerance. FALSE means two published figures disagree about the same fact, which is a wrong number rather than a bad day",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "dq_fx_plausibility": {
+    "dq.fx_plausibility": {
         "as_of": "The date this rate was applied to. Grain: one row per date in the FX series",
         "eur_usd": "The EUR to USD rate used for this date",
         "prev_eur_usd": "The rate used on the previous date in the series; NULL on the first date, where there is nothing to compare against",
@@ -1763,10 +1763,10 @@ COLUMN_COMMENTS = {
         "plausible": "TRUE when the move is inside the band and the rate is not stale. NULL on the first date, which has no predecessor. Catches corruption and silent staleness; a rate wrong by a small amount would need a second fetch from the source, which the cluster cannot make (D-006)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "dq_slo_attainment": {
+    "dq.slo_attainment": {
         "slo": "The named service level being measured. Grain: one row per service level",
         "objective": "What this service level promises, in one sentence",
-        "measured_by": "The dq_metrics metric that evidences it — the series attainment is computed from",
+        "measured_by": "The dq.metrics metric that evidences it — the series attainment is computed from",
         "target": "The stated threshold, as a sentence (the human half of the objective)",
         "attainment_objective": "The machine-readable half: the share of measured days on which measured_by must have passed",
         "window_days": "Length of the trailing window in calendar days. days_measured counts the days the metric actually reported inside it",
@@ -1782,7 +1782,7 @@ COLUMN_COMMENTS = {
         "budget_remaining_pct": "Share of the error budget still unspent; negative means the objective is breached by more than the budget allowed. NULL where error_budget_days is 0, because a budget that does not exist cannot be part-spent",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "dq_return_plausibility": {
+    "dq.return_plausibility": {
         "as_of": "Valuation date being checked. Grain: one row per (client, date)",
         "client_id": "The family/relationship whose wealth series is being checked",
         "client_name": "Display name of the client",
@@ -1796,7 +1796,7 @@ COLUMN_COMMENTS = {
         "plausible": "TRUE when the move is inside the band or a declared restatement explains it; FALSE means an implausible, undeclared move — a wrong number, not a bad day; NULL on the client's first date (nothing to compare)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_top_holdings": {
+    "gold.top_holdings": {
         "as_of": "The latest valuation date in silver when this rebuild ran",
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
@@ -1809,7 +1809,7 @@ COLUMN_COMMENTS = {
         "weight": "owned_usd / the client's total positions value (conventional holdings-report basis)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_ownership": {
+    "gold.ownership": {
         "account_id": "Custodial account. Grain: one row per (account, owning client)",
         "client_id": "A client that owns some fraction of this account",
         "client_name": "Display name of the client",
@@ -1818,7 +1818,7 @@ COLUMN_COMMENTS = {
         "is_shared": "True when the account has more than one owner (owner_count > 1)",
         "rebuilt_at": "When this gold rebuild ran (UTC)",
     },
-    "gold_alts_holdings": {
+    "gold.alts_holdings": {
         "client_id": "The family/relationship this row belongs to",
         "client_name": "Display name of the client",
         "fund_id": "Private-fund identifier (parvum_alts_hitl.generate.FUND_UNIVERSE)",
@@ -1843,7 +1843,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
     for _col, _comment in _comments.items():
         _escaped = _comment.replace("'", "''")
         spark.sql(  # noqa: F821
-            f"ALTER TABLE {SCHEMA}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
+            f"ALTER TABLE {CATALOG}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
         )
 print(f"column comments applied to {len(COLUMN_COMMENTS)} gold tables")
 
@@ -1858,8 +1858,8 @@ display(  # noqa: F821
         f"""SELECT client_name, total_wealth_usd, positions_usd, cash_usd, alts_usd,
                fx_rate_used, fx_rate_date, books_reconcile, reconcile_break_accounts,
                reconcile_variance_usd
-        FROM {SCHEMA}.gold_client_wealth
-        WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_client_wealth)
+        FROM {CATALOG}.gold.client_wealth
+        WHERE as_of = (SELECT MAX(as_of) FROM {CATALOG}.gold.client_wealth)
         ORDER BY total_wealth_usd DESC"""
     )
 )
@@ -1869,7 +1869,7 @@ display(  # noqa: F821
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT client_name, account_id, as_of, currency, delta_native, delta_usd
-        FROM {SCHEMA}.gold_reconciliation_exceptions
+        FROM {CATALOG}.gold.reconciliation_exceptions
         ORDER BY client_name, account_id"""
     )
 )
@@ -1881,7 +1881,7 @@ display(  # noqa: F821
         f"""SELECT client_name, fund_name, total_commitment_usd, called_to_date_usd,
                distributed_to_date_usd, unfunded_commitment_usd, current_nav_usd, moic,
                pending_review_documents, pending_review_latest_period
-        FROM {SCHEMA}.gold_alts_holdings
+        FROM {CATALOG}.gold.alts_holdings
         ORDER BY client_name, fund_name"""
     )
 )
@@ -1891,8 +1891,8 @@ display(  # noqa: F821
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT client_name, asset_class, value_usd, weight
-        FROM {SCHEMA}.gold_asset_allocation
-        WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_asset_allocation)
+        FROM {CATALOG}.gold.asset_allocation
+        WHERE as_of = (SELECT MAX(as_of) FROM {CATALOG}.gold.asset_allocation)
         ORDER BY client_name, value_usd DESC"""
     )
 )
@@ -1908,7 +1908,7 @@ display(  # noqa: F821
         f"""SELECT client_name, inception_date, as_of,
                wealth_begin_usd, wealth_end_usd, net_external_flow_usd,
                twr_since_inception, dietz_since_inception, irr_since_inception_annualized
-        FROM {SCHEMA}.gold_performance_summary
+        FROM {CATALOG}.gold.performance_summary
         ORDER BY wealth_end_usd DESC"""
     )
 )

@@ -37,14 +37,14 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "reference", "sr
 
 from parvum_reference.ownership import ownership_bridge
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 
 # COMMAND ----------
 
 # MAGIC %md ## The ownership bridge → temp view
 # MAGIC
 # MAGIC Built from code (the graph rides the checkout), identical to the
-# MAGIC positions notebook. `silver_account_owners` is (re)written there; this
+# MAGIC positions notebook. `silver.account_owners` is (re)written there; this
 # MAGIC notebook only *reads* the resolver, so the two tasks stay independent
 # MAGIC and can run in either order after bronze.
 
@@ -59,12 +59,12 @@ owners_df.createOrReplaceTempView("ref_owners")
 
 # COMMAND ----------
 
-# MAGIC %md ## `silver_cash_balances` — one row per (date, account, balance type)
+# MAGIC %md ## `silver.cash_balances` — one row per (date, account, balance type)
 
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_cash_balances
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.cash_balances
     COMMENT 'Conformed cash balances: one row per (as_of, account, balance_type), native currency. No FX conversion at this layer.'
     AS
     SELECT
@@ -75,12 +75,12 @@ spark.sql(  # noqa: F821
         currency,
         file_path              AS source_file,
         current_timestamp()    AS rebuilt_at
-    FROM {SCHEMA}.bronze_cash_balances"""
+    FROM {CATALOG}.bronze.cash_balances"""
 )
 
 # COMMAND ----------
 
-# MAGIC %md ## `silver_cash_transactions` — one row per (date, account, transaction)
+# MAGIC %md ## `silver.cash_transactions` — one row per (date, account, transaction)
 # MAGIC
 # MAGIC Bronze carries the feed's duplicates verbatim (the DUPLICATE_TRANSACTION
 # MAGIC defect: the same movement sent twice under one reference). A reference
@@ -98,7 +98,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_cash_transactions
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.cash_transactions
     COMMENT 'Conformed cash movements: one row per (as_of, account, transaction_id), native currency. amount is as received (unsigned, direction in type); signed_amount applies the direction. source_row_count > 1 marks collapsed feed duplicates; source_disagrees marks copies that conflicted.'
     AS
     SELECT
@@ -124,7 +124,7 @@ spark.sql(  # noqa: F821
                                AS source_disagrees,
         MAX(file_path)         AS source_file,
         current_timestamp()    AS rebuilt_at
-    FROM {SCHEMA}.bronze_cash_entries
+    FROM {CATALOG}.bronze.cash_entries
     GROUP BY as_of, account_id, transaction_id"""
 )
 
@@ -139,7 +139,7 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_cash_balance_owners
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.cash_balance_owners
     COMMENT 'Cash balances split across ultimately-owning clients. owned_amount = amount × effective ownership fraction.'
     AS
     SELECT
@@ -152,12 +152,12 @@ spark.sql(  # noqa: F821
         CAST(b.amount * o.ownership_pct AS DECIMAL(24,2)) AS owned_amount,
         b.currency,
         b.rebuilt_at
-    FROM {SCHEMA}.silver_cash_balances b
+    FROM {CATALOG}.silver.cash_balances b
     JOIN ref_owners o USING (account_id)"""
 )
 
 spark.sql(  # noqa: F821
-    f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_cash_transaction_owners
+    f"""CREATE OR REPLACE TABLE {CATALOG}.silver.cash_transaction_owners
     COMMENT 'Cash movements split across ultimately-owning clients. owned_amount = amount × effective ownership fraction.'
     AS
     SELECT
@@ -171,7 +171,7 @@ spark.sql(  # noqa: F821
         CAST(t.signed_amount * o.ownership_pct AS DECIMAL(24,2)) AS owned_amount,
         t.currency,
         t.rebuilt_at
-    FROM {SCHEMA}.silver_cash_transactions t
+    FROM {CATALOG}.silver.cash_transactions t
     JOIN ref_owners o USING (account_id)"""
 )
 
@@ -186,16 +186,16 @@ spark.sql(  # noqa: F821
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "silver_cash_balances": {
+    "silver.cash_balances": {
         "as_of": "Statement date. Grain: one row per (as_of, account_id, balance_type)",
-        "account_id": "Custodial account identifier (see silver_account_owners for whose it is)",
+        "account_id": "Custodial account identifier (see silver.account_owners for whose it is)",
         "balance_type": "OPENING | CLOSING, from the camt.053 balance code",
-        "amount": "Balance in native currency (NOT prorated — see silver_cash_balance_owners)",
+        "amount": "Balance in native currency (NOT prorated — see silver.cash_balance_owners)",
         "currency": "The account's cash currency — no FX conversion at this layer",
         "source_file": "Volume path of the source camt.053 file — lineage into bronze",
         "rebuilt_at": "When this silver rebuild ran (UTC)",
     },
-    "silver_cash_transactions": {
+    "silver.cash_transactions": {
         "as_of": "Statement date. Grain: one row per (as_of, account_id, transaction_id)",
         "account_id": "Custodial account identifier",
         "transaction_id": "Transaction reference from the feed",
@@ -211,7 +211,7 @@ COLUMN_COMMENTS = {
         "source_file": "Volume path of the source camt.053 file — lineage into bronze",
         "rebuilt_at": "When this silver rebuild ran (UTC)",
     },
-    "silver_cash_balance_owners": {
+    "silver.cash_balance_owners": {
         "as_of": "Statement date. Grain: one row per (as_of, account_id, balance_type, client)",
         "account_id": "Custodial account the balance belongs to",
         "balance_type": "OPENING | CLOSING",
@@ -222,7 +222,7 @@ COLUMN_COMMENTS = {
         "currency": "Native currency of the balance",
         "rebuilt_at": "When this silver rebuild ran (UTC)",
     },
-    "silver_cash_transaction_owners": {
+    "silver.cash_transaction_owners": {
         "as_of": "Statement date. Grain: one row per (as_of, account_id, transaction_id, client)",
         "account_id": "Custodial account the movement occurred in",
         "transaction_id": "Transaction reference from the feed",
@@ -240,7 +240,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
     for _col, _comment in _comments.items():
         _escaped = _comment.replace("'", "''")
         spark.sql(  # noqa: F821
-            f"ALTER TABLE {SCHEMA}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
+            f"ALTER TABLE {CATALOG}.{_table} ALTER COLUMN {_col} COMMENT '{_escaped}'"
         )
 print(f"column comments applied to {len(COLUMN_COMMENTS)} cash tables")
 
@@ -253,10 +253,10 @@ print(f"column comments applied to {len(COLUMN_COMMENTS)} cash tables")
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_cash_balances)           AS balances,
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_cash_transactions)       AS transactions,
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_cash_balance_owners)     AS balance_owner_rows,
-            (SELECT COUNT(*) FROM {SCHEMA}.silver_cash_transaction_owners) AS txn_owner_rows,
-            (SELECT COUNT(DISTINCT currency) FROM {SCHEMA}.silver_cash_balances) AS currencies"""
+            (SELECT COUNT(*) FROM {CATALOG}.silver.cash_balances)           AS balances,
+            (SELECT COUNT(*) FROM {CATALOG}.silver.cash_transactions)       AS transactions,
+            (SELECT COUNT(*) FROM {CATALOG}.silver.cash_balance_owners)     AS balance_owner_rows,
+            (SELECT COUNT(*) FROM {CATALOG}.silver.cash_transaction_owners) AS txn_owner_rows,
+            (SELECT COUNT(DISTINCT currency) FROM {CATALOG}.silver.cash_balances) AS currencies"""
     )
 )

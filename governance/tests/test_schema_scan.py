@@ -22,10 +22,10 @@ NOTEBOOK = textwrap.dedent(
 
     # COMMAND ----------
 
-    SCHEMA = "workspace.parvum"
+    CATALOG = "parvum"
 
     COLUMN_COMMENTS = {
-        "gold_thing": {"as_of": "the date", "value_usd": "the money"},
+        "gold.thing": {"as_of": "the date", "value_usd": "the money"},
     }
 
     for _table, _comments in COLUMN_COMMENTS.items():
@@ -38,12 +38,12 @@ def test_extracts_the_dict_without_executing_the_notebook():
     # The notebook references `spark`, which does not exist here. Parsing
     # rather than importing is the whole point.
     assert extract_column_comments(NOTEBOOK, origin="job.py") == {
-        "gold_thing": {"as_of": "the date", "value_usd": "the money"}
+        "gold.thing": {"as_of": "the date", "value_usd": "the money"}
     }
 
 
 def test_a_computed_comment_is_an_error_not_a_silent_skip():
-    source = 'PREFIX = "x"\nCOLUMN_COMMENTS = {"gold_thing": {"a": PREFIX + "y"}}\n'
+    source = 'PREFIX = "x"\nCOLUMN_COMMENTS = {"gold.thing": {"a": PREFIX + "y"}}\n'
     with pytest.raises(SchemaScanError, match="not a plain literal"):
         extract_column_comments(source, origin="job.py")
 
@@ -56,27 +56,27 @@ def test_missing_assignment_is_an_error():
 @pytest.mark.parametrize(
     ("table", "layer"),
     [
-        ("bronze_holdings", "bronze"),
-        ("silver_positions", "silver"),
-        ("dq_metrics", "dq"),
-        ("gold_client_wealth", "gold"),
+        ("bronze.holdings", "bronze"),
+        ("silver.positions", "silver"),
+        ("dq.metrics", "dq"),
+        ("gold.client_wealth", "gold"),
     ],
 )
-def test_layer_comes_from_the_table_name_prefix(table, layer):
+def test_layer_comes_from_the_schema(table, layer):
     assert layer_for(table) == layer
 
 
-def test_an_unrecognised_prefix_is_loud_rather_than_bucketed():
-    # A new layer is an architectural event; it should be a deliberate edit,
-    # not something that lands silently in an "other" bucket.
-    with pytest.raises(SchemaScanError, match="no recognised layer prefix"):
-        layer_for("platinum_something")
+def test_an_unrecognised_layer_is_loud_rather_than_bucketed():
+    # A new schema is an architectural event; it should be a deliberate edit
+    # to LAYERS, not something that lands silently in an "other" bucket.
+    with pytest.raises(SchemaScanError, match="unrecognised layer"):
+        layer_for("platinum.something")
 
 
 def test_two_jobs_publishing_the_same_column_is_an_error(tmp_path):
     for name in ("job_a.py", "job_b.py"):
         (tmp_path / name).write_text(
-            'COLUMN_COMMENTS = {"gold_thing": {"as_of": "the date"}}\n', encoding="utf-8"
+            'COLUMN_COMMENTS = {"gold.thing": {"as_of": "the date"}}\n', encoding="utf-8"
         )
     with pytest.raises(SchemaScanError, match="more than one job"):
         scan_spark_jobs(tmp_path)
@@ -90,8 +90,8 @@ def test_a_job_with_no_column_comments_is_skipped_not_failed(tmp_path):
 def test_the_real_spark_jobs_scan_cleanly():
     columns = scan_spark_jobs(find_repo_root() / "spark")
     keys = {column.key for column in columns}
-    assert "gold_client_wealth.total_wealth_usd" in keys
-    assert "silver_positions.quantity" in keys
+    assert "gold.client_wealth.total_wealth_usd" in keys
+    assert "silver.positions.quantity" in keys
     assert all(column.description.strip() for column in columns)
 
 

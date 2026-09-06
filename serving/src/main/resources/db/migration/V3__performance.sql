@@ -1,5 +1,5 @@
--- Performance measurement, projected from gold_performance and
--- gold_performance_summary. Like V1/V2 this is rebuilt by the exporter
+-- Performance measurement, projected from parvum.gold.performance and
+-- parvum.gold.performance_summary. Like V1/V2 this is rebuilt by the exporter
 -- (truncate-and-reload) and unqualified, so the same migration runs in
 -- every tenant schema.
 --
