@@ -22,8 +22,8 @@ from parvum_export.sql_api import ExportError, post_statement
 # name alone would cross the funds over.
 _INDEX_QUERY = """
 SELECT d.fund_id, d.file_name, d.file_path, d.sha256
-FROM workspace.parvum.bronze_alts_documents d
-JOIN workspace.parvum.silver_alts_documents s
+FROM parvum.bronze.alts_documents d
+JOIN parvum.silver.alts_documents s
   ON s.fund_id = d.fund_id AND s.document = d.file_name
 WHERE s.routing = 'needs_review'
 """

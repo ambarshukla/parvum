@@ -13,6 +13,11 @@ Five layers, mirroring a real wealth-data platform:
 2. **Processing** — Databricks Free Edition: Delta Lake tables in a medallion
    layout (bronze = raw as received, silver = normalised & identifier-mapped,
    gold = serving-ready portfolio views), orchestrated by Databricks Workflows.
+   Each layer is its own Unity Catalog schema in a `parvum` catalog —
+   `parvum.bronze`, `parvum.silver`, `parvum.gold`, plus `parvum.dq` (control
+   tables) and `parvum.governance` (the CDE register snapshot) — so access
+   policy and discovery attach to the layer. The raw landing volume stays in
+   `workspace.parvum.landing`; it holds files, not tables.
 3. **Reference data** — a small real securities master (~50–100 instruments)
    built from OpenFIGI + SEC ticker/CIK + a few GLEIF LEIs.
 4. **Serving** — gold tables loaded to Postgres; Quarkus + jOOQ REST API;
@@ -122,7 +127,7 @@ it.
 
 A resolved snapshot of the register also lands in the volume beside the FX
 rates and the securities master, where `spark/dq_recon.py` reads it into
-`governance_cde_registry` and rolls coverage into `dq_metrics` under a
+`governance.cde_registry` and rolls coverage into `dq.metrics` under a
 `governance` dimension (D-068). The YAML stays the source of truth — the
 lakehouse holds a copy, not the original — so an ownership change is still a
 reviewable diff rather than an `UPDATE` nobody sees. The snapshot carries

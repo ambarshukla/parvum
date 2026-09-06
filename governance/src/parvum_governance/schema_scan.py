@@ -25,19 +25,19 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Table-name prefix -> medallion layer. The prefix is the naming contract the
-# whole lakehouse already follows (bronze_file_registry, silver_positions,
-# dq_metrics, gold_client_wealth), so deriving the layer from it needs no
-# second source of truth to keep in step.
-LAYER_PREFIXES = {
-    "bronze_": "bronze",
-    "silver_": "silver",
-    "dq_": "dq",
-    "gold_": "gold",
+# The lakehouse names every table `<layer>.<name>` — the medallion layer is
+# the Unity Catalog schema it lives in (`parvum.gold.client_wealth`), and the
+# jobs key their `COLUMN_COMMENTS` dicts by that same `<layer>.<name>`. So the
+# layer needs no second source of truth: it is the first path segment.
+LAYERS = {
+    "bronze",
+    "silver",
+    "dq",
+    "gold",
     # Governance publishes a table too — the register itself. It is subject
     # to its own rule: the columns below have to be classified in the very
     # file they describe, or the gate blocks the merge.
-    "governance_": "governance",
+    "governance",
 }
 
 
@@ -62,18 +62,21 @@ class PublishedColumn:
 
 
 def layer_for(table: str) -> str:
-    """Medallion layer for a table name, from its prefix.
+    """Medallion layer for a table identifier — the schema it sits in.
 
-    An unrecognised prefix is an error rather than an "other" bucket: a new
-    layer is a real architectural event and should be a deliberate edit here,
-    not something that silently lands in a catch-all.
+    Identifiers are `<layer>.<name>` (`gold.client_wealth`). An unrecognised
+    layer is an error rather than an "other" bucket: a new schema is a real
+    architectural event and should be a deliberate edit to `LAYERS` above, not
+    something that silently lands in a catch-all.
     """
-    for prefix, layer in LAYER_PREFIXES.items():
-        if table.startswith(prefix):
-            return layer
-    raise SchemaScanError(
-        f"table {table!r} has no recognised layer prefix (expected one of {sorted(LAYER_PREFIXES)})"
-    )
+    layer, _, name = table.partition(".")
+    if not name or "." in name:
+        raise SchemaScanError(f"table {table!r} is not a `<layer>.<name>` identifier")
+    if layer not in LAYERS:
+        raise SchemaScanError(
+            f"table {table!r} has an unrecognised layer (expected one of {sorted(LAYERS)})"
+        )
+    return layer
 
 
 def extract_column_comments(source: str, *, origin: str) -> dict[str, dict[str, str]]:

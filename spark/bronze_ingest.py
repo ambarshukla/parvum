@@ -3,7 +3,7 @@
 # MAGIC # Bronze ingest — file registry + parsed bronze tables
 # MAGIC
 # MAGIC Walks the landing volume, records every file in
-# MAGIC `bronze_file_registry`, and parses each format into a typed bronze
+# MAGIC `bronze.file_registry`, and parses each format into a typed bronze
 # MAGIC Delta table using the **same `parvum_ingest` parsers** that
 # MAGIC generated the files (the repo is synced here as a Git folder, so
 # MAGIC one codebase serves both sides of the wire).
@@ -49,7 +49,7 @@ from parvum_ingest.formats.camt053 import parse_camt053
 from parvum_ingest.formats.mt535 import parse_mt535
 from parvum_ingest.formats.semt002 import parse_semt002
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 RAW_ROOT = Path("/Volumes/workspace/parvum/landing/raw")
 
 # Parser dispatch by filename suffix (set by the generator).
@@ -65,7 +65,7 @@ PARSERS = {
 
 # COMMAND ----------
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_file_registry (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.file_registry (
     file_path      STRING,
     file_name      STRING,
     format         STRING,
@@ -77,7 +77,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_file_registry (
     ingested_at    TIMESTAMP
 ) COMMENT 'One row per raw file received — the answer to: what raw data do we have?'""")  # noqa: F821
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_holdings (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.holdings (
     file_path         STRING,
     statement_id      STRING,
     source_format     STRING,
@@ -97,7 +97,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_holdings (
     ingested_at       TIMESTAMP
 ) COMMENT 'Positions as received, one row per position per file. No cleaning here.'""")  # noqa: F821
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_entries (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.cash_entries (
     file_path       STRING,
     statement_id    STRING,
     as_of           DATE,
@@ -112,7 +112,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_entries (
     ingested_at     TIMESTAMP
 ) COMMENT 'Cash statement entries as received.'""")  # noqa: F821
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_balances (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.cash_balances (
     file_path    STRING,
     statement_id STRING,
     as_of        DATE,
@@ -135,7 +135,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_cash_balances (
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "bronze_file_registry": {
+    "bronze.file_registry": {
         "file_path": "Full volume path — the lineage key every bronze row points back to",
         "file_name": "Base name of the delivered file",
         "format": "Wire format as detected from the filename: semt.002 | MT535 | camt.053",
@@ -146,8 +146,8 @@ COLUMN_COMMENTS = {
         "error": "Parse error message when status = FAILED, else NULL",
         "ingested_at": "When this file was processed into bronze (UTC)",
     },
-    "bronze_holdings": {
-        "file_path": "Source file (see bronze_file_registry) — lineage",
+    "bronze.holdings": {
+        "file_path": "Source file (see bronze.file_registry) — lineage",
         "statement_id": "Statement identifier as carried in the feed message",
         "source_format": "Which holdings format this row came from: semt.002 | MT535",
         "as_of": "Position date the statement reports",
@@ -165,8 +165,8 @@ COLUMN_COMMENTS = {
         "cost_basis_ccy": "Currency of cost_basis",
         "ingested_at": "When this row was parsed into bronze (UTC)",
     },
-    "bronze_cash_entries": {
-        "file_path": "Source file (see bronze_file_registry) — lineage",
+    "bronze.cash_entries": {
+        "file_path": "Source file (see bronze.file_registry) — lineage",
         "statement_id": "Statement identifier as carried in the camt.053 message",
         "as_of": "Statement date",
         "account_id": "Custodial account identifier, as received",
@@ -179,8 +179,8 @@ COLUMN_COMMENTS = {
         "description": "Free-text narrative from the feed",
         "ingested_at": "When this row was parsed into bronze (UTC)",
     },
-    "bronze_cash_balances": {
-        "file_path": "Source file (see bronze_file_registry) — lineage",
+    "bronze.cash_balances": {
+        "file_path": "Source file (see bronze.file_registry) — lineage",
         "statement_id": "Statement identifier as carried in the camt.053 message",
         "as_of": "Statement date",
         "account_id": "Custodial account identifier, as received",
@@ -195,13 +195,13 @@ COLUMN_COMMENTS = {
 def sync_column_comments(table: str, comments: dict[str, str]) -> None:
     """Apply column comments unless already present (sentinel: first column)."""
     sentinel_col, sentinel_comment = next(iter(comments.items()))
-    described = spark.sql(f"DESCRIBE TABLE {SCHEMA}.{table}").collect()  # noqa: F821
+    described = spark.sql(f"DESCRIBE TABLE {CATALOG}.{table}").collect()  # noqa: F821
     current = {r["col_name"]: r["comment"] for r in described}
     if current.get(sentinel_col) == sentinel_comment:
         return
     for col, comment in comments.items():
         escaped = comment.replace("'", "''")
-        spark.sql(f"ALTER TABLE {SCHEMA}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
+        spark.sql(f"ALTER TABLE {CATALOG}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
     print(f"column comments applied: {table}")
 
 
@@ -236,7 +236,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
 
 registry_sha = {
     r.file_path: r.sha256
-    for r in spark.table(f"{SCHEMA}.bronze_file_registry")  # noqa: F821
+    for r in spark.table(f"{CATALOG}.bronze.file_registry")  # noqa: F821
     .select("file_path", "sha256")
     .collect()
 }
@@ -282,13 +282,13 @@ if restated_files:
     ).createOrReplaceTempView("restated_paths")
 
     for table in (
-        "bronze_holdings",
-        "bronze_cash_entries",
-        "bronze_cash_balances",
-        "bronze_file_registry",
+        "bronze.holdings",
+        "bronze.cash_entries",
+        "bronze.cash_balances",
+        "bronze.file_registry",
     ):
         spark.sql(  # noqa: F821
-            f"DELETE FROM {SCHEMA}.{table} "
+            f"DELETE FROM {CATALOG}.{table} "
             "WHERE file_path IN (SELECT file_path FROM restated_paths)"
         )
     print(f"superseded {len(restated_files)} restated files")
@@ -409,15 +409,15 @@ print(
 
 def append(table: str, rows: list[dict]) -> None:
     if rows:
-        target = spark.table(f"{SCHEMA}.{table}")  # noqa: F821
+        target = spark.table(f"{CATALOG}.{table}")  # noqa: F821
         df = spark.createDataFrame(rows, schema=target.schema)  # noqa: F821
-        df.write.mode("append").saveAsTable(f"{SCHEMA}.{table}")
+        df.write.mode("append").saveAsTable(f"{CATALOG}.{table}")
 
 
-append("bronze_holdings", holdings_rows)
-append("bronze_cash_entries", entry_rows)
-append("bronze_cash_balances", balance_rows)
-append("bronze_file_registry", registry_rows)  # last: a crash before this line reprocesses cleanly
+append("bronze.holdings", holdings_rows)
+append("bronze.cash_entries", entry_rows)
+append("bronze.cash_balances", balance_rows)
+append("bronze.file_registry", registry_rows)  # last: a crash before this line reprocesses cleanly
 
 # COMMAND ----------
 
@@ -429,7 +429,7 @@ display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT format, status, COUNT(*) AS files,
                MIN(statement_date) AS first_day, MAX(statement_date) AS last_day
-        FROM {SCHEMA}.bronze_file_registry
+        FROM {CATALOG}.bronze.file_registry
         GROUP BY format, status ORDER BY format"""
     )
 )

@@ -176,7 +176,7 @@ internal-dev: ## run the internal app locally on :5174
 export-gold: ## reload the serving Postgres projection from gold (needs DATABRICKS_HOST, DATABRICKS_WAREHOUSE_ID)
 	cd export && uv run parvum-export-gold
 
-load-review-queue: ## load silver_alts_documents needs_review rows into the internal review queue
+load-review-queue: ## load silver.alts_documents needs_review rows into the internal review queue
 	cd export && uv run parvum-load-review-queue
 
 sync-review-decisions: ## land decided-but-unsynced review-queue rows back to the alts volume
@@ -230,7 +230,7 @@ land-alts-docs: ## upload data/alts/raw to the Unity Catalog landing volume (nee
 	databricks fs cp -r data/alts/raw dbfs:/Volumes/workspace/parvum/landing/alts/raw --overwrite
 
 # Run after `make alts-extract`. Silver validation (spark/silver_alts_documents.py)
-# reads bronze_alts_extractions, which this lands and bronze_alts_ingest.py registers.
+# reads bronze.alts_extractions, which this lands and bronze_alts_ingest.py registers.
 land-alts-extracted: ## upload data/alts/extracted to the Unity Catalog landing volume (needs DATABRICKS_HOST)
 	@test -n "$(DATABRICKS_HOST)" || { echo "DATABRICKS_HOST not set — copy .env.example to .env and fill it in"; exit 1; }
 	@test -d data/alts/extracted || { echo "no local extractions — run 'make alts-extract' first"; exit 1; }

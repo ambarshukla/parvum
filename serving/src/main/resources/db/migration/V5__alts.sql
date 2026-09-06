@@ -1,7 +1,7 @@
 -- Alts NAV becomes part of the headline wealth number (D-060): client_wealth
 -- gains alts_usd, additive so it does not disturb V1-V4 (Flyway checksums an
 -- already-applied migration; editing one breaks every environment that has
--- run it). A new table, alts_holdings, projects gold_alts_holdings -- the
+-- run it). A new table, alts_holdings, projects parvum.gold.alts_holdings -- the
 -- detail behind that number. Like V1-V4 this is unqualified and rebuilt by
 -- the exporter (truncate-and-reload); `default 0` only matters for the ALTER
 -- itself succeeding against whatever rows already exist before the next

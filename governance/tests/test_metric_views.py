@@ -10,12 +10,12 @@ from parvum_governance.registry import load_registry
 
 VIEW = """
 -- a metric view
-CREATE OR REPLACE VIEW workspace.parvum.thing_metrics
+CREATE OR REPLACE VIEW parvum.gold.thing_metrics
 WITH METRICS
 LANGUAGE YAML
 AS $$
 version: 0.1
-source: workspace.parvum.gold_thing
+source: parvum.gold.client_wealth
 dimensions:
   - name: Client
     expr: client_name
@@ -24,9 +24,9 @@ measures:
     expr: SUM(value_usd)
 $$;
 
-COMMENT ON COLUMN workspace.parvum.thing_metrics.`Total wealth` IS
+COMMENT ON COLUMN parvum.gold.thing_metrics.`Total wealth` IS
   'what a client statement leads with';
-COMMENT ON COLUMN workspace.parvum.thing_metrics.`Client` IS
+COMMENT ON COLUMN parvum.gold.thing_metrics.`Client` IS
   'client family display name';
 """
 
@@ -52,7 +52,7 @@ def test_a_measure_with_no_definition_fails_the_gate(tmp_path):
     # "Total wealth" looks self-explanatory and is not, and an AI binds the
     # term to whatever text sits beside it.
     stripped = VIEW.replace(
-        "COMMENT ON COLUMN workspace.parvum.thing_metrics.`Total wealth` IS\n"
+        "COMMENT ON COLUMN parvum.gold.thing_metrics.`Total wealth` IS\n"
         "  'what a client statement leads with';\n",
         "",
     )

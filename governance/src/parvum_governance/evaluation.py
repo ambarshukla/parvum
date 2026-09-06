@@ -44,7 +44,7 @@ from pathlib import Path
 from parvum_governance.metric_views import scan_metric_views
 from parvum_governance.publish import build_snapshot
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
 DEFAULT_WAREHOUSE_ID = "0fb6ed828ed1e874"
 
@@ -76,15 +76,15 @@ QUESTIONS: tuple[Question, ...] = (
         question="What is the total wealth of every client, on the most recent date in the data?",
         truth_sql=f"""
             SELECT SUM(total_wealth_usd) AS answer
-            FROM {SCHEMA}.gold_client_wealth
-            WHERE as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_client_wealth)
+            FROM {CATALOG}.gold.client_wealth
+            WHERE as_of = (SELECT MAX(as_of) FROM {CATALOG}.gold.client_wealth)
         """,
         trap=(
             "The table is one row per client per day. Summing it without pinning a date "
             "adds up every day in the series and returns a number roughly 95 times too "
             "large, which still looks like money."
         ),
-        tables=("gold_client_wealth",),
+        tables=("gold.client_wealth",),
     ),
     Question(
         id="net_flow",
@@ -93,13 +93,13 @@ QUESTIONS: tuple[Question, ...] = (
             "across the whole period? Not the change in their wealth — the money "
             "that moved in or out."
         ),
-        truth_sql=f"SELECT SUM(external_flow_usd) AS answer FROM {SCHEMA}.gold_performance",
+        truth_sql=f"SELECT SUM(external_flow_usd) AS answer FROM {CATALOG}.gold.performance",
         trap=(
             "'Flow' has a specific meaning here: client money entering or leaving, as "
             "opposed to trades and income, which move value between the portfolio's own "
             "pockets. Without the definition a model may reach for the change in wealth."
         ),
-        tables=("gold_performance",),
+        tables=("gold.performance",),
     ),
     Question(
         id="restatement",
@@ -109,7 +109,7 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         truth_sql=f"""
             SELECT SUM(restatement_adjustment_usd) AS answer
-            FROM {SCHEMA}.gold_performance
+            FROM {CATALOG}.gold.performance
             WHERE client_name = 'Hartwell Family'
         """,
         trap=(
@@ -117,7 +117,7 @@ QUESTIONS: tuple[Question, ...] = (
             "The column comment does: a value change on a declared book-restatement day "
             "that the market did not produce."
         ),
-        tables=("gold_performance",),
+        tables=("gold.performance",),
     ),
     Question(
         id="alts_share",
@@ -127,27 +127,27 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         truth_sql=f"""
             SELECT SUM(value_usd) AS answer
-            FROM {SCHEMA}.gold_asset_allocation
+            FROM {CATALOG}.gold.asset_allocation
             WHERE asset_class = 'Alternatives'
-              AND as_of = (SELECT MAX(as_of) FROM {SCHEMA}.gold_asset_allocation)
+              AND as_of = (SELECT MAX(as_of) FROM {CATALOG}.gold.asset_allocation)
         """,
         trap=(
             "Same grain trap as the first question, one table over, plus the need to "
             "know that Alternatives is an asset class in this table rather than a "
             "separate one."
         ),
-        tables=("gold_asset_allocation",),
+        tables=("gold.asset_allocation",),
     ),
     Question(
         id="called_capital",
         question="What is the total capital called to date across all private-fund positions?",
-        truth_sql=f"SELECT SUM(called_to_date_usd) AS answer FROM {SCHEMA}.gold_alts_holdings",
+        truth_sql=f"SELECT SUM(called_to_date_usd) AS answer FROM {CATALOG}.gold.alts_holdings",
         trap=(
             "`called_to_date_usd` and `total_commitment_usd` sit next to each other and "
             "a model may pick the wrong one, or sum `unfunded_commitment_usd` believing "
             "it is the complement it needs rather than the one it has."
         ),
-        tables=("gold_alts_holdings",),
+        tables=("gold.alts_holdings",),
     ),
     Question(
         id="unreconciled_clients",
@@ -156,21 +156,21 @@ QUESTIONS: tuple[Question, ...] = (
         ),
         truth_sql=f"""
             SELECT COUNT(DISTINCT client_id) AS answer
-            FROM {SCHEMA}.gold_client_wealth
+            FROM {CATALOG}.gold.client_wealth
             WHERE books_reconcile = false
         """,
         trap=(
             "One row per client per day again: counting rows rather than distinct "
             "clients answers a different question and returns a much larger number."
         ),
-        tables=("gold_client_wealth",),
+        tables=("gold.client_wealth",),
     ),
     Question(
         id="shared_account",
         question="How many accounts are owned by more than one client family?",
         truth_sql=f"""
             SELECT COUNT(DISTINCT account_id) AS answer
-            FROM {SCHEMA}.gold_ownership
+            FROM {CATALOG}.gold.ownership
             WHERE owner_count > 1
         """,
         trap=(
@@ -178,14 +178,14 @@ QUESTIONS: tuple[Question, ...] = (
             "accounts double-counts a shared account exactly once per owner, which is "
             "the specific error the ownership tables are shaped to prevent."
         ),
-        tables=("gold_ownership",),
+        tables=("gold.ownership",),
     ),
     Question(
         id="income_total",
         question="What is the total dividend income across all clients and all months?",
         truth_sql=f"""
             SELECT SUM(income_usd) AS answer
-            FROM {SCHEMA}.gold_income
+            FROM {CATALOG}.gold.income
             WHERE type = 'DIVIDEND'
         """,
         trap=(
@@ -193,7 +193,7 @@ QUESTIONS: tuple[Question, ...] = (
             "Without knowing the vocabulary a model may return both, or filter on a "
             "value that does not exist."
         ),
-        tables=("gold_income",),
+        tables=("gold.income",),
     ),
 )
 
@@ -231,7 +231,7 @@ def bare_context(repo_root: Path, tables: tuple[str, ...]) -> str:
     lines = []
     for table in tables:
         columns = [r.column_name for r in rows if r.table_name == table]
-        lines.append(f"TABLE {SCHEMA}.{table}({', '.join(columns)})")
+        lines.append(f"TABLE {CATALOG}.{table}({', '.join(columns)})")
     return "\n".join(lines)
 
 
@@ -240,7 +240,7 @@ def governed_context(repo_root: Path, tables: tuple[str, ...]) -> str:
     rows = [r for r in build_snapshot(repo_root) if r.table_name in tables]
     lines: list[str] = []
     for table in tables:
-        lines.append(f"TABLE {SCHEMA}.{table}")
+        lines.append(f"TABLE {CATALOG}.{table}")
         for row in (r for r in rows if r.table_name == table):
             note = f"  {row.column_name}: {row.description}"
             if row.tier == "critical" and row.definition:

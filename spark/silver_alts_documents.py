@@ -5,7 +5,7 @@
 # MAGIC `extract.py` (D-049) already checks each document *against itself*
 # MAGIC (does its own arithmetic add up, are required fields present) — that
 # MAGIC check runs at extraction time and rides along as
-# MAGIC `bronze_alts_extractions.self_consistent`. What it structurally
+# MAGIC `bronze.alts_extractions.self_consistent`. What it structurally
 # MAGIC cannot check is anything that needs a *whole fund's* documents
 # MAGIC together: does the cumulative-called figure on call #3 actually equal
 # MAGIC the sum of calls #1–#3, is the call sequence gap-free, does one
@@ -57,7 +57,7 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "alts-hitl", "sr
 
 from parvum_alts_hitl.validate import validate_fund_documents
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 
 # COMMAND ----------
 
@@ -65,7 +65,7 @@ SCHEMA = "workspace.parvum"
 
 # COMMAND ----------
 
-spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
+spark.sql(f"""CREATE OR REPLACE TABLE {CATALOG}.silver.alts_documents (
     fund_id               STRING,
     account_id             STRING,
     currency               STRING,
@@ -91,20 +91,20 @@ spark.sql(f"""CREATE OR REPLACE TABLE {SCHEMA}.silver_alts_documents (
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "silver_alts_documents": {
+    "silver.alts_documents": {
         "fund_id": "Fund identifier",
-        "account_id": "Custody account this fund's commitment rolls up to (parvum_alts_hitl.model.FundCommitment.account_id) — the join key into silver_account_owners",
+        "account_id": "Custody account this fund's commitment rolls up to (parvum_alts_hitl.model.FundCommitment.account_id) — the join key into silver.account_owners",
         "currency": "ISO 4217 currency code the fund's documents are denominated in (extracted, not assumed — the corpus is not USD-only, D-061)",
         "document": "Source PDF file name",
         "doc_type": "capital_call | distribution | capital_account_statement",
         "sequence_number": "call_number or distribution_number; NULL for capital_account_statement",
         "period_end": "Statement period end (ISO date, as extracted); NULL for calls/distributions",
-        "confidence": "Hybrid confidence carried from bronze_alts_extractions",
-        "self_consistent": "Single-document self-check result, carried from bronze_alts_extractions",
+        "confidence": "Hybrid confidence carried from bronze.alts_extractions",
+        "self_consistent": "Single-document self-check result, carried from bronze.alts_extractions",
         "cross_document_valid": "Whether this document reconciles against the rest of its fund's documents (see validation_notes)",
         "validation_notes": "Human-readable explanation when cross_document_valid is false; NULL when true",
         "routing": "auto_accept | needs_review",
-        "reviewed_status": "approved | corrected, from bronze_alts_review_decisions; NULL if no human has decided this document yet",
+        "reviewed_status": "approved | corrected, from bronze.alts_review_decisions; NULL if no human has decided this document yet",
         "final_fields_json": "The reviewer-confirmed field values, as raw JSON text; NULL if reviewed_status is NULL",
         "reviewed_at": "When the reviewer made this decision; NULL if reviewed_status is NULL",
         "confirmed_fields_json": "The field values gold is allowed to report (D-060): the extraction's own fields when routing is auto_accept, final_fields_json once a needs_review document is decided, NULL while still awaiting review",
@@ -114,13 +114,13 @@ COLUMN_COMMENTS = {
 
 def sync_column_comments(table: str, comments: dict[str, str]) -> None:
     sentinel_col, sentinel_comment = next(iter(comments.items()))
-    described = spark.sql(f"DESCRIBE TABLE {SCHEMA}.{table}").collect()  # noqa: F821
+    described = spark.sql(f"DESCRIBE TABLE {CATALOG}.{table}").collect()  # noqa: F821
     current = {r["col_name"]: r["comment"] for r in described}
     if current.get(sentinel_col) == sentinel_comment:
         return
     for col, comment in comments.items():
         escaped = comment.replace("'", "''")
-        spark.sql(f"ALTER TABLE {SCHEMA}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
+        spark.sql(f"ALTER TABLE {CATALOG}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
     print(f"column comments applied: {table}")
 
 
@@ -133,7 +133,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
 
 # COMMAND ----------
 
-extractions = spark.table(f"{SCHEMA}.bronze_alts_extractions").collect()  # noqa: F821
+extractions = spark.table(f"{CATALOG}.bronze.alts_extractions").collect()  # noqa: F821
 
 by_fund: dict[str, list[dict]] = {}
 for row in extractions:
@@ -153,13 +153,13 @@ print(f"{len(extractions)} extractions across {len(by_fund)} funds")
 
 # MAGIC %md ## Load review decisions (small data, same as extractions)
 # MAGIC
-# MAGIC Keyed by (fund_id, document) — the same key `bronze_alts_extractions`
+# MAGIC Keyed by (fund_id, document) — the same key `bronze.alts_extractions`
 # MAGIC uses, so joining a decision onto its document is a plain dict lookup,
 # MAGIC not a Spark join, matching this notebook's existing driver-side style.
 
 # COMMAND ----------
 
-decisions = spark.table(f"{SCHEMA}.bronze_alts_review_decisions").collect()  # noqa: F821
+decisions = spark.table(f"{CATALOG}.bronze.alts_review_decisions").collect()  # noqa: F821
 decisions_by_key = {(row.fund_id, row.document): row for row in decisions}
 
 print(f"{len(decisions)} review decisions across {len({k[0] for k in decisions_by_key})} funds")
@@ -202,9 +202,9 @@ for fund_id, docs in by_fund.items():
         )
 
 if rows:
-    target = spark.table(f"{SCHEMA}.silver_alts_documents")  # noqa: F821
+    target = spark.table(f"{CATALOG}.silver.alts_documents")  # noqa: F821
     df = spark.createDataFrame(rows, schema=target.schema)  # noqa: F821
-    df.write.mode("overwrite").saveAsTable(f"{SCHEMA}.silver_alts_documents")
+    df.write.mode("overwrite").saveAsTable(f"{CATALOG}.silver.alts_documents")
 
 print(f"validated {len(rows)} documents")
 
@@ -217,7 +217,7 @@ print(f"validated {len(rows)} documents")
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT fund_id, doc_type, routing, COUNT(*) AS documents
-        FROM {SCHEMA}.silver_alts_documents
+        FROM {CATALOG}.silver.alts_documents
         GROUP BY fund_id, doc_type, routing ORDER BY fund_id, doc_type, routing"""
     )
 )
@@ -225,7 +225,7 @@ display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT fund_id, doc_type, COALESCE(reviewed_status, 'undecided') AS reviewed_status,
         COUNT(*) AS documents
-        FROM {SCHEMA}.silver_alts_documents WHERE routing = 'needs_review'
+        FROM {CATALOG}.silver.alts_documents WHERE routing = 'needs_review'
         GROUP BY fund_id, doc_type, reviewed_status ORDER BY fund_id, doc_type, reviewed_status"""
     )
 )

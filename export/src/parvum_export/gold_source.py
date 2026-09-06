@@ -39,6 +39,26 @@ UNSCOPED_TABLES = ("dq_metrics", "governance_cde_registry", "dq_slo_attainment")
 
 SOURCE_TABLES = GOLD_TABLES + UNSCOPED_TABLES
 
+# Logical name -> physical Unity Catalog identifier. The lakehouse puts each
+# medallion layer in its own schema (`parvum.gold.client_wealth`), so the
+# `<layer>_<name>` logical name used here and in PROJECTION_TABLES maps to
+# `parvum.<layer>.<name>`. Explicit rather than string-munged so a new source
+# table has to be placed deliberately.
+_SOURCE_FQN = {
+    "gold_client_wealth": "parvum.gold.client_wealth",
+    "gold_asset_allocation": "parvum.gold.asset_allocation",
+    "gold_income": "parvum.gold.income",
+    "gold_top_holdings": "parvum.gold.top_holdings",
+    "gold_ownership": "parvum.gold.ownership",
+    "gold_performance": "parvum.gold.performance",
+    "gold_performance_summary": "parvum.gold.performance_summary",
+    "gold_alts_holdings": "parvum.gold.alts_holdings",
+    "gold_reconciliation_exceptions": "parvum.gold.reconciliation_exceptions",
+    "dq_metrics": "parvum.dq.metrics",
+    "governance_cde_registry": "parvum.governance.cde_registry",
+    "dq_slo_attainment": "parvum.dq.slo_attainment",
+}
+
 
 def _parse_timestamp(raw: str) -> datetime:
     parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -117,7 +137,7 @@ def fetch_table(host: str, token: str, warehouse_id: str, table: str) -> GoldTab
     body = {
         "warehouse_id": warehouse_id,
         "wait_timeout": "50s",
-        "statement": f"SELECT * FROM workspace.parvum.{table}",
+        "statement": f"SELECT * FROM {_SOURCE_FQN[table]}",
     }
     result = post_statement(host, token, body, what=f"reading {table}")
 

@@ -3,9 +3,9 @@
 # MAGIC # Bronze alts ingest — document, extraction, and review-decision registries
 # MAGIC
 # MAGIC Walks the alts landing volume and registers three things: every
-# MAGIC private-fund PDF (`bronze_alts_documents`), every landed extraction
-# MAGIC result (`bronze_alts_extractions`, D-049's structured-field JSON from
-# MAGIC Claude), and every landed human review decision (`bronze_alts_review_decisions`,
+# MAGIC private-fund PDF (`bronze.alts_documents`), every landed extraction
+# MAGIC result (`bronze.alts_extractions`, D-049's structured-field JSON from
+# MAGIC Claude), and every landed human review decision (`bronze.alts_review_decisions`,
 # MAGIC D-054's reverse-sync — a queue item a reviewer approved or corrected in
 # MAGIC the internal app, landed the same way the PDFs are, just going the other
 # MAGIC direction). All three are registration only — no deterministic parser
@@ -34,7 +34,7 @@ sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "..", "alts-hitl", "sr
 
 from parvum_alts_hitl.naming import doc_type_for as _doc_type_for
 
-SCHEMA = "workspace.parvum"
+CATALOG = "parvum"
 LANDING_ROOT = Path("/Volumes/workspace/parvum/landing/alts")
 
 
@@ -48,7 +48,7 @@ def doc_type_for(file_name: str) -> str:
 
 # COMMAND ----------
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_documents (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.alts_documents (
     file_path   STRING,
     file_name   STRING,
     fund_id     STRING,
@@ -59,7 +59,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_documents (
     ingested_at TIMESTAMP
 ) COMMENT 'One row per landed alts document — what private-fund PDFs we have, and where'""")  # noqa: F821
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_extractions (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.alts_extractions (
     file_path                STRING,
     source_pdf                STRING,
     fund_id                   STRING,
@@ -75,7 +75,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_extractions (
     ingested_at               TIMESTAMP
 ) COMMENT 'One row per landed LLM extraction result (D-049) — fields_json is the raw extracted-field object; schema varies by doc_type, so it is kept as JSON text rather than forced into a fixed wide table.'""")  # noqa: F821
 
-spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_review_decisions (
+spark.sql(f"""CREATE TABLE IF NOT EXISTS {CATALOG}.bronze.alts_review_decisions (
     file_path         STRING,
     fund_id           STRING,
     document          STRING,
@@ -96,7 +96,7 @@ spark.sql(f"""CREATE TABLE IF NOT EXISTS {SCHEMA}.bronze_alts_review_decisions (
 # COMMAND ----------
 
 COLUMN_COMMENTS = {
-    "bronze_alts_documents": {
+    "bronze.alts_documents": {
         "file_path": "Full volume path — the lineage key an extraction row points back to",
         "file_name": "Base name of the landed PDF",
         "fund_id": "Fund identifier, from the <fund_id>/ directory the file landed in",
@@ -107,9 +107,9 @@ COLUMN_COMMENTS = {
         "status lives in later tables, not here",
         "ingested_at": "When this file was registered into bronze (UTC)",
     },
-    "bronze_alts_extractions": {
+    "bronze.alts_extractions": {
         "file_path": "Full volume path of the landed *.extracted.json file",
-        "source_pdf": "Document file name this extraction was read from (bronze_alts_documents.file_name)",
+        "source_pdf": "Document file name this extraction was read from (bronze.alts_documents.file_name)",
         "fund_id": "Fund identifier, from the <fund_id>/ directory the file landed in",
         "document": "Source PDF's file name (parvum_alts_hitl.extract's own record field)",
         "doc_type": "capital_call | distribution | capital_account_statement",
@@ -122,10 +122,10 @@ COLUMN_COMMENTS = {
         "sha256": "Content digest of the extraction JSON — how a re-landed extraction is detected as changed",
         "ingested_at": "When this file was registered into bronze (UTC)",
     },
-    "bronze_alts_review_decisions": {
+    "bronze.alts_review_decisions": {
         "file_path": "Full volume path of the landed *.decision.json file",
         "fund_id": "Fund identifier, from the <fund_id>/ directory the file landed in",
-        "document": "Source PDF's file name — the same key bronze_alts_extractions.document uses",
+        "document": "Source PDF's file name — the same key bronze.alts_extractions.document uses",
         "doc_type": "capital_call | distribution | capital_account_statement",
         "sequence_number": "call_number or distribution_number carried from the review queue; NULL for capital_account_statement",
         "period_end": "Statement period end (ISO date, as decided); NULL for calls/distributions",
@@ -141,13 +141,13 @@ COLUMN_COMMENTS = {
 def sync_column_comments(table: str, comments: dict[str, str]) -> None:
     """Apply column comments unless already present (sentinel: first column)."""
     sentinel_col, sentinel_comment = next(iter(comments.items()))
-    described = spark.sql(f"DESCRIBE TABLE {SCHEMA}.{table}").collect()  # noqa: F821
+    described = spark.sql(f"DESCRIBE TABLE {CATALOG}.{table}").collect()  # noqa: F821
     current = {r["col_name"]: r["comment"] for r in described}
     if current.get(sentinel_col) == sentinel_comment:
         return
     for col, comment in comments.items():
         escaped = comment.replace("'", "''")
-        spark.sql(f"ALTER TABLE {SCHEMA}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
+        spark.sql(f"ALTER TABLE {CATALOG}.{table} ALTER COLUMN {col} COMMENT '{escaped}'")  # noqa: F821
     print(f"column comments applied: {table}")
 
 
@@ -167,7 +167,7 @@ for _table, _comments in COLUMN_COMMENTS.items():
 def discover(root: Path, glob_pattern: str, table: str) -> tuple[list, list, int]:
     registry_sha = {
         r.file_path: r.sha256
-        for r in spark.table(f"{SCHEMA}.{table}").select("file_path", "sha256").collect()  # noqa: F821
+        for r in spark.table(f"{CATALOG}.{table}").select("file_path", "sha256").collect()  # noqa: F821
     }
     new_files, restated_files, unchanged = [], [], 0
     if not root.exists():
@@ -191,15 +191,15 @@ def supersede(table: str, restated_files: list) -> None:
     spark.createDataFrame(  # noqa: F821
         [(str(f),) for f, _ in restated_files], "file_path STRING"
     ).createOrReplaceTempView("restated_paths")
-    spark.sql(f"DELETE FROM {SCHEMA}.{table} WHERE file_path IN (SELECT file_path FROM restated_paths)")  # noqa: F821
+    spark.sql(f"DELETE FROM {CATALOG}.{table} WHERE file_path IN (SELECT file_path FROM restated_paths)")  # noqa: F821
     print(f"{table}: superseded {len(restated_files)} restated files")
 
 
 def register(table: str, rows: list[dict]) -> None:
     if rows:
-        target = spark.table(f"{SCHEMA}.{table}")  # noqa: F821
+        target = spark.table(f"{CATALOG}.{table}")  # noqa: F821
         df = spark.createDataFrame(rows, schema=target.schema)  # noqa: F821
-        df.write.mode("append").saveAsTable(f"{SCHEMA}.{table}")
+        df.write.mode("append").saveAsTable(f"{CATALOG}.{table}")
     print(f"{table}: registered {len(rows)} rows")
 
 
@@ -210,10 +210,10 @@ def register(table: str, rows: list[dict]) -> None:
 # COMMAND ----------
 
 doc_new, doc_restated, doc_unchanged = discover(
-    LANDING_ROOT / "raw", "*.pdf", "bronze_alts_documents"
+    LANDING_ROOT / "raw", "*.pdf", "bronze.alts_documents"
 )
 print(f"documents: {doc_unchanged} unchanged; {len(doc_new)} new; {len(doc_restated)} restated")
-supersede("bronze_alts_documents", doc_restated)
+supersede("bronze.alts_documents", doc_restated)
 
 run_ts = datetime.now(timezone.utc)
 doc_rows = [
@@ -229,7 +229,7 @@ doc_rows = [
     }
     for f, digest in doc_new + doc_restated
 ]
-register("bronze_alts_documents", doc_rows)
+register("bronze.alts_documents", doc_rows)
 
 # COMMAND ----------
 
@@ -238,10 +238,10 @@ register("bronze_alts_documents", doc_rows)
 # COMMAND ----------
 
 ext_new, ext_restated, ext_unchanged = discover(
-    LANDING_ROOT / "extracted", "*.extracted.json", "bronze_alts_extractions"
+    LANDING_ROOT / "extracted", "*.extracted.json", "bronze.alts_extractions"
 )
 print(f"extractions: {ext_unchanged} unchanged; {len(ext_new)} new; {len(ext_restated)} restated")
-supersede("bronze_alts_extractions", ext_restated)
+supersede("bronze.alts_extractions", ext_restated)
 
 ext_rows = []
 for f, digest in ext_new + ext_restated:
@@ -263,7 +263,7 @@ for f, digest in ext_new + ext_restated:
             "ingested_at": run_ts,
         }
     )
-register("bronze_alts_extractions", ext_rows)
+register("bronze.alts_extractions", ext_rows)
 
 # COMMAND ----------
 
@@ -272,10 +272,10 @@ register("bronze_alts_extractions", ext_rows)
 # COMMAND ----------
 
 dec_new, dec_restated, dec_unchanged = discover(
-    LANDING_ROOT / "reviewed", "*.decision.json", "bronze_alts_review_decisions"
+    LANDING_ROOT / "reviewed", "*.decision.json", "bronze.alts_review_decisions"
 )
 print(f"review decisions: {dec_unchanged} unchanged; {len(dec_new)} new; {len(dec_restated)} restated")
-supersede("bronze_alts_review_decisions", dec_restated)
+supersede("bronze.alts_review_decisions", dec_restated)
 
 dec_rows = []
 for f, digest in dec_new + dec_restated:
@@ -295,7 +295,7 @@ for f, digest in dec_new + dec_restated:
             "ingested_at": run_ts,
         }
     )
-register("bronze_alts_review_decisions", dec_rows)
+register("bronze.alts_review_decisions", dec_rows)
 
 # COMMAND ----------
 
@@ -306,21 +306,21 @@ register("bronze_alts_review_decisions", dec_rows)
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT fund_id, doc_type, COUNT(*) AS documents
-        FROM {SCHEMA}.bronze_alts_documents
+        FROM {CATALOG}.bronze.alts_documents
         GROUP BY fund_id, doc_type ORDER BY fund_id, doc_type"""
     )
 )
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT fund_id, doc_type, COUNT(*) AS extractions, ROUND(AVG(confidence), 2) AS avg_confidence
-        FROM {SCHEMA}.bronze_alts_extractions
+        FROM {CATALOG}.bronze.alts_extractions
         GROUP BY fund_id, doc_type ORDER BY fund_id, doc_type"""
     )
 )
 display(  # noqa: F821
     spark.sql(  # noqa: F821
         f"""SELECT fund_id, doc_type, status, COUNT(*) AS decisions
-        FROM {SCHEMA}.bronze_alts_review_decisions
+        FROM {CATALOG}.bronze.alts_review_decisions
         GROUP BY fund_id, doc_type, status ORDER BY fund_id, doc_type, status"""
     )
 )

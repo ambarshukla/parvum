@@ -24,7 +24,7 @@ slos:
     window_days: 7
 common_columns: {}
 tables:
-  gold_thing:
+  gold.thing:
     owner: client-reporting
     default_tier: supporting
     context: what this table is for, in prose
@@ -38,7 +38,7 @@ tables:
 """
 
 
-def published(*columns, table="gold_thing", description="a description"):
+def published(*columns, table="gold.thing", description="a description"):
     return [
         PublishedColumn(
             table=table,
@@ -79,7 +79,7 @@ def test_a_new_column_fails_until_it_is_classified(tmp_path):
 def test_a_dropped_column_leaves_an_orphan_entry(tmp_path):
     result = run(tmp_path, published("value_usd"))
     assert rules(result) == {"orphan"}
-    assert result.findings[0].key == "gold_thing.as_of"
+    assert result.findings[0].key == "gold.thing.as_of"
 
 
 def test_a_column_with_no_catalog_description_fails(tmp_path):
@@ -221,7 +221,7 @@ CONTRACT_REGISTER = REGISTER.replace(
     "    grain: [as_of]\n"
     "    foreign_keys:\n"
     "      - column: as_of\n"
-    "        references: gold_thing.as_of\n"
+    "        references: gold.thing.as_of\n"
     "        cardinality: many_to_one\n",
 )
 
@@ -238,7 +238,7 @@ def test_a_foreign_key_pointing_at_a_column_nobody_publishes_fails(tmp_path):
     result = run(
         tmp_path,
         published("as_of", "value_usd"),
-        CONTRACT_REGISTER.replace("references: gold_thing.as_of", "references: gold_thing.renamed"),
+        CONTRACT_REGISTER.replace("references: gold.thing.as_of", "references: gold.thing.renamed"),
     )
     assert rules(result) == {"broken_contract"}
     assert "no job publishes that column" in result.findings[0].message
@@ -274,4 +274,4 @@ def test_a_table_with_a_critical_element_must_say_what_it_is_for(tmp_path):
         CONTRACT_REGISTER.replace("    context: what this table is for, in prose\n", ""),
     )
     assert rules(result) == {"broken_contract"}
-    assert result.findings[0].key == "gold_thing"
+    assert result.findings[0].key == "gold.thing"

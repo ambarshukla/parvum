@@ -88,7 +88,7 @@ export function ReviewQueuePage() {
                 <div>
                     <h1>Alts Review Queue</h1>
                     <div className="asof">
-                        Documents silver_alts_documents routed to needs_review
+                        Documents silver.alts_documents routed to needs_review
                     </div>
                 </div>
             </div>
