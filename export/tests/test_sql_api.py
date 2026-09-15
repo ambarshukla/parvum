@@ -152,3 +152,107 @@ def test_a_successful_response_is_decoded_and_returned(monkeypatch):
     assert post_statement("https://example.invalid/", "tok", BODY, what="reading x") == {
         "status": {"state": "SUCCEEDED"}
     }
+
+
+# --- Running the statement to completion (D-091) --------------------------
+#
+# A submit carrying wait_timeout answers 200 with state PENDING when the
+# statement has not finished in time, handing back a statement_id to poll.
+# Reading that as "did not succeed" is what took the daily feed gate and
+# export-gold down on 2026-09-15 against a perfectly healthy warehouse that
+# was merely cold (a 6m03s start, measured).
+
+PENDING = b'{"statement_id": "abc-123", "status": {"state": "PENDING"}}'
+RUNNING = b'{"statement_id": "abc-123", "status": {"state": "RUNNING"}}'
+DONE = b'{"statement_id": "abc-123", "status": {"state": "SUCCEEDED"}, "result": {"row_count": 1}}'
+
+
+def _record_requests(monkeypatch):
+    """Capture the requests made, so the poll's shape can be asserted."""
+    seen = []
+    original = sql_api.urllib.request.urlopen
+
+    def spy(request, timeout=None):
+        seen.append((request.get_method(), request.full_url))
+        return original(request, timeout)
+
+    monkeypatch.setattr(sql_api.urllib.request, "urlopen", spy)
+    return seen
+
+
+def test_a_pending_statement_is_polled_until_it_succeeds(monkeypatch):
+    slept = _sequence(monkeypatch, PENDING, RUNNING, DONE)
+    seen = _record_requests(monkeypatch)
+
+    result = post_statement("https://h", "t", BODY, what="reading x")
+
+    assert result["status"]["state"] == "SUCCEEDED"
+    assert result["result"]["row_count"] == 1
+    # One submit, then two polls against the statement's own URL.
+    assert seen == [
+        ("POST", "https://h/api/2.0/sql/statements"),
+        ("GET", "https://h/api/2.0/sql/statements/abc-123"),
+        ("GET", "https://h/api/2.0/sql/statements/abc-123"),
+    ]
+    assert slept == [sql_api._POLL_SECONDS, sql_api._POLL_SECONDS]
+
+
+def test_a_warm_warehouse_answers_inline_and_is_never_polled(monkeypatch):
+    # The common path must cost no extra round trip.
+    _sequence(monkeypatch, DONE)
+    seen = _record_requests(monkeypatch)
+    post_statement("https://h", "t", BODY, what="reading x")
+    assert [method for method, _ in seen] == ["POST"]
+
+
+def test_a_statement_that_finishes_badly_reports_the_apis_own_reason(monkeypatch):
+    failed = json.dumps(
+        {
+            "statement_id": "abc-123",
+            "status": {
+                "state": "FAILED",
+                "error": {"error_code": "TABLE_OR_VIEW_NOT_FOUND", "message": "no such table t"},
+            },
+        }
+    ).encode()
+    _sequence(monkeypatch, failed)
+
+    with pytest.raises(ExportError) as caught:
+        post_statement("https://h", "t", BODY, what="reading gold_client_wealth")
+
+    message = str(caught.value)
+    assert "finished as FAILED" in message
+    assert "TABLE_OR_VIEW_NOT_FOUND" in message
+    assert "no such table t" in message
+    assert "reading gold_client_wealth" in message
+
+
+def test_the_poll_is_bounded_and_says_what_to_look_at(monkeypatch):
+    # Never-ending PENDING: the budget must stop it rather than hang the job.
+    # The clock is faked so the budget is reached without real waiting -- and
+    # so the test pins the budget itself, not the number of canned responses.
+    now = [0.0]
+    monkeypatch.setattr(sql_api.time, "monotonic", lambda: now[0])
+    _sequence(monkeypatch, *([PENDING] * 500))
+    monkeypatch.setattr(sql_api.time, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+
+    with pytest.raises(ExportError) as caught:
+        post_statement("https://h", "t", BODY, what="reading x", completion_budget=30)
+    message = str(caught.value)
+    assert "still PENDING after 30s" in message
+    assert "abc-123" in message
+    assert "warehouse" in message
+
+
+def test_a_non_terminal_state_with_nothing_to_poll_stops_rather_than_guessing(monkeypatch):
+    _sequence(monkeypatch, b'{"status": {"state": "PENDING"}}')
+    with pytest.raises(ExportError) as caught:
+        post_statement("https://h", "t", BODY, what="reading x")
+    assert "no statement_id to poll" in str(caught.value)
+
+
+def test_a_transient_failure_during_polling_is_retried_not_fatal(monkeypatch):
+    # The retry policy has to cover the polls too, not just the submit.
+    _sequence(monkeypatch, PENDING, 503, DONE)
+    result = post_statement("https://h", "t", BODY, what="reading x")
+    assert result["status"]["state"] == "SUCCEEDED"

@@ -61,11 +61,6 @@ def fetch_needs_review(host: str, token: str, warehouse_id: str) -> tuple[Review
     body = {"warehouse_id": warehouse_id, "wait_timeout": "50s", "statement": _QUERY}
     result = post_statement(host, token, body, what="reading the needs_review queue")
 
-    state = result.get("status", {}).get("state")
-    if state != "SUCCEEDED":
-        raise ExportError(
-            f"needs_review query did not succeed: {json.dumps(result.get('status'))[:300]}"
-        )
     manifest = result["manifest"]
     if manifest.get("total_chunk_count", 1) > 1:
         raise ExportError(

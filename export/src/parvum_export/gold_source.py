@@ -10,7 +10,6 @@ chunk; more than one means the data has outgrown this design, which should
 be a loud stop rather than a silently truncated export.
 """
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -139,13 +138,10 @@ def fetch_table(host: str, token: str, warehouse_id: str, table: str) -> GoldTab
         "wait_timeout": "50s",
         "statement": f"SELECT * FROM {_SOURCE_FQN[table]}",
     }
+    # post_statement waits the statement out and returns only a SUCCEEDED
+    # response, so a cold warehouse is a pause here, not a failure (D-091).
     result = post_statement(host, token, body, what=f"reading {table}")
 
-    state = result.get("status", {}).get("state")
-    if state != "SUCCEEDED":
-        raise ExportError(
-            f"query on {table} did not succeed: {json.dumps(result.get('status'))[:300]}"
-        )
     manifest = result["manifest"]
     if manifest.get("total_chunk_count", 1) > 1:
         raise ExportError(

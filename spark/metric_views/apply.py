@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -59,6 +60,9 @@ def _statements(sql_text: str) -> list[str]:
     return out
 
 
+_TERMINAL_STATES = frozenset({"SUCCEEDED", "FAILED", "CANCELED", "CLOSED"})
+
+
 def _run(host: str, token: str, warehouse_id: str, statement: str) -> None:
     body = json.dumps(
         {"warehouse_id": warehouse_id, "statement": statement, "wait_timeout": "30s"}
@@ -74,7 +78,24 @@ def _run(host: str, token: str, warehouse_id: str, statement: str) -> None:
     )
     with urllib.request.urlopen(req) as resp:
         result = json.load(resp)
-    state = result.get("status", {}).get("state")
+
+    # PENDING means "still starting", not "failed": a cold serverless
+    # warehouse takes minutes (6m03s measured on 2026-09-15), far past any
+    # wait_timeout. Poll it out -- same defect as D-091.
+    deadline = time.monotonic() + 900
+    while (state := result.get("status", {}).get("state")) not in _TERMINAL_STATES:
+        statement_id = result.get("statement_id")
+        if not statement_id or time.monotonic() >= deadline:
+            raise SystemExit(f"statement stuck in {state} state")
+        time.sleep(5)
+        poll = urllib.request.Request(
+            f"{host}/api/2.0/sql/statements/{statement_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(poll) as resp:
+            result = json.load(resp)
+
     if state != "SUCCEEDED":
         json.dump(result, sys.stderr, indent=2)
         sys.stderr.write("\n")

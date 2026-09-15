@@ -1806,3 +1806,22 @@ today.
 4. Verify against the documented figures (wealth $221.17M / $6.58M / $3.57M, TWR −4.167%, 363 registry rows, coverage 94.4%, 0 breaks), then drop the old `workspace.parvum.*` tables.
 
 **Live-verified 2026-09-06 (post-merge).** Re-landed the CDE snapshot (363 rows, `table_name` now `<layer>.<name>`); `DEEP CLONE`d the 7 bronze / alts-bronze tables into `parvum.bronze` (row counts equal to source); ran `bronze_ingest` + `alts_bronze_ingest` — both SUCCESS. `parvum.*` matches the `workspace.parvum` baseline **exactly**: silver 12440 / 1000 / 2443, gold latest-day wealth $221,224,218.10 / $6,658,170.05 / $3,589,068.73, Hartwell TWR −0.041691 with restatement $178,175,109.88, governance coverage 0.944444 (passed), MOICs 1.028479–1.163269, 0 invariant breaks, 0 plausibility breaks, 0 duplicate `(as_of, metric)` pairs. Metric views re-applied to `parvum.gold`; `MEASURE()` returns the same figures. The old `workspace.parvum` tables are left in place for rollback until the dashboard is confirmed.
+
+---
+
+## 2026-09-15 — Waiting for the answer instead of judging it early
+
+**Why:** Daily feeds and `export-gold` both went red with `{"state": "PENDING"}` — while bronze had ingested normally that morning at 11:43 UTC. A submit to the SQL Statements API carries `wait_timeout` (50s, the maximum), and a statement that has not finished in that window comes back **HTTP 200 / `PENDING`** with a `statement_id` to poll. Every reader here read "not `SUCCEEDED`" as "failed" and gave up. The warehouse is serverless with a 10-minute auto-stop, so the defect was invisible while it stayed warm and fatal the moment a scheduled run met it cold. D-091.
+
+**Measured live, against the real warehouse in the real (stopped) state:** submitted 13:21:12 → `PENDING` at the 50s mark → `RUNNING` 13:27:10 → `SUCCEEDED` **13:27:15, 6m03s**, returning `last_run = 2026-09-15T11:43:36Z`. A warm submit of the same statement: **1.4s, inline**.
+
+**Done:**
+- **`export/`**: `sql_api.post_statement` now runs the statement to completion — submit, then poll `GET /api/2.0/sql/statements/{id}` every 5s while non-terminal, bounded at 15 min — and returns **only** a `SUCCEEDED` response. The single request was factored into `_call` so the retry policy (D-088) covers the polls too. A terminal-but-failed statement now reports the API's own `status.error.message` rather than a JSON dump of `status`.
+- The three export readers (`gold_source`, `review_queue_source`, `alts_document_source`) drop their own now-redundant `!= SUCCEEDED` checks — one place knows what "finished" means.
+- **`ingest/`**: `freshness._query_last_run` takes the same polling shape as a deliberate duplicate (same reasoning as D-088). Its session `catalog`/`schema` also corrected from the pre-D-090 `workspace`/`parvum` to `parvum`/`bronze` — harmless before (the table reference is fully qualified) but misleading; verified accepted live.
+- **`governance/evaluation.py`** and **`spark/metric_views/apply.py`** carried the identical defect and were fixed too. Manual-dispatch only, so never hit — fixed because a known-identical bug left in place is how this one survived.
+- Tests pin the behaviour against the real payload shapes captured above: poll-to-success, the warm path making exactly one request, `GET` against the statement's own URL, a bounded budget (on a faked clock, so it pins the budget rather than the number of canned responses), a `FAILED` statement surfacing the API's reason, a non-terminal state with no `statement_id`, and a transient failure *during* polling being retried.
+
+**Checks:** ingest **127** (+4) · reference 40 (+1 skip) · governance 73 · alts-hitl 65 · export **70, 0 skipped** (+6; Docker up, so the 27 Postgres tests that normally skip locally actually ran) · gate **PASS 363/363, 94.4%** (unchanged — no published column moved) · ruff format + check clean on all five packages · `spark/*.py` compile.
+
+**After merge: nothing to run.** No gold job, no `export-gold`, no migration, no bundle change — the fix is entirely in how the readers wait. Re-running the two failed workflows is enough to bring production current.

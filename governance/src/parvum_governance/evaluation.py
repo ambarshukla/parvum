@@ -36,6 +36,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import urllib.request
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -285,6 +286,9 @@ def _token(host: str) -> str:
     return json.loads(out.stdout)["access_token"]
 
 
+_TERMINAL_STATES = frozenset({"SUCCEEDED", "FAILED", "CANCELED", "CLOSED"})
+
+
 def run_sql(statement: str) -> Decimal:
     """Run a one-cell query and return its value."""
     host = os.environ["DATABRICKS_HOST"].rstrip("/")
@@ -303,7 +307,24 @@ def run_sql(statement: str) -> Decimal:
     )
     with urllib.request.urlopen(request) as response:
         result = json.load(response)
-    state = result.get("status", {}).get("state")
+
+    # A cold serverless warehouse leaves the statement PENDING well past any
+    # wait_timeout (6m03s measured on 2026-09-15), so poll it out rather than
+    # read "not finished yet" as "failed" -- same defect as D-091.
+    deadline = time.monotonic() + 900
+    while (state := result.get("status", {}).get("state")) not in _TERMINAL_STATES:
+        statement_id = result.get("statement_id")
+        if not statement_id or time.monotonic() >= deadline:
+            raise RuntimeError(f"statement stuck in {state} state")
+        time.sleep(5)
+        poll = urllib.request.Request(
+            f"{host}/api/2.0/sql/statements/{statement_id}",
+            headers={"Authorization": f"Bearer {_token(host)}"},
+            method="GET",
+        )
+        with urllib.request.urlopen(poll) as response:
+            result = json.load(response)
+
     if state != "SUCCEEDED":
         message = result.get("status", {}).get("error", {}).get("message", state)
         raise RuntimeError(str(message)[:300])

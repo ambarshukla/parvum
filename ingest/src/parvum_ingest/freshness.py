@@ -27,6 +27,9 @@ Design choices, both deliberate:
   a message separating "could not run" from "bronze is stale" (D-088).
   Unconfigured secrets stay a warning: that is a setup state, not a gate going
   blind mid-flight. An empty table stays a pass — nothing has run yet.
+- **Wait for the answer before judging it.** A statement still PENDING is not
+  a statement that failed; the gate polls it out rather than giving up at the
+  wait_timeout (D-091).
 - **Checks the outcome, not the process.** "When did bronze last ingest?"
   catches a job that succeeded-but-did-nothing, was deleted, or stopped
   triggering — none of which a run-status check would see.
@@ -41,6 +44,7 @@ import urllib.request
 from datetime import UTC, datetime
 
 _REGISTRY = "parvum.bronze.file_registry"
+_STATEMENTS_PATH = "/api/2.0/sql/statements"
 _DEFAULT_MAX_AGE_DAYS = 4
 
 # Deliberately a copy of the policy in parvum_export.sql_api, not an import:
@@ -49,6 +53,16 @@ _DEFAULT_MAX_AGE_DAYS = 4
 # the API demonstrably returns it for transient conditions (D-088).
 _RETRY_STATUSES = frozenset({400, 408, 425, 429, 500, 502, 503, 504})
 _BACKOFF_SECONDS = (2, 8, 20)
+
+# A submit carrying wait_timeout answers 200 with state PENDING when the
+# statement has not finished in time, handing back a statement_id to poll.
+# That is a documented success. Treating it as a failure is how this gate went
+# red on 2026-09-15 against a perfectly fresh bronze (D-091): the warehouse is
+# serverless with a 10-minute auto-stop, and a cold start measured 6m03s --
+# nothing a 50s wait_timeout can ever cover.
+_TERMINAL_STATES = frozenset({"SUCCEEDED", "FAILED", "CANCELED", "CLOSED"})
+_COMPLETION_BUDGET_SECONDS = 900
+_POLL_SECONDS = 5
 
 
 class FreshnessUnavailable(RuntimeError):
@@ -106,23 +120,14 @@ def _describe(exc: urllib.error.HTTPError) -> str:
     return json.dumps(payload)[:300]
 
 
-def _query_last_run(host: str, token: str, warehouse_id: str) -> dict:
-    body = {
-        "warehouse_id": warehouse_id,
-        "catalog": "workspace",
-        "schema": "parvum",
-        "wait_timeout": "50s",
-        "statement": (
-            f"SELECT MAX(ingested_at) AS last_run, MAX(statement_date) AS last_stmt "
-            f"FROM {_REGISTRY}"
-        ),
-    }
+def _call(host: str, token: str, path: str, payload: bytes | None, method: str) -> dict:
+    """One call to the SQL API, retrying a transient rejection."""
     for attempt, pause in enumerate((*_BACKOFF_SECONDS, None), start=1):
         request = urllib.request.Request(
-            host.rstrip("/") + "/api/2.0/sql/statements",
-            data=json.dumps(body).encode("utf-8"),
+            host.rstrip("/") + path,
+            data=payload,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            method="POST",
+            method=method,
         )
         try:
             with urllib.request.urlopen(request, timeout=90) as response:
@@ -139,6 +144,40 @@ def _query_last_run(host: str, token: str, warehouse_id: str) -> dict:
         time.sleep(pause)
 
     raise AssertionError("unreachable: the loop always returns or raises")
+
+
+def _query_last_run(host: str, token: str, warehouse_id: str) -> dict:
+    """Ask when bronze last ingested, waiting the statement out.
+
+    A warm warehouse answers inline inside the wait_timeout and never enters
+    the poll loop; a cold one is waited for rather than declared broken.
+    """
+    body = {
+        "warehouse_id": warehouse_id,
+        "catalog": "parvum",
+        "schema": "bronze",
+        "wait_timeout": "50s",
+        "statement": (
+            f"SELECT MAX(ingested_at) AS last_run, MAX(statement_date) AS last_stmt "
+            f"FROM {_REGISTRY}"
+        ),
+    }
+    result = _call(host, token, _STATEMENTS_PATH, json.dumps(body).encode("utf-8"), "POST")
+
+    deadline = time.monotonic() + _COMPLETION_BUDGET_SECONDS
+    while (state := result.get("status", {}).get("state")) not in _TERMINAL_STATES:
+        statement_id = result.get("statement_id")
+        if not statement_id:
+            raise FreshnessUnavailable(f"state {state!r} with no statement_id to poll")
+        if time.monotonic() >= deadline:
+            raise FreshnessUnavailable(
+                f"still {state} after {_COMPLETION_BUDGET_SECONDS}s "
+                f"(statement {statement_id}) — check the warehouse state"
+            )
+        time.sleep(_POLL_SECONDS)
+        result = _call(host, token, f"{_STATEMENTS_PATH}/{statement_id}", None, "GET")
+
+    return result
 
 
 def _emit(message: str) -> None:
