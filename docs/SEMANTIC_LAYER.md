@@ -13,7 +13,7 @@ each to a governed column.
 
 ## The metric view
 
-`workspace.parvum.wealth_metrics` is a Unity Catalog **metric view** — a YAML
+`parvum.gold.wealth_metrics` is a Unity Catalog **metric view** — a YAML
 spec of dimensions and measures over a single source table
 (`gold.client_wealth`). It stores no data; it is a governed query surface. Six
 measures, three dimensions, each carrying a column comment that is the
@@ -35,7 +35,7 @@ re-writes the `SUM`:
 
 ```sql
 SELECT `Client`, MEASURE(`Total wealth`) AS aum
-FROM   workspace.parvum.wealth_metrics
+FROM   parvum.gold.wealth_metrics
 WHERE  `As of` = (SELECT MAX(as_of) FROM parvum.gold.client_wealth)
 GROUP  BY `Client`
 ORDER  BY aum DESC;
@@ -68,8 +68,16 @@ source.
 ![Genie answering "total wealth by client for the latest date" with a bar chart, citing the metric view as source](img/genie-total-wealth.png)
 
 "Show code" on that answer confirms it: the generated SQL calls `MEASURE()` on
-the "Total wealth" measure of `workspace.parvum.wealth_metrics` — the governed
+the "Total wealth" measure of `parvum.gold.wealth_metrics` — the governed
 measure, not a `SUM` the model wrote itself.
+
+Two things make that routing happen, not one. First, the space's sources
+(Configure → Sources) list only the three `parvum.gold` metric views — the raw
+gold tables aren't offered, so there's no raw column for Genie to fall back to.
+Second, even where a choice exists, the measure and dimension `COMMENT`s carry
+the business phrasing ("total wealth"), which is a closer semantic match to a
+natural-language question than a bare column name — the same mechanism a
+person uses to pick the right field by name.
 
 ![The SQL Genie generated for the answer, using MEASURE(`Total wealth`) against the wealth_metrics view](img/genie-generated-sql.png)
 
