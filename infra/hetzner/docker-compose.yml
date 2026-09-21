@@ -1,0 +1,79 @@
+# Parvum production stack on data-yard.
+#
+# Three services, one of which is shared with anything else this box hosts:
+#
+#   postgres  - the serving projection. NOT published to the host and NOT
+#               reachable from the internet; only the compose network can see
+#               it. This is the deliberate departure from the AWS design
+#               (D-036), where RDS had to be publicly accessible because
+#               GitHub Actions could not otherwise reach it. Here the exporter
+#               runs ON this box over SSH, so nothing needs a route in.
+#   serving   - the Quarkus API. Also unpublished: Caddy reaches it over the
+#               compose network, so 8080 is never exposed directly.
+#   caddy     - shared reverse proxy, terminates TLS for every hostname on
+#               this box. One site block per project in ./Caddyfile.
+#
+# Secrets come from .env (chmod 600, generated on the box, never committed).
+
+name: parvum
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: parvum-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: parvum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: parvum
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parvum -d parvum"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Loopback ONLY - never 0.0.0.0. The internet cannot reach this; the
+      # sole external route in is an authenticated SSH tunnel whose key is
+      # restricted to permitopen=127.0.0.1:5432 (see /opt/parvum/bin/ci-run.sh).
+      # That is what replaces D-036's publicly-accessible RDS.
+      - "127.0.0.1:5432:5432"
+
+  serving:
+    image: parvum-serving:latest
+    container_name: parvum-serving
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # sslmode is absent on purpose: this connection never leaves the host,
+      # so the TLS that rds.force_ssl provided over the public internet is
+      # protecting a hop that no longer exists.
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/parvum
+      QUARKUS_DATASOURCE_USERNAME: parvum
+      QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      PARVUM_INTERNAL_PASSWORD: ${PARVUM_INTERNAL_PASSWORD:?set in .env}
+      PARVUM_INTERNAL_SESSION_SECRET: ${PARVUM_INTERNAL_SESSION_SECRET:?set in .env}
+      # Same origin list the ECS task carried, so both Vercel apps keep
+      # working unchanged. Single-quoted: YAML would read \. as an escape.
+      QUARKUS_HTTP_CORS_ORIGINS: 'https://parvum-dashboard.vercel.app,/https://parvum-dashboard-.*\.vercel\.app/,https://parvum-internal.vercel.app,/https://parvum-internal-.*\.vercel\.app/'
+    # No `ports:` - Caddy proxies to serving:8080 over the compose network.
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: parvum-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

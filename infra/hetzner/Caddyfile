@@ -1,0 +1,20 @@
+# Shared reverse proxy for data-yard. One site block per hostname, so another
+# project (yard., grafana., ...) is added here without touching parvum's block.
+#
+# TLS is automatic: Caddy obtains and renews Let's Encrypt certificates over
+# the HTTP-01 challenge on port 80, which is why the Hetzner firewall must
+# allow 80 as well as 443. Certificates live in the caddy_data volume, so a
+# restart reuses them rather than re-requesting (Let's Encrypt rate limits).
+
+parvum-api.ambarshukla.dev {
+	# serving is not published to the host at all - this hop is entirely
+	# inside the compose network, which is why it is plain HTTP.
+	reverse_proxy serving:8080
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
