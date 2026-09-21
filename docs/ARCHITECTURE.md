@@ -21,8 +21,10 @@ Five layers, mirroring a real wealth-data platform:
 3. **Reference data** — a small real securities master (~50–100 instruments)
    built from OpenFIGI + SEC ticker/CIK + a few GLEIF LEIs.
 4. **Serving** — gold tables loaded to Postgres; Quarkus + jOOQ REST API;
-   small React/Svelte frontend. Local dev on Docker; production on AWS
-   (RDS + ECS Express Mode) provisioned by Terraform.
+   small React/Svelte frontend. Local dev on Docker; production on a single
+   host under Docker Compose behind Caddy (D-092). It ran on AWS (RDS + ECS
+   Express Mode, provisioned by Terraform) until the free credits ran down;
+   `infra/terraform/` is retained as the record of that.
 5. **Control & ops** — reconciliation + data-quality framework (Phase 3),
    the alts HITL review queue (Phase 6), Grafana/Prometheus + PagerDuty (Phase 8).
    Unlike the client dashboard, this layer needs a real access-control
@@ -39,15 +41,20 @@ Five layers, mirroring a real wealth-data platform:
   Unity Catalog volume via the Databricks CLI/REST API. Fetch and process are
   separate services by design — the fetch log (what ran, what changed, what
   failed) is a first-class artefact.
-- **AWS account is on the Free plan** ($200 credits, 6-month window, hard
-  spend cap — cannot be charged). Some services may be restricted or, as
-  App Runner turned out to be (closed to new customers 2026-04-30), simply
-  unavailable regardless of plan — verify before writing Terraform. App
-  Runner's replacement here is ECS Express Mode (D-035).
+- **Hosting is one small VM (~€4/mo), paid for and not time-limited.** The
+  earlier AWS deployment ran on a $200 credit grant that was always finite;
+  it exhausted at a measured $2.56/day, half of which was a managed load
+  balancer fronting a single container (D-092). A free grant is a deadline
+  wearing a discount's clothing — worth knowing before building on one.
+- **Verify a managed service still accepts new customers before writing
+  Terraform for it** — App Runner closed to new signups on 2026-04-30 and
+  this was discovered at first `apply` (D-035).
 - **Databricks Free Edition is serverless-only, Python/SQL-only**, with daily
   compute quotas. Jobs must be small and idempotent.
-- **Budget guardrails:** no NAT gateway (~£26/mo), no ALB (~£13/mo), no
-  always-on Aurora Serverless. AWS budget alert before any resource exists.
+- **Budget guardrails:** the surviving lesson is that the guardrail must
+  measure the right number. The AWS budget alert never fired — it was
+  declared in Terraform but never present in the account, and the default one
+  sat at 336% unread (D-092). Cost now has no variable component to guard.
 
 ## Scheduling — why two schedulers
 
@@ -71,10 +78,12 @@ between them.
 Three layers, no standing staging environment (D-007):
 
 1. **Local dev** — Docker Compose; Postgres pinned to the same major version
-   as the RDS target, so SQL behaves identically.
+   as production, so SQL behaves identically. Production runs the same
+   Compose shape, which is what makes that parity cheap.
 2. **CI** — every pull request runs lint + tests on GitHub Actions before it
    can merge.
-3. **Live** — the single AWS environment, provisioned by Terraform.
+3. **Live** — one host, `infra/hetzner/docker-compose.yml`, deployed by CI
+   over an SSH key restricted to a forced command (D-092).
 
 Parity comes from pinned versions and shared Terraform modules, not from a
 duplicate staging stack; an ephemeral staging environment via Terraform
@@ -152,14 +161,19 @@ graded against the generator's defect manifests) → gold (client wealth,
 allocation, income, top holdings, ownership graph; USD headlines at each
 day's ECB rate). Failure email and a freshness gate watch the chain.
 
-The serving layer (Phase 5) is under construction: the Quarkus application
-in `serving/` starts, migrates every tenant schema (Flyway, schema-per-tenant
-per D-028), and reports healthy against the local Postgres 16 from
-`infra/docker-compose.yml`; its tests run the same way against a throwaway
-container in CI. The exporter (`export/`, D-029) pulls the five gold tables
-over the SQL Statements API and truncate-reloads each tenant schema —
-verified end-to-end against the live lakehouse: every gold row lands exactly
+The serving layer (Phase 5) is live. The Quarkus application in `serving/`
+migrates every tenant schema on boot (Flyway, schema-per-tenant per D-028).
+The exporter (`export/`, D-029) pulls the gold tables over the SQL Statements
+API and truncate-reloads each tenant schema — every gold row landing exactly
 once, split per tenant. Read-only endpoints (`/tenants/{id}/…`) serve those
 projections through jOOQ (D-030), routing each request to its tenant's schema
-with a per-request `search_path`. The AWS deployment is next; alts-HITL and
-Terraform/observability remain planned, not built.
+with a per-request `search_path`.
+
+It runs on one host under Docker Compose behind Caddy, which terminates TLS
+and reverse-proxies to a container that publishes no port of its own.
+**Postgres is not reachable from the internet at all** — it binds to
+loopback, and the two scheduled jobs that load it reach it through an SSH
+tunnel whose key is pinned to a forced command and a single permitted
+forward. That closed D-036's publicly-accessible database, which had existed
+only because a hosted CI runner could not otherwise reach a private AWS
+subnet (D-092).
