@@ -1,7 +1,8 @@
 # serving/
 
 Quarkus REST API over a Postgres projection of the lakehouse gold tables,
-querying through jOOQ. Will deploy via GitHub Actions → ECR → App Runner.
+querying through jOOQ. Deploys via GitHub Actions over a restricted SSH key
+that rebuilds and restarts the container on the host (D-092).
 
 ## Endpoints
 

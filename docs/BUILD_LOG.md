@@ -1825,3 +1825,62 @@ today.
 **Checks:** ingest **127** (+4) · reference 40 (+1 skip) · governance 73 · alts-hitl 65 · export **70, 0 skipped** (+6; Docker up, so the 27 Postgres tests that normally skip locally actually ran) · gate **PASS 363/363, 94.4%** (unchanged — no published column moved) · ruff format + check clean on all five packages · `spark/*.py` compile.
 
 **After merge: nothing to run.** No gold job, no `export-gold`, no migration, no bundle change — the fix is entirely in how the readers wait. Re-running the two failed workflows is enough to bring production current.
+
+## 2026-09-21 · Off AWS, onto one host — and the database off the internet (D-092)
+
+The AWS free credits were measurably finite: $33.89 on 14 Sep, $15.96 on
+21 Sep, a steady **$2.56/day**, exhausting around 27 September. Cost Explorer
+put half the bill on the load balancer fronting a single container — $16.75
+of ELB plus **eight public IPv4 addresses** at $29.78/mo, six of which were
+the managed ALB taking one per default subnet because `network.tf` handed it
+all six. No budget alert had ever fired: the Terraform-declared budget is not
+in the account at all, and the AWS default one sits at 336% of a $10 limit.
+
+**The new shape**, on a 2 vCPU / 4 GB Hetzner box that already existed:
+
+```
+internet ──443──▶ caddy ──▶ serving ──▶ postgres
+                  (TLS)     unpublished  127.0.0.1 only
+```
+
+- `infra/hetzner/` holds the compose file, the Caddyfile and the CI forced
+  command; `/opt/parvum/` on the host is a copy plus a generated `.env`.
+- Caddy is a **shared** proxy — one site block per hostname — so the other
+  projects this box is for slot in without contending for port 443.
+- The three AWS-coupled workflows were rewritten. `deploy-serving` no longer
+  builds to ECR and forces an ECS deployment; it asks the host to rebuild
+  from `origin/main`, restart, and **poll `/q/health` before reporting
+  success**, so a failed boot is a failed deploy.
+
+**D-036 is closed rather than reproduced.** RDS was public because a hosted
+runner could not reach a private subnet without a NAT gateway. That is an AWS
+networking fact, not a property of the design, and it did not survive the
+move: Postgres binds to loopback and CI reaches it through an SSH tunnel. The
+exporter still runs on the runner, so the Databricks PAT never lands on the
+box.
+
+**The deploy key was verified by trying to abuse it, not by assertion.** It is
+pinned to a forced command with `restrict` plus
+`permitopen="127.0.0.1:5432"`. An arbitrary command, a shell and a `sudo`
+attempt are all refused and logged to `/opt/parvum/ci.log`; a forward aimed at
+port 22 is rejected by sshd itself with `administratively prohibited`; a
+forward to 5432 succeeds and Postgres answers its SSLRequest.
+
+**Verified live, in this order:** DNS (authoritative and 1.1.1.1 both
+returning the host, unproxied) → firewall (80/443 flipping from TIMEOUT to
+REFUSED, which distinguishes "passing" from "open") → Let's Encrypt issuance
+(certificate for `parvum-api.ambarshukla.dev`, TLSv1.3, `ssl_verify_result=0`
+against the system trust store) → Flyway (11 migrations applied to both tenant
+schemas from an empty database) → Quarkus up in 2.6s → `/q/health` reporting
+the datasource UP through Caddy from outside.
+
+⚠️ **One thing that bit and is worth not re-deriving:** a change to a
+bind-mounted `Caddyfile` does **not** take effect on `docker compose up -d`.
+The container spec is unchanged, so nothing is recreated and the old config
+keeps serving — which looked exactly like a broken reverse-proxy rule.
+`docker exec parvum-caddy caddy reload --config /etc/caddy/Caddyfile`.
+
+**Not yet exercised:** the deploy path has only been run against an unchanged
+image, where a cached build plus an unchanged container spec correctly did
+nothing in 2s. That it restarts on a *changed* image is asserted, not shown;
+the first real deploy is the test.

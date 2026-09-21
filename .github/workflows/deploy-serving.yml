@@ -1,11 +1,11 @@
-# Deploy path (D-005/D-035): build the serving image, push it to ECR, then
-# force ECS Express Mode to redeploy — unlike App Runner, Express Mode does
-# not watch the registry for new pushes on its own, so the redeploy step is
-# an explicit CLI call, not automatic.
+# Deploy path (D-092): build the serving image ON the target host and restart
+# it there, over SSH. This replaces the AWS path (build -> ECR -> force a new
+# ECS deployment), which disappeared with the move off AWS.
 #
-# Auth is OIDC (aws-actions/configure-aws-credentials assumes
-# parvum-github-actions via a short-lived token), not a static access key in
-# a repo secret — see infra/terraform/github_oidc.tf.
+# Auth is an SSH key held as a repo secret, but that key cannot get a shell:
+# authorized_keys pins it to a forced command (/opt/parvum/bin/ci-run.sh) with
+# `restrict`, so the only things it can do are `deploy` and open a tunnel to
+# 127.0.0.1:5432. Anything else is refused and logged on the host.
 name: deploy-serving
 
 on:
@@ -17,7 +17,6 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -28,25 +27,26 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::656326303611:role/parvum-github-actions
-          aws-region: us-east-1
-
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr-login
-
-      - name: Build and push
-        env:
-          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          REPOSITORY: parvum-serving
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Add the host key
         run: |
-          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$REPOSITORY:latest" serving
-          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
-          docker push "$REGISTRY/$REPOSITORY:latest"
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Force ECS redeploy
-        run: aws ecs update-service --cluster default --service parvum-serving --force-new-deployment
+      - name: Install the deploy key
+        run: |
+          install -m 600 /dev/null ~/.ssh/parvum_ci
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/parvum_ci
+
+      # The host does the work: fetch origin/main, rebuild the image, restart
+      # the container, and poll /q/health before reporting success. A boot
+      # failure therefore fails this step rather than passing silently.
+      - name: Deploy
+        run: ssh -i ~/.ssh/parvum_ci -o BatchMode=yes ambar@${{ secrets.HETZNER_HOST }} deploy
+
+      - name: Verify the public endpoint
+        run: |
+          set -e
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            https://parvum-api.ambarshukla.dev/q/health)
+          echo "health endpoint returned $code"
+          test "$code" = "200"

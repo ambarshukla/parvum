@@ -48,7 +48,7 @@ flowchart LR
     UC --> SA
 
     G -->|export| PG[("Postgres<br/>schema-per-tenant + internal")]
-    PG --> API["Quarkus + jOOQ REST<br/>AWS ECS Express Mode"]
+    PG --> API["Quarkus + jOOQ REST<br/>Docker Compose on Hetzner"]
     API --> WEB["Client dashboard<br/>Vercel"]
     API --> INT["Internal app · review queue<br/>Vercel"]
     INT -.->|"reviewed decision → land file"| UC
@@ -99,11 +99,13 @@ own tests and CI.
 | Internal tools (auth-gated) | **React**, **TypeScript**, **Vite** — data ops + alts review queue | [`internal/`](internal/) |
 | CI/CD & automation | **GitHub Actions** — per-package PR checks, a daily feed cron, OIDC-authenticated deploy on merge | [`.github/workflows/`](.github/workflows/) |
 | Agent skills | Repo-versioned procedures an AI assistant loads — dataset discovery, wrong-number triage | [`skills/`](skills/) |
-| Infra | **Docker Compose** (local), **Terraform** (**AWS**: RDS, ECS Express Mode, ECR) | [`infra/`](infra/) |
+| Infra | **Docker Compose** (local and production), **Caddy** (TLS), a single **Hetzner** VM; **Terraform** retained as the AWS record | [`infra/`](infra/) |
 | Frontend hosting | **Vercel** (static, CDN-served) — separate projects for the client dashboard and internal tools | [`web/`](web/), [`internal/`](internal/) |
 
-Runs on real AWS infrastructure (ECS, RDS, ALB) under a small monthly budget
-guardrail, not free-tier-and-forget.
+Runs on a real internet-facing host with automatic TLS, a private database
+reachable only through a restricted SSH tunnel, and deploys driven from CI --
+not free-tier-and-forget. It ran on AWS (ECS Express Mode + RDS) until the
+free credits ran down; see D-092 for the move and what it changed.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
 (D-001…D-087); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
@@ -156,7 +158,7 @@ surface is for is in [docs/PERSONAS.md](docs/PERSONAS.md).
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ✅ done |
-| 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
+| 7 | Infrastructure as code — Terraform on AWS, then Compose + Caddy on a single host (D-092) | ✅ done |
 | 8 | Observability stack — metrics, dashboards, paging | 🔶 in progress |
 | 9 | Data governance — CDE register, publisher-obligation gate, service levels, semantic layer | 🔶 in progress |
 
@@ -236,5 +238,5 @@ each step does, and a troubleshooting table.
 | `internal/` | Auth-gated internal app — data ops scorecard, alts review queue, source PDF viewer (Vite + TypeScript) | 6 |
 | `alts-hitl/` | Synthetic private-fund document generator, LLM extraction, cross-document validation | 6 |
 | `governance/` | Critical Data Element register + the publisher-obligation CI gate | 9 |
-| `infra/` | docker-compose (local); Terraform (AWS: RDS, ECS Express Mode, ECR) | 0, 5, 7 |
+| `infra/` | docker-compose (local + production); Terraform (the AWS deployment, retained as a record) | 0, 5, 7 |
 | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [GLOSSARY](docs/GLOSSARY.md) · [BUILD_LOG](docs/BUILD_LOG.md) | all |

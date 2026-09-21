@@ -1,25 +1,29 @@
-# Keeps the serving Postgres (RDS) in sync with gold, unattended — the
-# parked "automate export-gold" idea (private TODO), revived now that a
-# live consumer (the AWS deploy) exists. Runs from GitHub Actions because
-# that's the one place with open egress to both Databricks and RDS (D-036);
-# `export/`'s own reload logic already anticipated this (see its docstring).
+# Keeps the serving Postgres in sync with gold, unattended.
 #
-# Auth mirrors deploy-serving.yml: OIDC to AWS (no static key), same role.
-# The RDS password is read fresh from SSM at runtime rather than duplicated
-# into a GitHub secret — one source of truth, not two copies to keep in
-# sync if it's ever rotated.
+# D-092 changed how this reaches the database. On AWS, RDS was deliberately
+# publicly accessible (D-036) because a GitHub-hosted runner could not
+# otherwise reach a private subnet without a NAT gateway - the one fixed cost
+# D-005 had ruled out. On Hetzner that constraint is gone, so Postgres is
+# bound to 127.0.0.1 on the host and this workflow reaches it through an SSH
+# tunnel instead. Nothing listens on the public internet for the database.
+#
+# The key used here cannot get a shell: authorized_keys pins it to a forced
+# command with `restrict`, re-enabling only port-forwarding and only to
+# 127.0.0.1:5432. A stolen key can move gold data into this Postgres and
+# nothing else.
+#
+# The exporter still runs ON THE RUNNER, not on the host, so the Databricks
+# PAT stays in GitHub secrets and never lands on the box.
 name: export-gold
 
 on:
   schedule:
-    # Weekdays, 08:00 UTC — ~1h45m after the daily feed lands (06:15), enough
-    # buffer for bronze -> silver -> dq_recon -> gold to finish on Databricks
-    # Free Edition serverless compute before this runs.
+    # Weekdays, 08:00 UTC - ~1h45m after the daily feed lands (06:15), enough
+    # buffer for bronze -> silver -> dq_recon -> gold to finish.
     - cron: "0 8 * * 1-5"
   workflow_dispatch: {}
 
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -35,20 +39,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::656326303611:role/parvum-github-actions
-          aws-region: us-east-1
-
-      # add-mask before the password ever appears in a composed value (the
-      # DSN below), so GitHub redacts it from logs wherever that substring
-      # would otherwise show up.
-      - name: Fetch the RDS password from SSM
-        id: rds
+      - name: Open a tunnel to the serving Postgres
         run: |
-          PASSWORD=$(aws ssm get-parameter --name /parvum/rds/password --with-decryption --query Parameter.Value --output text)
-          echo "::add-mask::$PASSWORD"
-          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          install -m 600 /dev/null ~/.ssh/parvum_ci
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/parvum_ci
+          ssh -i ~/.ssh/parvum_ci -o BatchMode=yes -o ExitOnForwardFailure=yes \
+            -f -N -L 5432:127.0.0.1:5432 ambar@${{ secrets.HETZNER_HOST }}
+          # Prove the forward is actually usable before the exporter tries it,
+          # so a tunnel failure reports itself here rather than as a confusing
+          # connection error several steps later.
+          for i in $(seq 1 15); do
+            if timeout 2 bash -c '</dev/tcp/127.0.0.1/5432' 2>/dev/null; then
+              echo "tunnel up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "tunnel never became usable" >&2; exit 1
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -58,10 +66,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # sslmode is absent: the connection runs inside an SSH tunnel, which is
+      # already authenticated and encrypted. Postgres itself sees a loopback
+      # connection on the host.
       - name: Reload the serving database from gold
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
-          PARVUM_PG_DSN: postgresql://parvum:${{ steps.rds.outputs.password }}@parvum.ckzg8c4g8vzy.us-east-1.rds.amazonaws.com:5432/parvum?sslmode=require
+          PARVUM_PG_DSN: postgresql://parvum:${{ secrets.PARVUM_PG_PASSWORD }}@127.0.0.1:5432/parvum
         run: uv run parvum-export-gold
