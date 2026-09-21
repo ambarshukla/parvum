@@ -8,7 +8,6 @@ what makes a reload nearly free rather than re-fetching the whole corpus
 every run (D-057).
 """
 
-import json
 import urllib.request
 from dataclasses import dataclass
 
@@ -43,10 +42,6 @@ def fetch_document_index(host: str, token: str, warehouse_id: str) -> tuple[Docu
     body = {"warehouse_id": warehouse_id, "wait_timeout": "50s", "statement": _INDEX_QUERY}
     result = post_statement(host, token, body, what="reading the alts document index")
 
-    if result.get("status", {}).get("state") != "SUCCEEDED":
-        raise ExportError(
-            f"document index query did not succeed: {json.dumps(result.get('status'))[:300]}"
-        )
     manifest = result["manifest"]
     if manifest.get("total_chunk_count", 1) > 1:
         raise ExportError(

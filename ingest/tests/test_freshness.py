@@ -118,3 +118,82 @@ def test_unconfigured_secrets_remain_a_warning_not_a_failure(monkeypatch) -> Non
     freshness.main()  # returns, does not raise SystemExit
 
     assert "skipped" in said[0]
+
+
+# --- waiting the statement out rather than judging it early (D-091) ---------
+#
+# On 2026-09-15 the daily run went red with `{"state": "PENDING"}` while bronze
+# had in fact ingested that same morning at 11:43 UTC. The warehouse is
+# serverless with a 10-minute auto-stop; a cold start measured 6m03s, which no
+# 50s wait_timeout can cover. The gate has to poll, not give up.
+
+_PENDING = b'{"statement_id": "abc-123", "status": {"state": "PENDING"}}'
+_FRESH = (
+    b'{"statement_id": "abc-123", "status": {"state": "SUCCEEDED"},'
+    b' "result": {"data_array": [["2026-09-15T11:43:36.409Z", "2026-09-15"]]}}'
+)
+
+
+def test_a_cold_warehouse_is_waited_out_not_called_a_failure(monkeypatch) -> None:
+    _drive(monkeypatch, _PENDING, _PENDING, _FRESH)
+    result = freshness._query_last_run("https://h", "t", "w")
+    assert result["status"]["state"] == "SUCCEEDED"
+    assert result["result"]["data_array"][0][0] == "2026-09-15T11:43:36.409Z"
+
+
+def test_the_poll_targets_the_statements_own_url_with_a_get(monkeypatch) -> None:
+    seen = []
+    monkeypatch.setattr(freshness.time, "sleep", lambda seconds: None)
+    remaining = [_PENDING, _FRESH]
+
+    def fake_urlopen(request, timeout=None):
+        seen.append((request.get_method(), request.full_url))
+        return io.BytesIO(remaining.pop(0))
+
+    monkeypatch.setattr(freshness.urllib.request, "urlopen", fake_urlopen)
+    freshness._query_last_run("https://h", "t", "w")
+
+    assert seen == [
+        ("POST", "https://h/api/2.0/sql/statements"),
+        ("GET", "https://h/api/2.0/sql/statements/abc-123"),
+    ]
+
+
+def test_a_statement_stuck_pending_forever_is_bounded(monkeypatch) -> None:
+    now = [0.0]
+    monkeypatch.setattr(freshness.time, "monotonic", lambda: now[0])
+    _drive(monkeypatch, *([_PENDING] * 500))
+    monkeypatch.setattr(freshness.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+
+    with pytest.raises(freshness.FreshnessUnavailable) as caught:
+        freshness._query_last_run("https://h", "t", "w")
+    assert "still PENDING" in str(caught.value)
+
+
+def test_a_cold_start_ends_in_a_fresh_verdict_not_a_red_run(monkeypatch, capsys) -> None:
+    """The whole gate, end to end, on exactly the 2026-09-15 shape."""
+    _drive(monkeypatch, _PENDING, _FRESH)
+    monkeypatch.setenv("DATABRICKS_HOST", "https://h")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "t")
+    monkeypatch.setenv("DATABRICKS_WAREHOUSE_ID", "w")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.setattr(
+        freshness, "datetime", _FrozenDatetime(datetime(2026, 9, 15, 13, 0, tzinfo=UTC))
+    )
+
+    freshness.main()  # must not raise SystemExit
+
+    assert "Bronze is fresh" in capsys.readouterr().out
+
+
+class _FrozenDatetime:
+    """Pin `now` so the fixture's real timestamp stays inside the threshold."""
+
+    def __init__(self, moment: datetime) -> None:
+        self._moment = moment
+
+    def now(self, tz=None) -> datetime:
+        return self._moment
+
+    def fromisoformat(self, text: str) -> datetime:
+        return datetime.fromisoformat(text)
