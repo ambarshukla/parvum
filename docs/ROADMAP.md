@@ -30,7 +30,7 @@ narrative of what happened is in [BUILD_LOG.md](BUILD_LOG.md).
 | 4 | Portfolio aggregation & ownership graph → Gold | ✅ done |
 | 5 | Java serving layer (Quarkus + jOOQ) + live site | ✅ done |
 | 6 | Alternatives HITL pipeline | ✅ done |
-| 7 | Infrastructure as code — Terraform (RDS, ECS Express Mode, ECR) | ✅ done |
+| 7 | Infrastructure as code — Terraform on AWS, then Compose + Caddy on one host (D-092) | ✅ done |
 | 8 | Observability stack — metrics, dashboards, paging | 🔶 in progress |
 | 9 | Data governance — CDE register, publisher-obligation gate, service levels, semantic layer | 🔶 in progress |
 
@@ -72,7 +72,7 @@ first, then make it visible, then make it consumable.
 | Gold alts metrics (DPI / TVPI / J-curve) | The alts *chain* is complete and demonstrates the hard part (extraction → validation → human review → reverse sync). More fund-maths is breadth, not depth. | A conversation that needs the private-markets reporting story rather than the pipeline story. |
 | External dead-man's switch | The freshness gate catches "the job stopped producing". Nothing catches "the whole account is gone" — but that needs infrastructure outside this account to be worth anything. | Any dependency on this running unattended for longer than a demo. |
 | 13F-HR/A amendment handling | A faithful point-in-time store would supersede an original from the amendment's own filing date. Recorded backlog, not oversight. | A restatement scenario where the amendment path is the point. |
-| Multi-region deployment | Schema-per-tenant already proves the repeatable-onboarding shape; a second AWS region proves nothing new and doubles the bill. | A cost budget that makes it free, or a latency argument. |
+| Multi-region deployment | Schema-per-tenant already proves the repeatable-onboarding shape; a second region proves nothing new and doubles the bill. | A cost budget that makes it free, or a latency argument. |
 
 ## Explicitly not doing
 
