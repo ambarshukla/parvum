@@ -1,5 +1,5 @@
 // The advisory firms the API serves (D-028). Ids match the tenant path
-// segments; display names are the fictional firm names the brief established.
+// segments; display names are the fictional firm names this project uses.
 export interface Tenant {
     id: string;
     name: string;
