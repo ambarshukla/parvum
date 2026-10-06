@@ -73,7 +73,7 @@ def test_a_transient_400_is_retried_rather_than_giving_up(monkeypatch) -> None:
 
 
 def test_a_persistent_400_becomes_unavailable_not_a_shrug(monkeypatch) -> None:
-    _drive(monkeypatch, 400, 400, 400, 400)
+    _drive(monkeypatch, *([400] * 11))
     with pytest.raises(freshness.FreshnessUnavailable) as caught:
         freshness._query_last_run("https://h", "t", "w")
     assert "HTTP 400" in str(caught.value)
@@ -89,7 +89,7 @@ def test_a_credential_failure_is_not_retried(monkeypatch) -> None:
 def test_an_unanswerable_gate_fails_the_run_instead_of_reporting_green(monkeypatch) -> None:
     """The regression this whole slice exists for: on 2026-09-03 the daily run
     went green having never checked freshness at all."""
-    _drive(monkeypatch, 400, 400, 400, 400)
+    _drive(monkeypatch, *([400] * 11))
     monkeypatch.setenv("DATABRICKS_HOST", "https://h")
     monkeypatch.setenv("DATABRICKS_TOKEN", "t")
     monkeypatch.setenv("DATABRICKS_WAREHOUSE_ID", "w")

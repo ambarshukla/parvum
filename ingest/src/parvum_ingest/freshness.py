@@ -52,7 +52,8 @@ _DEFAULT_MAX_AGE_DAYS = 4
 # not reference data. Both lists must move together — 400 is in them because
 # the API demonstrably returns it for transient conditions (D-088).
 _RETRY_STATUSES = frozenset({400, 408, 425, 429, 500, 502, 503, 504})
-_BACKOFF_SECONDS = (2, 8, 20)
+# Must cover a cold warehouse wake (see parvum_export.sql_api).
+_BACKOFF_SECONDS = (2, 8, 20, 30, 30, 30, 30, 30, 30, 30)
 
 # A submit carrying wait_timeout answers 200 with state PENDING when the
 # statement has not finished in time, handing back a statement_id to poll.
