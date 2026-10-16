@@ -14,6 +14,12 @@ seeded with real reference data and real SEC 13F holdings, with defects
 injected deliberately — because the defects are what drive reconciliation
 and data-quality work in practice.
 
+> **Independent personal project.** Built entirely from public sources and
+> synthetic data, on personal time and equipment. It contains no confidential,
+> proprietary or employer information, and is not affiliated with, endorsed by, or
+> derived from the work of any employer, client, data vendor or exchange. The feeds
+> are synthetic; only the *formats* and the public reference data are real.
+
 **Live:**
 
 [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app) — the client wealth dashboard, open.
