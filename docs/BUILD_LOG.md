@@ -1884,3 +1884,19 @@ keeps serving — which looked exactly like a broken reverse-proxy rule.
 image, where a cached build plus an unchanged container spec correctly did
 nothing in 2s. That it restarts on a *changed* image is asserted, not shown;
 the first real deploy is the test.
+
+## 2026-11-17 — The internal API, a second time (D-093)
+
+**Done:**
+- `serving-dotnet/` — an ASP.NET Core (.NET 10) implementation of every `/internal/**` endpoint: login, logout and session check; the review queue (list, detail, source PDF, approve, correct) with its audit trail; the three operations views (`dq-metrics`, `cde-registry`, `slo-attainment`). One runtime dependency, the Postgres driver. Builds and tests inside the SDK image, so only Docker is assumed: `make internal-api-test` (52 unit tests against in-memory fakes — the gate, routing, status codes, token format).
+- `parity/` — both services started against one throwaway Postgres, and a Python runner that seeds it and compares their answers: `make parity`. **49 of 49 checks pass.** The Java service's Flyway migrations build the schema; the .NET service owns none of it.
+- Session cookies are interchangeable between the two (same signed-token format), verified in both directions.
+- `PARVUM_INTERNAL_API=http://localhost:8081 make internal-dev` points the internal React app at the .NET service with no other change; `make internal-api-run` starts it beside the local Postgres.
+- CI gains two jobs, `internal-api` and `parity`. Neither is a required check yet — they earn that after a few green runs on `main`.
+
+**Found along the way:** the parity suite's concurrency case (twenty simultaneous approvals of one item) showed the Java service accepting two and writing two audit rows. The check for "still pending" was in application code, between a read and a write. Fixed in the following commit, with a test that fails without the fix.
+
+**Worth not re-deriving:**
+- A minimal-API `Program.cs` reads configuration before a test host can override it, so the test factory supplies settings through environment variables — the way a deployment does.
+- Jackson and System.Text.Json print the same instant and the same decimal differently (`0.850` / `0.85`, trailing zeros in fractional seconds). The runner compares parsed values, not text; comparing text would have reported differences that are not differences.
+- The review queue is ordered by `loaded_at` alone. Rows seeded in one transaction share a timestamp and may legitimately come back in either order, so the seed gives each row its own.
