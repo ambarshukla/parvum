@@ -1900,3 +1900,14 @@ the first real deploy is the test.
 - A minimal-API `Program.cs` reads configuration before a test host can override it, so the test factory supplies settings through environment variables — the way a deployment does.
 - Jackson and System.Text.Json print the same instant and the same decimal differently (`0.850` / `0.85`, trailing zeros in fractional seconds). The runner compares parsed values, not text; comparing text would have reported differences that are not differences.
 - The review queue is ordered by `loaded_at` alone. Rows seeded in one transaction share a timestamp and may legitimately come back in either order, so the seed gives each row its own.
+
+## 2026-11-17 — Fix the review-decision race the parity suite found (D-093)
+
+**Done:**
+- `AltsReviewResource.decide` no longer reads the row, checks `status` in Java and then writes. The check is in the `UPDATE`'s `WHERE` clause (`... and status = 'pending' returning *`), and the audit row is written from what that statement returned, in the same transaction. A second concurrent decision waits on the row lock, re-evaluates against the committed row, matches nothing, and is answered 409.
+- New test `simultaneousDecisionsOnOneItemProduceExactlyOneAuditRow`: twenty approvals of one item released together. **Run against the previous code first, as a negative control: 12 of 20 were accepted.** With the fix: 1 accepted, 19 refused, one audit row. `mvn verify` 33/33.
+- The parity suite now asserts the property of both services rather than reporting the Java result: **50 of 50**.
+
+**Why no earlier test saw it:** `aDecidedItemCannotBeDecidedAgain` decides an item twice in sequence, which a check-then-act sequence handles correctly. The fault needs two requests inside the same few milliseconds. No real reviewer hit it, because the queue has had one user at a time; it would have appeared with the second.
+
+**Production data:** not affected as far as the code can tell — a duplicate would need two simultaneous decisions on one item. Worth one query after deploy: `select queue_id, count(*) from internal.alts_review_audit group by 1 having count(*) > 1`.

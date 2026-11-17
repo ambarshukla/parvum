@@ -374,19 +374,15 @@ def main() -> int:
 
     # Twenty reviewers approve the same item at the same instant. Exactly one may win.
     print("\nReview queue: the same item decided twenty times at once")
-    race_ok = True
     for service, base in SERVICES.items():
         path = f"/internal/alts/queue/{ids[f'race-{service}']}/approve"
         with ThreadPoolExecutor(max_workers=20) as pool:
             statuses = list(pool.map(lambda _: call(base, "POST", path, **signed_in).status, range(20)))
         connection.commit()
         rows = len(audit_rows(connection, ids[f"race-{service}"]))
-        print(f"        {service}: {statuses.count(200)} accepted, {statuses.count(409)} refused, {rows} audit row(s)")
-        if service == "dotnet":
-            race_ok = statuses.count(200) == 1 and rows == 1
-    # Asserted for the .NET service only. The Java service checks the status and then writes,
-    # in two statements, so its result here depends on timing; the line above reports it.
-    check(".NET: exactly one approval is accepted and audited", race_ok)
+        check(f"{service}: exactly one approval is accepted and audited",
+              statuses.count(200) == 1 and statuses.count(409) == 19 and rows == 1,
+              f"{statuses.count(200)} accepted, {statuses.count(409)} refused, {rows} audit row(s)")
 
     print(f"\n{passed} passed, {len(failures)} failed")
     for name in failures:
