@@ -22,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.jooq.JSON;
+import org.jooq.impl.DSL;
 
 /**
  * The alts HITL review queue: documents {@code silver.alts_documents} routed to {@code
@@ -143,32 +144,50 @@ public class AltsReviewResource {
   }
 
   private QueueItem decide(long id, String action, Map<String, Object> correctedFields) {
+    JSON corrected = correctedFields == null ? null : toJsonb(correctedFields);
     return query.run(
         dsl -> {
-          var record =
-              dsl.selectFrom(ALTS_REVIEW_QUEUE).where(ALTS_REVIEW_QUEUE.ID.eq(id)).fetchOne();
-          if (record == null) {
-            throw new NotFoundException("no queue item: " + id);
-          }
-          if (!"pending".equals(record.getStatus())) {
-            throw new WebApplicationException(
-                "queue item " + id + " is already " + record.getStatus(), Response.Status.CONFLICT);
-          }
-
-          JSON before = record.getExtractedFields();
-          JSON after = "approved".equals(action) ? before : toJsonb(correctedFields);
           OffsetDateTime now = OffsetDateTime.now();
 
-          record.setStatus(action);
-          record.setDecidedFields(after);
-          record.setDecidedAt(now);
-          record.store();
+          // The "still pending" check is part of the UPDATE, not a read before it. Checked in
+          // application code, two reviewers deciding the same item at the same moment both saw
+          // 'pending' and both wrote: one item, two audit rows. Here the second UPDATE waits on
+          // the first's row lock, then re-evaluates its WHERE against the committed row, finds
+          // it no longer pending and changes nothing (D-093).
+          var record =
+              dsl.update(ALTS_REVIEW_QUEUE)
+                  .set(ALTS_REVIEW_QUEUE.STATUS, action)
+                  .set(
+                      ALTS_REVIEW_QUEUE.DECIDED_FIELDS,
+                      corrected == null
+                          ? ALTS_REVIEW_QUEUE.EXTRACTED_FIELDS
+                          : DSL.val(corrected, ALTS_REVIEW_QUEUE.DECIDED_FIELDS))
+                  .set(ALTS_REVIEW_QUEUE.DECIDED_AT, now)
+                  .where(ALTS_REVIEW_QUEUE.ID.eq(id).and(ALTS_REVIEW_QUEUE.STATUS.eq("pending")))
+                  .returning()
+                  .fetchOne();
 
+          if (record == null) {
+            // Nothing changed: either there is no such item, or it is already decided.
+            String current =
+                dsl.select(ALTS_REVIEW_QUEUE.STATUS)
+                    .from(ALTS_REVIEW_QUEUE)
+                    .where(ALTS_REVIEW_QUEUE.ID.eq(id))
+                    .fetchOne(ALTS_REVIEW_QUEUE.STATUS);
+            if (current == null) {
+              throw new NotFoundException("no queue item: " + id);
+            }
+            throw new WebApplicationException(
+                "queue item " + id + " is already " + current, Response.Status.CONFLICT);
+          }
+
+          // Same transaction as the UPDATE, so a decision and its audit row are recorded
+          // together or not at all.
           dsl.insertInto(ALTS_REVIEW_AUDIT)
               .set(ALTS_REVIEW_AUDIT.QUEUE_ID, id)
               .set(ALTS_REVIEW_AUDIT.ACTION, action)
-              .set(ALTS_REVIEW_AUDIT.BEFORE_FIELDS, before)
-              .set(ALTS_REVIEW_AUDIT.AFTER_FIELDS, after)
+              .set(ALTS_REVIEW_AUDIT.BEFORE_FIELDS, record.getExtractedFields())
+              .set(ALTS_REVIEW_AUDIT.AFTER_FIELDS, record.getDecidedFields())
               .set(ALTS_REVIEW_AUDIT.DECIDED_AT, now)
               .execute();
 

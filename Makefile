@@ -47,7 +47,7 @@ else
   MVNW := ./mvnw
 endif
 
-.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness check-governance publish-registry land-registry publish-restatements land-restatements serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
+.PHONY: help up down status logs psql clean test lint fmt generate generate-alts-docs alts-extract alts-eval land land-alts-docs land-alts-extracted land-master fetch-fx land-fx deploy-job run-job run-alts-job fetch-13f build-master check-freshness check-governance publish-registry land-registry publish-restatements land-restatements serving-test serving-fmt export-gold load-review-queue sync-review-decisions serving-run internal-api-test internal-api-run parity web-install web-dev internal-install internal-dev tf-bootstrap tf-init tf-plan tf-apply
 
 # Two traps here, both of which have already bitten:
 #  -h        MAKEFILE_LIST is "Makefile .env" (from -include above), and grep
@@ -154,6 +154,24 @@ serving-fmt: ## auto-format the Java serving layer (spotless)
 serving-run: ## run the serving API locally in dev mode on :8080
 	cd serving && $(MVNW) -B quarkus:dev
 
+# The .NET implementation of the internal API (serving-dotnet/, D-093). It is
+# built and tested inside the .NET SDK image, so only Docker is assumed.
+internal-api-test: ## build + unit-test the .NET internal API (needs Docker only)
+	docker build --target test -t parvum-internal-api-test serving-dotnet
+	docker run --rm parvum-internal-api-test
+
+# Runs it on :8081 against the local Postgres from `make up`. The Java service
+# must have started once first: its migrations create the tables this reads.
+internal-api-run: ## run the .NET internal API locally on :8081
+	$(COMPOSE) --profile dotnet up --build internal-api
+
+# Starts both implementations against one throwaway Postgres, sends each the
+# same requests and fails on any difference. Takes a few minutes the first
+# time (it builds the Java image).
+parity: ## hold the Java and .NET internal APIs to the same answers (needs Docker only)
+	docker compose -f parity/compose.yml up --build --abort-on-container-exit --exit-code-from runner
+	docker compose -f parity/compose.yml down -v
+
 web-install: ## install the web dashboard's dependencies (one-time)
 	cd web && npm install
 
@@ -165,7 +183,8 @@ internal-install: ## install the internal app's dependencies (one-time)
 	cd internal && npm install
 
 # Vite dev server on :5174 (web/ holds :5173, so both can run at once),
-# proxying /internal/* to the serving app on :8080.
+# proxying /internal/* to the serving app on :8080. To point it at the .NET
+# implementation instead: PARVUM_INTERNAL_API=http://localhost:8081 make internal-dev
 internal-dev: ## run the internal app locally on :5174
 	cd internal && npm run dev
 

@@ -37,7 +37,10 @@ export default defineConfig({
     server: {
         port: 5174,
         proxy: {
-            "/internal": "http://localhost:8080",
+            // The Java service by default. PARVUM_INTERNAL_API points the same
+            // screens at the .NET implementation (:8081) with no other change:
+            // both serve one contract, and the parity suite holds them to it.
+            "/internal": process.env.PARVUM_INTERNAL_API ?? "http://localhost:8080",
         },
     },
     test: {

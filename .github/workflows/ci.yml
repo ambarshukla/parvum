@@ -118,6 +118,34 @@ jobs:
       - name: Build and test
         run: ./mvnw -B verify
 
+  # The .NET implementation of the internal API. Built and tested inside the
+  # SDK image, the same way it is on a laptop, so CI and local runs cannot
+  # disagree about the toolchain.
+  internal-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the test image
+        run: docker build --target test -t parvum-internal-api-test serving-dotnet
+
+      - name: Unit tests
+        run: docker run --rm parvum-internal-api-test
+
+  # Both implementations of the internal API against one Postgres, sent the
+  # same requests. A change to either service that the other does not match
+  # fails here, which is what keeps "two implementations of one contract"
+  # true rather than aspirational.
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run the parity suite
+        run: >-
+          docker compose -f parity/compose.yml up --build
+          --abort-on-container-exit --exit-code-from runner
+
   reference:
     runs-on: ubuntu-latest
     defaults:
