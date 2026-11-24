@@ -228,6 +228,21 @@ tabs (the dashboard only reads the API, so there's nothing to deploy to look at
 it locally). The projection data is already loaded; `make export-gold` refills
 it if needed.
 
+**The internal app, on Java or .NET.** `make internal-dev` (after
+`make internal-install` once) serves the internal app on **:5174**, sending
+`/internal/**` to the Java API on `:8080` by default. The same screens can run
+against the ASP.NET Core implementation instead, with no other change:
+
+```sh
+make internal-api-run                                          # .NET internal API on :8081 (Docker only)
+PARVUM_INTERNAL_API=http://localhost:8081 make internal-dev    # internal app → .NET
+```
+
+Start the Java API once first — its migrations create the tables the .NET
+service reads. The dashboard on `:5173` always uses Java, since `/tenants/**`
+exists only there, and so does production. `make parity` runs both
+implementations side by side and fails on any difference (D-093).
+
 **First time, or hitting an error?** [docs/RUNNING.md](docs/RUNNING.md) is a
 detailed walkthrough — prerequisites, `JAVA_HOME`, Git Bash vs PowerShell, what
 each step does, and a troubleshooting table.

@@ -105,9 +105,47 @@ Vite prints **`Local: http://localhost:5173/`**. Open that in your browser.
   up, with its co-owner named.
 - The light/dark toggle is top-right.
 
+## Optional: the internal app, on Java or .NET
+
+The internal app (review queue and Ops page) is a second front end on
+**:5174**. By default its dev server sends `/internal/**` to the Java API from
+step 2:
+
+```bash
+make internal-install   # first time only
+make internal-dev       # http://localhost:5174 → Java API on :8080
+```
+
+Log in with the local dev password **`test-only-password`**.
+
+The same `/internal/**` contract is also implemented in ASP.NET Core
+(`serving-dotnet/`, D-093). To point the internal app at it instead:
+
+```bash
+make internal-api-run                                          # .NET API on :8081, built in Docker
+PARVUM_INTERNAL_API=http://localhost:8081 make internal-dev    # same screens, .NET behind them
+```
+
+In PowerShell, set the variable first: `$env:PARVUM_INTERNAL_API = "http://localhost:8081"; make internal-dev`.
+
+Things to know:
+
+- **Java must have run once first** (step 2) against this Postgres. Its Flyway
+  migrations own the schema; the .NET service runs none.
+- **No .NET SDK needed** — the service builds and runs inside Docker.
+- **Only the internal app switches.** The dashboard on `:5173` always calls the
+  Java API, because the client endpoints (`/tenants/**`) exist only there.
+- **Sessions carry over.** Both services sign cookies the same way with the same
+  dev secret, so a login on one is honoured by the other.
+- **Production runs Java.** The .NET service is not deployed.
+- `make parity` starts both against a throwaway Postgres, sends them the same
+  requests and fails on any difference — the check that keeps them
+  interchangeable.
+
 ## Stopping
 
-- In the API and dashboard terminals, press **Ctrl+C**.
+- In the API and dashboard terminals, press **Ctrl+C**. `make internal-api-run`
+  stops the same way (or `docker compose -f infra/docker-compose.yml --profile dotnet down`).
 - `make down` stops Postgres but keeps its data; `make clean` also deletes the
   data (you'd then need `make export-gold` to refill after next `make up`).
 
@@ -118,7 +156,8 @@ Vite prints **`Local: http://localhost:5173/`**. Open that in your browser.
 | Dashboard shows "Could not reach the serving API" | the API (terminal 2) isn't up yet | wait for its `Listening on :8080`, then refresh |
 | `serving-run` fails: *JAVA_HOME not found* / *not recognized* | JDK not located | set `JAVA_HOME` as shown above |
 | `'.' is not recognized` from `make serving-run` (PowerShell) | old Makefile | `git pull` — the current Makefile handles PowerShell |
-| Port 8080 or 5173 "already in use" | a previous run is still going | close the old terminal, or find and stop that process |
+| Internal app on .NET: login works but pages show server errors | the Java API has never run against this Postgres, so no tables exist | run `make serving-run` once, then restart `make internal-api-run` |
+| Port 8080, 8081, 5173 or 5174 "already in use" | a previous run is still going | close the old terminal, or find and stop that process |
 | A client shows empty numbers | projection not loaded | `make export-gold` (needs `.env` + Databricks login) |
 | `make up` fails | Docker Desktop isn't running | start Docker Desktop, retry |
 
