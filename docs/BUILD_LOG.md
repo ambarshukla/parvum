@@ -495,7 +495,7 @@ Skimmable record of what was done and why. Newest entry last.
 **Done:**
 - `types.ts`/`api.ts`: `DqMetricRow` interface, `TenantData.dqMetrics`, fetched alongside everything else in `fetchTenant`.
 - **New top-level view, not a client tab**: `App.tsx` gains a `view` state ("clients" | "ops") toggled from the topbar, no router needed — same Vercel deployment, same API, same `TenantData` fetch (`dqMetrics` just rides along, identical regardless of which tenant is selected, per D-044's serving-layer design). Chose this over a fully separate app + Vercel project after weighing the effort tradeoff with the user: a separate app would need a new non-tenant Postgres schema, a new exporter code path, and a new deployment — real infra work not justified for a solo demo project.
-- `OpsPage.tsx`: freshness + completeness tiles, one SLA-attainment tile per accuracy metric (% of days passed), and two trend charts (`AccuracyTrendChart`, `ExceptionsChart` in `Charts.tsx`) — directly answers the brief's "break trends/aging and SLA attainment" ask.
+- `OpsPage.tsx`: freshness + completeness tiles, one SLA-attainment tile per accuracy metric (% of days passed), and two trend charts (`AccuracyTrendChart`, `ExceptionsChart` in `Charts.tsx`) — covers the break-trends/aging and SLA-attainment view this slice set out to provide.
 - `dqMetricLabel()` in `format.ts`: the rollup's raw metric identifiers (`holdings_cross_format_match_rate`) get one display label each; unknown metrics fall back to the raw name rather than hiding.
 - Caught and fixed a test-authoring bug of my own before running anything: `getByText("Cross-format match")` matched twice (tile label + chart legend) — switched to `getAllByText` with an explicit note on why two matches are expected by design.
 
@@ -1884,6 +1884,22 @@ keeps serving — which looked exactly like a broken reverse-proxy rule.
 image, where a cached build plus an unchanged container spec correctly did
 nothing in 2s. That it restarts on a *changed* image is asserted, not shown;
 the first real deploy is the test.
+
+## 2026-09-26 — An editorial pass: this repo explains itself
+
+Six sentences across `docs/DECISIONS.md`, `docs/BUILD_LOG.md` and
+`web/src/tenants.ts` justified a design choice by appealing to material that
+does not live here: an outside requirements document, quoted in one place and
+alluded to in four others, plus one reference to notes kept elsewhere. A reader cloning this repo cannot follow any of
+them, and a rationale nobody can check is not a rationale.
+
+Each was rewritten to state the reason directly. D-042's three-way performance
+comparison is justified by what TWR, Dietz and IRR actually measure; D-059's
+demo credential by what a public reference project needs. No decision changed —
+only where its argument points.
+
+**Verified:** `web` format-check, typecheck, 14/14 tests and build all clean;
+no other file references an outside document.
 
 ## 2026-11-17 — The internal API, a second time (D-093)
 
