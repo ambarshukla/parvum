@@ -116,6 +116,25 @@ Postgres is a **durable, continuously updated projection of the gold layer**
   land contract, reversed), not a direct write from the live service —
   Delta stays the system of record even for this one write-bearing table.
 
+## Two implementations of the internal API
+
+`/internal/**` — login, the review queue and the operations views — exists
+twice: in the Java service (`serving/`, what production runs) and in ASP.NET
+Core (`serving-dotnet/`). Both read and write the same Postgres, and the Java
+service's migrations remain the only owner of the schema (D-093).
+
+They are held to one contract by `parity/`, which starts both against a
+throwaway database, sends each the same requests, and fails on any difference:
+status codes, JSON, the bytes of a served PDF, and the audit rows a decision
+leaves. Session cookies are interchangeable between them, so a reverse proxy
+could move one path at a time from one implementation to the other without a
+user noticing. That is the shape a real migration between stacks takes, kept
+here at a size where every step is checkable.
+
+The client-facing `/tenants/**` endpoints exist only in Java. They are
+read-only projections with no behaviour the internal operations views do not
+already exercise.
+
 ## Governance — a control beside the pipeline, not inside it
 
 `governance/` holds the Critical Data Element register and the gate that

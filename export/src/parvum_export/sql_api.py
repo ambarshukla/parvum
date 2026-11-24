@@ -44,10 +44,13 @@ _STATEMENTS_PATH = "/api/2.0/sql/statements"
 # are permanent, and retrying them only delays a clear answer.
 _RETRY_STATUSES = frozenset({400, 408, 425, 429, 500, 502, 503, 504})
 
-# Four attempts over ~30s. Deliberately modest: it absorbs the blip measured
-# in seconds, and does not pretend to ride out an outage measured in hours
-# (the 2026-09-03 one would still have failed, correctly, and said why).
-_BACKOFF_SECONDS = (2, 8, 20)
+# Eleven attempts over ~4 minutes. A STOPPED warehouse answers every request
+# with an immediate 400 until it has woken (measured 2026-10-05: a first probe
+# 400'd, the next one ~10s later succeeded; the 2026-10-05 CI runs took four
+# 400s across ~30s and gave up while it was still waking). That, not an outage,
+# is the usual cause of a 400 here -- so the window must outlast a cold start.
+# It still does not pretend to ride out an outage measured in hours.
+_BACKOFF_SECONDS = (2, 8, 20, 30, 30, 30, 30, 30, 30, 30)
 
 # States the API will not move away from on its own. Anything else (PENDING,
 # RUNNING) means "ask again".

@@ -20,7 +20,7 @@ BODY = {"warehouse_id": "0fb6ed828ed1e874", "statement": "SELECT 1"}
 @pytest.fixture(autouse=True)
 def _no_real_backoff(monkeypatch):
     """400 is retryable (D-088), so every failing case here would otherwise
-    sit through the real ~30s backoff."""
+    sit through the real ~4 minute backoff."""
     monkeypatch.setattr(sql_api.time, "sleep", lambda seconds: None)
 
 
@@ -115,10 +115,10 @@ def test_a_transient_400_is_retried_and_then_succeeds(monkeypatch):
 
 
 def test_a_persistent_400_still_fails_and_says_how_many_attempts(monkeypatch):
-    _sequence(monkeypatch, 400, 400, 400, 400)
+    _sequence(monkeypatch, *([400] * 11))
     with pytest.raises(ExportError) as caught:
         post_statement("https://h", "t", BODY, what="reading x")
-    assert "after 4 attempts" in str(caught.value)
+    assert "after 11 attempts" in str(caught.value)
     assert "transient" in str(caught.value)
 
 
@@ -135,7 +135,7 @@ def test_a_permanent_failure_is_not_retried(monkeypatch, code):
 
 def test_a_network_failure_is_retried_then_reported(monkeypatch):
     err = urllib.error.URLError("connection reset")
-    _sequence(monkeypatch, err, err, err, err)
+    _sequence(monkeypatch, *([err] * 11))
     with pytest.raises(ExportError) as caught:
         post_statement("https://h", "t", BODY, what="reading x")
     assert "could not reach" in str(caught.value)

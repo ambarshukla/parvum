@@ -1,0 +1,60 @@
+# The parity suite: both implementations of the internal API, one Postgres, and
+# a runner that sends each of them the same requests and compares the answers.
+#
+#   docker compose -f parity/compose.yml up --build \
+#       --abort-on-container-exit --exit-code-from runner
+#
+# Nothing here is published to the host, and every credential below is a
+# throwaway that exists only inside this compose network.
+name: parvum-parity
+
+x-shared-secrets:
+  password: &password parity-only-password
+  session-secret: &session-secret parity-only-signing-key
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: parvum
+      POSTGRES_PASSWORD: parity
+      POSTGRES_DB: parvum
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parvum -d parvum"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # The Java service owns the schema: its Flyway migrations create every table
+  # at startup, and the .NET service is pointed at the result.
+  java:
+    build: ../serving
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/parvum
+      QUARKUS_DATASOURCE_USERNAME: parvum
+      QUARKUS_DATASOURCE_PASSWORD: parity
+      PARVUM_INTERNAL_PASSWORD: *password
+      PARVUM_INTERNAL_SESSION_SECRET: *session-secret
+
+  dotnet:
+    build: ../serving-dotnet
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Parvum: Host=postgres;Database=parvum;Username=parvum;Password=parity
+      Parvum__Tenants: aldergate,stonefield
+      Parvum__Internal__Password: *password
+      Parvum__Internal__SessionSecret: *session-secret
+
+  runner:
+    build: .
+    depends_on: [java, dotnet]
+    environment:
+      JAVA_URL: http://java:8080
+      DOTNET_URL: http://dotnet:8080
+      DATABASE_URL: postgresql://parvum:parity@postgres:5432/parvum
+      PARITY_PASSWORD: *password

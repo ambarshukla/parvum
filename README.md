@@ -14,6 +14,12 @@ seeded with real reference data and real SEC 13F holdings, with defects
 injected deliberately — because the defects are what drive reconciliation
 and data-quality work in practice.
 
+> **Independent personal project.** Built entirely from public sources and
+> synthetic data, on personal time and equipment. It contains no confidential,
+> proprietary or employer information, and is not affiliated with, endorsed by, or
+> derived from the work of any employer, client, data vendor or exchange. The feeds
+> are synthetic; only the *formats* and the public reference data are real.
+
 **Live:**
 
 [parvum-dashboard.vercel.app](https://parvum-dashboard.vercel.app) — the client wealth dashboard, open.
@@ -94,6 +100,7 @@ own tests and CI.
 | Data governance | **Python**, YAML register of Critical Data Elements + a CI gate that reconciles it against every published column; named SLOs with measured attainment and error budgets; column contracts (grain, joins, cardinality) the gate verifies | [`governance/`](governance/) |
 | Semantic layer & AI/BI | **Databricks Metric Views** (governed measures in Unity Catalog, definitions enforced by the governance gate), **AI/BI Genie** space over them | [`spark/metric_views/`](spark/metric_views/) |
 | Serving API | **Java 21**, **Quarkus**, **jOOQ**, **Flyway**, **PostgreSQL** (schema-per-tenant) | [`serving/`](serving/) |
+| Internal API, second implementation | **C#**, **ASP.NET Core (.NET 10)**, Npgsql — the same `/internal/**` contract as the Java service, held to it by a parity suite | [`serving-dotnet/`](serving-dotnet/), [`parity/`](parity/) |
 | Gold → Postgres export | **Python**, `psycopg`, SQL Statements API | [`export/`](export/) |
 | Web dashboard | **React**, **TypeScript**, **Vite**, **Recharts** | [`web/`](web/) |
 | Internal tools (auth-gated) | **React**, **TypeScript**, **Vite** — data ops + alts review queue | [`internal/`](internal/) |
@@ -108,7 +115,7 @@ not free-tier-and-forget. It ran on AWS (ECS Express Mode + RDS) until the
 free credits ran down; see D-092 for the move and what it changed.
 
 Design decisions are written up in [docs/DECISIONS.md](docs/DECISIONS.md)
-(D-001…D-087); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
+(D-001…D-093); the running narrative is in [docs/BUILD_LOG.md](docs/BUILD_LOG.md).
 
 ![Client overview — total wealth with private-market holdings folded in, and a live Alternatives allocation class](docs/img/dashboard-overview.png)
 
@@ -234,6 +241,8 @@ each step does, and a troubleshooting table.
 | `reference/` | account universe, ownership graph, securities master (OpenFIGI), issuer domiciles, ECB FX rates | 2–4 |
 | `export/` | gold → serving-Postgres exporter (Python) | 5 |
 | `serving/` | Quarkus + jOOQ REST API | 5 |
+| `serving-dotnet/` | ASP.NET Core implementation of the internal API (`/internal/**`) | 6 |
+| `parity/` | Runs both internal-API implementations against one Postgres and compares their answers | 6 |
 | `web/` | React dashboard over the serving API (Vite + TypeScript) | 5 |
 | `internal/` | Auth-gated internal app — data ops scorecard, alts review queue, source PDF viewer (Vite + TypeScript) | 6 |
 | `alts-hitl/` | Synthetic private-fund document generator, LLM extraction, cross-document validation | 6 |

@@ -23,6 +23,27 @@ services:
       timeout: 3s
       retries: 10
 
+  # The .NET implementation of the internal API (D-093). Behind a profile, so
+  # `make up` still starts Postgres alone; `make internal-api-run` adds this.
+  # The password and signing key are the Java service's dev defaults, which is
+  # what lets a browser session started against one be honoured by the other.
+  internal-api:
+    profiles: ["dotnet"]
+    build: ../serving-dotnet
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Parvum: Host=postgres;Database=${POSTGRES_DB:-parvum};Username=${POSTGRES_USER:-parvum};Password=${POSTGRES_PASSWORD:-parvum_local_dev}
+      Parvum__Tenants: aldergate,stonefield
+      Parvum__Internal__Password: test-only-password
+      Parvum__Internal__SessionSecret: dev-and-test-only-signing-key-never-used-in-prod
+      # Plain http on localhost: a Secure cookie would never be sent back.
+      Parvum__Internal__CookieSecure: "false"
+      Parvum__Internal__CookieSameSite: Lax
+    ports:
+      - "127.0.0.1:8081:8080"
+
   # Placeholder (Phase 9): prometheus + grafana services will be added here
   # when the observability wrapper is built. Kept out until then — no magic.
 

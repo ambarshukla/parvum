@@ -148,6 +148,11 @@ magic — every term gets defined here on first use.
 - **ADR (American depositary receipt)** — a US-issued certificate representing foreign shares (Diageo, InBev). Unlike a cross-listing, the ADR itself is a genuine US security with a US CUSIP *and* US ISIN — so it needs no domicile override.
 - **Issuer domicile** — the country prefix an ISIN construction needs and a CUSIP does not reveal; ours comes from a small curated map (D-020) until the securities master owns it.
 
+- **Parity suite** — a test that runs two implementations of the same interface side by side, sends both the same requests, and fails on any difference in the answers. It turns "these two services are equivalent" from a claim into a check (`parity/`, D-093).
+- **ASP.NET Core / minimal API** — Microsoft's web framework for .NET, and its style of declaring an endpoint as a route plus a function (`app.MapGet("/path", handler)`) rather than a controller class. `serving-dotnet/` uses it.
+- **Check-then-act race** — a defect where code reads a value, decides based on it, then writes, as separate steps; two callers can both read the old value and both act. The cure is to make the check part of the write itself (here, a `WHERE status = 'pending'` on the `UPDATE`).
+- **Contract (API)** — everything a caller may rely on: paths, status codes, field names and types, ordering, and what is refused. Wider than a schema, which is why it is tested by behaviour rather than described in a document.
+
 ## Ownership & reference data
 
 - **Legal entity** — a trust, foundation, or company through which a client holds accounts; in a wealth platform the *entity*, not the person, is a position's direct owner, and reports roll up by it.

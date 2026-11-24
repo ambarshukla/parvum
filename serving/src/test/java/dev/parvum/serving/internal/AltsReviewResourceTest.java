@@ -165,6 +165,54 @@ class AltsReviewResourceTest {
         .statusCode(409);
   }
 
+  /**
+   * Twenty reviewers approve the same item at the same instant. Exactly one may win, and the
+   * append-only audit trail must hold exactly one row for it. Deciding an item twice in sequence
+   * (the test above) cannot catch a check made between a read and a write; only doing it at once
+   * can.
+   */
+  @Test
+  void simultaneousDecisionsOnOneItemProduceExactlyOneAuditRow() throws Exception {
+    String cookie = login();
+    long id = firstQueueId();
+    int reviewers = 20;
+
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(reviewers);
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try {
+      var attempts = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+      for (int i = 0; i < reviewers; i++) {
+        attempts.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  return given()
+                      .header(CSRF_HEADER, "1")
+                      .cookie(COOKIE, cookie)
+                      .post("/internal/alts/queue/{id}/approve", id)
+                      .statusCode();
+                }));
+      }
+      start.countDown();
+
+      int accepted = 0;
+      int refused = 0;
+      for (var attempt : attempts) {
+        int status = attempt.get();
+        if (status == 200) {
+          accepted++;
+        } else if (status == 409) {
+          refused++;
+        }
+      }
+      org.junit.jupiter.api.Assertions.assertEquals(1, accepted, "exactly one approval wins");
+      org.junit.jupiter.api.Assertions.assertEquals(reviewers - 1, refused, "the rest are 409");
+    } finally {
+      pool.shutdownNow();
+    }
+    assertAuditRow(id, "approved");
+  }
+
   @Test
   void anUndecidedItemHasNoDecidedFieldsYet() {
     String cookie = login();
