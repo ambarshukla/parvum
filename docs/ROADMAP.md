@@ -65,6 +65,12 @@ first, then make it visible, then make it consumable.
 | Analyst self-serve beyond the metric views | Only worth building once the governed vocabulary covers more than client wealth. |
 | Per-persona access control on the internal app | One password and one role today; splitting operator from producer is real work, not config. |
 
+Done so far this quarter:
+
+| Item | Outcome | Status |
+|---|---|---|
+| Second implementation of the internal API | `/internal/**` in ASP.NET Core beside the Java service, held to one contract by a parity suite (50/50). It found and fixed a real double-decision race in the Java review queue. Java stays what production runs; .NET is a local and CI artefact | ✅ done (D-093) |
+
 ## Parked
 
 | Item | Why | What would revive it |
@@ -92,4 +98,5 @@ Worth stating, because "not yet" and "never" are different commitments:
 
 | Date | Change |
 |---|---|
+| 2026-11-24 | Q4: second internal-API implementation recorded as done (D-093). |
 | 2026-08-29 | First published. Q3 governance items recorded; SLO attainment, column contracts, control-gap closure, semantic-layer expansion and the governance eval carried into the remainder of the quarter. |

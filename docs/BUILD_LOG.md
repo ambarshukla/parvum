@@ -1927,3 +1927,22 @@ no other file references an outside document.
 **Why no earlier test saw it:** `aDecidedItemCannotBeDecidedAgain` decides an item twice in sequence, which a check-then-act sequence handles correctly. The fault needs two requests inside the same few milliseconds. No real reviewer hit it, because the queue has had one user at a time; it would have appeared with the second.
 
 **Production data:** not affected as far as the code can tell — a duplicate would need two simultaneous decisions on one item. Worth one query after deploy: `select queue_id, count(*) from internal.alts_review_audit group by 1 having count(*) > 1`.
+
+## 2026-11-24 — D-093 merged and deployed; the local Java/.NET switch documented
+
+**Merged and live:** PR #132 merged 2026-11-18. `deploy-serving` ran on the
+merge commit (`52fa7aa`) and succeeded, so the atomic review decision is what
+production now runs. Production is still the Java service — confirmed by
+probing an unknown path on the live API, which returns Quarkus's HTML
+"Resource not found" page (an ASP.NET Core 404 has an empty body). The .NET
+service stays undeployed, as D-093 intended. The duplicate-decision query was
+run read-only before the fix shipped and found no duplicates
+(`internal.alts_review_audit` had no rows), so there is nothing to repair.
+
+**Docs:** the switch that points the internal app at either implementation —
+`PARVUM_INTERNAL_API`, read by `internal/vite.config.ts` — was described only
+in `serving-dotnet/README.md`. It is now also in the places a reader starting
+the site looks first: the README's local-run section, a new section in
+`docs/RUNNING.md` (with the PowerShell form, the local password, the
+"Java must run once first" ordering and a troubleshooting row), and
+`internal/README.md`. `docs/ROADMAP.md` records D-093 under Q4.

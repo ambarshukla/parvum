@@ -33,7 +33,25 @@ npm run dev        # http://localhost:5174 (web/ uses 5173, so both can run at o
 Dev mode proxies `/internal/*` calls to the Quarkus app on `localhost:8080`
 (see `vite.config.ts`) — same-origin, so no CORS is involved locally even
 though the production deployment is cross-origin (a separate Vercel project
-calling the same API as `web/`).
+calling the same API as `web/`). The local login password is
+`test-only-password`.
+
+### Java or .NET behind it
+
+`/internal/**` is implemented twice: in the Java service (`serving/`, what
+production runs) and in ASP.NET Core (`serving-dotnet/`, D-093). The proxy
+target is the one switch:
+
+```
+PARVUM_INTERNAL_API=http://localhost:8081 npm run dev    # or: make internal-dev
+```
+
+with the .NET service started by `make internal-api-run` from the repo root.
+Unset, it falls back to Java on `:8080`. No app code changes — the
+[parity suite](../parity/) holds both services to the same answers, and a
+session cookie from one is accepted by the other. The Java service must have
+started once against the local Postgres first, because its migrations create
+the tables.
 
 ```
 npm run build      # tsc --noEmit && vite build → dist/
